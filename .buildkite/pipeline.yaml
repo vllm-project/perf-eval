@@ -4,7 +4,7 @@ steps:
       queue: H200
     timeout_in_minutes: 120
     commands:
-      - pip install lm-eval pyyaml
-      - ./run.sh workloads/qwen3_5_h200.yaml
+      - python3 -m pip install --user --upgrade lm-eval pyyaml
+      - export PATH="$HOME/.local/bin:$PATH" && ./run.sh workloads/qwen3_5_h200.yaml
     artifact_paths:
       - "results/**/*"
