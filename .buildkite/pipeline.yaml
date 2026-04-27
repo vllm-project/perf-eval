@@ -1,0 +1,10 @@
+steps:
+  - label: ":h200: gsm8k qwen3.5"
+    agents:
+      queue: H200
+    timeout_in_minutes: 120
+    commands:
+      - pip install lm-eval pyyaml
+      - ./run.sh workloads/qwen3_5_h200.yaml
+    artifact_paths:
+      - "results/**/*"

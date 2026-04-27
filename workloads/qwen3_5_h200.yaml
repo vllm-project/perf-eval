@@ -1,0 +1,9 @@
+# gsm8k on Qwen3.5 (H200, TP8)
+name: qwen3_5-h200-gsm8k
+model: Qwen/Qwen3.5-397B-A17B-FP8
+image: vllm/vllm-openai:latest
+serve_args: --tensor-parallel-size 8 --trust-remote-code
+hf_home: /mnt/shared/hf-models
+tasks:
+  - name: gsm8k
+    num_fewshot: 5
