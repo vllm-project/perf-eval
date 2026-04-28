@@ -4,6 +4,10 @@
 #   start_server <container> <port> <image> <model> <hf_home> <serve_args>
 #   wait_healthy <port> [timeout_s=1500]
 #   stop_server  <container>
+#
+# After start_server, container logs are streamed to stdout (prefixed with
+# `[vllm]`) so build output reflects server startup progress in real time.
+# The streamer's PID is held in $VLLM_LOGS_PID; stop_server kills it.
 
 start_server() {
   local container=$1 port=$2 image=$3 model=$4 hf_home=$5 serve_args=$6
@@ -15,11 +19,15 @@ start_server() {
     -e "HF_HOME=${hf_home}" \
     "$image" \
     vllm serve "$model" --port "$port" $serve_args
+
+  echo "--- :memo: streaming vllm logs"
+  ( docker logs -f "$container" 2>&1 | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
+  VLLM_LOGS_PID=$!
 }
 
 wait_healthy() {
   local port=$1 timeout=${2:-1500}
-  echo "--- :hourglass: waiting for /health (timeout ${timeout}s)"
+  echo "+++ :hourglass: waiting for /health (timeout ${timeout}s)"
   local deadline=$(( $(date +%s) + timeout ))
   while (( $(date +%s) < deadline )); do
     if curl -fs "http://localhost:${port}/health" >/dev/null 2>&1; then
@@ -34,6 +42,9 @@ wait_healthy() {
 
 stop_server() {
   local container=$1
-  docker logs --tail 200 "$container" 2>&1 || true
+  if [[ -n "${VLLM_LOGS_PID:-}" ]]; then
+    kill "$VLLM_LOGS_PID" 2>/dev/null || true
+    wait "$VLLM_LOGS_PID" 2>/dev/null || true
+  fi
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
