@@ -13,6 +13,7 @@ vllm:
     --enable-prefix-caching
     --language-model-only
     --trust-remote-code
+    --max-num-seqs 768
 
 lm_eval:
   model_args:
