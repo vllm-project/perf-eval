@@ -2,18 +2,20 @@
 
 Run accuracy + perf workloads against vLLM, defined by small YAML recipes.
 
-Today: gsm8k on Qwen3.5 (H200). Will grow.
+Today: gsm8k + aime25 on Qwen3.5 (H200). Will grow.
 
 ## Layout
 
 ```
 workloads/
   qwen3_5_h200.yaml      # one recipe = one (model, hardware, set of tasks)
-run.sh                   # entry: parses recipe, manages server, loops tasks
+run.sh                   # orchestrator: parses recipe, brings up vLLM, dispatches tasks
 lib/
+  parse_workload.py      # YAML → shell exports + lm_eval task validation
   server.sh              # start/health/stop functions for the vLLM container
-  parse_workload.py      # YAML → shell exports
+  run_lm_eval.sh         # per-task runner for lm-evaluation-harness tasks
 .buildkite/pipeline.yaml # one step per recipe
+CLAUDE.md                # agent instructions (testing, build triggers, conventions)
 ```
 
 ## Run locally
@@ -22,47 +24,78 @@ lib/
 ./run.sh workloads/qwen3_5_h200.yaml
 ```
 
-Needs Docker, `lm-eval`, and `pyyaml` on the host.
+Needs Docker, `lm-eval[api]`, and `pyyaml` on the host. The parser validates each task name against `lm_eval`'s registry, so `lm-eval` must be importable; without it the parser exits with `cannot validate task names: lm_eval not importable` (intentional, never silently skip validation).
 
 ## Workload schema
 
-A recipe is a single YAML file with these fields:
+A recipe is a single YAML file with three top-level groups:
 
-| field         | type                | description                                                                 |
-| ------------- | ------------------- | --------------------------------------------------------------------------- |
-| `name`        | string              | Used in container name and result path (`results/<name>/`). Keep it slug-y. |
-| `model`       | string              | HF repo id or local path; passed to `vllm serve`.                           |
-| `image`       | string              | Docker image with `vllm` installed.                                         |
-| `serve_args`  | string              | Appended to `vllm serve {model}`. Word-split, so quote nothing fancy.       |
-| `hf_home`     | string              | Host path mounted into the container as `HF_HOME` (model cache).            |
-| `tasks`       | list of task objects | One `lm_eval` invocation per entry.                                         |
+```yaml
+name: qwen3_5-h200       # used in container name + results/<name>/
+
+vllm:                    # everything about the served model
+  model: Qwen/Qwen3.5-397B-A17B-FP8
+  image: vllm/vllm-openai:latest
+  env:                   # injected with -e; HF_HOME is also bind-mounted
+    HF_HOME: /mnt/shared/hf-models
+  serve_args: >-         # appended to `vllm serve <model>`; word-split
+    -dp 8 --enable-expert-parallel
+    --reasoning-parser qwen3
+    --enable-prefix-caching
+    --language-model-only
+    --trust-remote-code
+
+lm_eval:                 # everything about the eval client
+  model_args:            # workload-level defaults, applied to every task
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k        # must match a name in lm_eval's task registry
+      num_fewshot: 5
+      model_args:        # per-task overrides; merged over workload defaults
+        num_concurrent: 1024
+        max_length: 40960
+        max_gen_toks: 32768
+    - name: aime25
+      num_fewshot: 0
+      model_args:
+        num_concurrent: 128
+        max_length: 40960
+```
+
+### `vllm:` block
+
+| field        | type   | description                                                                                              |
+| ------------ | ------ | -------------------------------------------------------------------------------------------------------- |
+| `model`      | string | HF repo id or local path; passed as the first positional arg to `vllm/vllm-openai`'s entrypoint.         |
+| `image`      | string | Docker image with `vllm` installed.                                                                      |
+| `env`        | dict   | Env vars passed to the container with `-e`. `HF_HOME` is also bind-mounted at the same path on the host. |
+| `serve_args` | string | Appended to `vllm serve <model>`. Word-split, so don't put fancy quoting in here.                        |
+
+### `lm_eval:` block
+
+| field        | type | description                                                                                              |
+| ------------ | ---- | -------------------------------------------------------------------------------------------------------- |
+| `model_args` | dict | Defaults merged into every task's `model_args`. Values are coerced to lm-eval's expected literal format (`true`→`True`, `null`→`None`). |
+| `tasks`      | list | One entry per `lm_eval` invocation.                                                                      |
 
 Each task object:
 
-| field         | type    | description                                                |
-| ------------- | ------- | ---------------------------------------------------------- |
-| `name`        | string  | lm-eval task name (e.g. `gsm8k`, `gpqa_diamond_cot_zeroshot`). |
-| `num_fewshot` | int     | Passed to `lm_eval --num_fewshot`. Use `0` for zero-shot.  |
+| field         | type   | description                                                                                                                       |
+| ------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------- |
+| `name`        | string | lm-eval task name (e.g. `gsm8k`, `aime25`). Validated against `lm_eval`'s registry; unknown names abort before the server starts. |
+| `num_fewshot` | int    | Passed to `lm_eval --num_fewshot`. Use `0` for zero-shot.                                                                         |
+| `model_args`  | dict   | Per-task model-arg overrides. Merged on top of `lm_eval.model_args`.                                                              |
 
-Example:
+Per-task top-level fields are limited to `name`, `num_fewshot`, `model_args`. Anything else is rejected with a hint to move it under `model_args:`.
 
-```yaml
-name: qwen3_5-h200-gsm8k
-model: Qwen/Qwen3.5-397B-A17B-FP8
-image: vllm/vllm-openai:latest
-serve_args: --tensor-parallel-size 8 --trust-remote-code
-hf_home: /mnt/shared/hf-models
-tasks:
-  - name: gsm8k
-    num_fewshot: 5
-```
-
-`num_fewshot` lives on the task (not the recipe) because `lm_eval --num_fewshot`
-is a single global value — different tasks need different shot counts, so each
-runs as a separate `lm_eval` invocation. Results land in
-`results/<recipe-name>/<task-name>/`.
+`num_fewshot` lives on the task (not the workload) because `lm_eval --num_fewshot` is a single global value — different tasks need different shot counts, so each runs as a separate `lm_eval` invocation. Results land in `results/<recipe-name>/<task-name>/`.
 
 ## Add a recipe
 
-Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and add a step to
-`.buildkite/pipeline.yaml` pointing at the new file.
+Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and add a step to `.buildkite/pipeline.yaml` pointing at the new file. The Buildkite pipeline currently only runs the workloads explicitly listed there — adding a new YAML alone won't trigger a build for it.
+
+## Agents
+
+`CLAUDE.md` has the workflow for AI agents working in this repo: how to smoke-test changes locally, how to launch a Buildkite build for a chosen branch/commit, and the AI-assistance disclosure rule for PRs and commits.

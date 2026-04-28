@@ -1,11 +1,32 @@
-# gsm8k on Qwen3.5 (H200, TP8)
-name: qwen3_5-h200-gsm8k
-model: Qwen/Qwen3.5-397B-A17B-FP8
-image: vllm/vllm-openai:latest
-serve_args: --tensor-parallel-size 8 --trust-remote-code
-hf_home: /mnt/shared/hf-models
-tasks:
-  - name: gsm8k
-    num_fewshot: 5
-  - name: gpqa_diamond_cot_zeroshot
-    num_fewshot: 0
+# gsm8k + aime25 on Qwen3.5 (H200, DP=8 + expert parallel)
+name: qwen3_5-h200
+
+vllm:
+  model: Qwen/Qwen3.5-397B-A17B-FP8
+  image: vllm/vllm-openai:latest
+  env:
+    HF_HOME: /mnt/shared/hf-models
+  serve_args: >-
+    -dp 8 --enable-expert-parallel
+    --reasoning-parser qwen3
+    --enable-prefix-caching
+    --language-model-only
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 1024
+        max_length: 40960
+        max_gen_toks: 32768
+    - name: aime25
+      num_fewshot: 0
+      model_args:
+        num_concurrent: 128
+        max_length: 40960
