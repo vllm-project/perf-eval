@@ -33,4 +33,10 @@ while IFS=$'\t' read -r task fewshot; do
     --num_fewshot "$fewshot" \
     --log_samples \
     --output_path "${RESULTS_DIR}/${task}"
+
+  python3 "$DIR/lib/ingest.py" \
+    --results-dir "${RESULTS_DIR}/${task}" \
+    --workload "$WORKLOAD_NAME" \
+    --task "$task" \
+    ${INGEST_NO_SAMPLES:+--no-samples} || true
 done <<< "$WORKLOAD_TASKS_TSV"
