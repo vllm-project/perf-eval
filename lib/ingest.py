@@ -22,6 +22,9 @@ from pathlib import Path
 
 DEFAULT_ENDPOINT = "https://vllm-eval-data-ingest-224810116257.us-central1.run.app/"
 TIMEOUT = 30
+# Databricks Zerobus rejects records larger than 10 MiB and closes the stream.
+# Pack samples into batches that stay safely under that ceiling.
+SAMPLES_BATCH_BYTES = 4 * 1024 * 1024
 BK_ENV_VARS = (
     "BUILDKITE_BUILD_ID",
     "BUILDKITE_BUILD_NUMBER",
@@ -62,21 +65,41 @@ def ingest_results(path: Path, md: dict, endpoint: str) -> None:
 
 
 def ingest_samples(path: Path, md: dict, endpoint: str) -> int:
-    samples = []
+    sent = 0
+    batch: list = []
+    batch_bytes = 0
+    overhead = len(
+        json.dumps({"kind": "samples", "source_file": str(path), **md, "samples": []})
+    )
+
+    def flush() -> None:
+        nonlocal batch, batch_bytes, sent
+        if not batch:
+            return
+        payload = {"kind": "samples", "source_file": str(path), **md, "samples": batch}
+        post(endpoint, payload)
+        sent += len(batch)
+        batch = []
+        batch_bytes = 0
+
     with path.open() as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                samples.append(json.loads(line))
+                sample = json.loads(line)
             except json.JSONDecodeError as e:
                 print(f"    skip malformed sample line: {e}", file=sys.stderr)
-    if not samples:
-        return 0
-    payload = {"kind": "samples", "source_file": str(path), **md, "samples": samples}
-    post(endpoint, payload)
-    return len(samples)
+                continue
+            sample_bytes = len(json.dumps(sample))
+            # +1 for the array-element comma
+            if batch and overhead + batch_bytes + sample_bytes + 1 > SAMPLES_BATCH_BYTES:
+                flush()
+            batch.append(sample)
+            batch_bytes += sample_bytes + 1
+    flush()
+    return sent
 
 
 def main() -> int:
