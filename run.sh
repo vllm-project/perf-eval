@@ -31,4 +31,10 @@ while IFS=$'\t' read -r task fewshot model_args; do
   [[ -z "$task" ]] && continue
   run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \
               "$model_args" "$RESULTS_DIR"
+
+  python3 "$DIR/lib/ingest.py" \
+    --results-dir "${RESULTS_DIR}/${task}" \
+    --workload "$WORKLOAD_NAME" \
+    --task "$task" \
+    ${INGEST_NO_SAMPLES:+--no-samples} || true
 done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
