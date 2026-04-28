@@ -62,24 +62,21 @@ def ingest_results(path: Path, md: dict, endpoint: str) -> None:
 
 
 def ingest_samples(path: Path, md: dict, endpoint: str) -> int:
-    sent = 0
+    samples = []
     with path.open() as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
             try:
-                sample = json.loads(line)
+                samples.append(json.loads(line))
             except json.JSONDecodeError as e:
                 print(f"    skip malformed sample line: {e}", file=sys.stderr)
-                continue
-            payload = {"kind": "sample", "source_file": str(path), **md, "sample": sample}
-            try:
-                post(endpoint, payload)
-                sent += 1
-            except (urllib.error.URLError, RuntimeError) as e:
-                print(f"    sample post failed: {e}", file=sys.stderr)
-    return sent
+    if not samples:
+        return 0
+    payload = {"kind": "samples", "source_file": str(path), **md, "samples": samples}
+    post(endpoint, payload)
+    return len(samples)
 
 
 def main() -> int:
