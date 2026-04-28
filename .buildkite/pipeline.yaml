@@ -1,13 +1,8 @@
 steps:
-  - label: ":h200: gsm8k qwen3.5"
+  - label: ":pipeline: generate steps"
     agents:
       queue: H200
-    timeout_in_minutes: 120
     commands:
-      - python3 -m ensurepip --upgrade --default-pip 2>/dev/null || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user
-      - python3 -m pip install --user --upgrade 'lm-eval[api]' pyyaml
-      # HF_HOME on the agent points to a read-only shared cache; lm_eval needs
-      # a writable location for the datasets lockfile. Use a per-build dir.
-      - export HF_HOME="$PWD/.hf-cache" PATH="$HOME/.local/bin:$PATH" && ./run.sh workloads/qwen3_5_h200.yaml
-    artifact_paths:
-      - "results/**/*"
+      - python3 -m ensurepip --upgrade --default-pip 2>/dev/null || true
+      - python3 -m pip install --user pyyaml
+      - export PATH="$HOME/.local/bin:$PATH" && python3 .buildkite/generate_pipeline.py | buildkite-agent pipeline upload

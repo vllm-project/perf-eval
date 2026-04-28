@@ -1,5 +1,6 @@
 # gsm8k + aime25 on Qwen3.5 (H200, DP=8 + expert parallel)
 name: qwen3_5-h200
+nightly: true
 
 vllm:
   model: Qwen/Qwen3.5-397B-A17B-FP8

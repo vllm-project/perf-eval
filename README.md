@@ -14,7 +14,9 @@ lib/
   parse_workload.py      # YAML → shell exports + lm_eval task validation
   server.sh              # start/health/stop functions for the vLLM container
   run_lm_eval.sh         # per-task runner for lm-evaluation-harness tasks
-.buildkite/pipeline.yaml # one step per recipe
+.buildkite/
+  pipeline.yaml            # bootstrap step: runs generate_pipeline.py
+  generate_pipeline.py     # generates per-workload steps (nightly or manual)
 CLAUDE.md                # agent instructions (testing, build triggers, conventions)
 ```
 
@@ -28,10 +30,11 @@ Needs Docker, `lm-eval[api]`, and `pyyaml` on the host. The parser validates eac
 
 ## Workload schema
 
-A recipe is a single YAML file with three top-level groups:
+A recipe is a single YAML file with a few top-level fields and two config groups:
 
 ```yaml
 name: qwen3_5-h200       # used in container name + results/<name>/
+nightly: true            # include in nightly scheduled builds (default: false)
 
 vllm:                    # everything about the served model
   model: Qwen/Qwen3.5-397B-A17B-FP8
@@ -94,7 +97,14 @@ Per-task top-level fields are limited to `name`, `num_fewshot`, `model_args`. An
 
 ## Add a recipe
 
-Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and add a step to `.buildkite/pipeline.yaml` pointing at the new file. The Buildkite pipeline currently only runs the workloads explicitly listed there — adding a new YAML alone won't trigger a build for it.
+Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and set `nightly: true` if the workload should run in nightly scheduled builds. The pipeline dynamically discovers workloads — no need to edit `.buildkite/pipeline.yaml`.
+
+## Buildkite pipeline modes
+
+The pipeline supports two trigger modes, controlled by the `TRIGGER_MODE` env var:
+
+- **`nightly`** (default) — discovers all `workloads/*.yaml` with `nightly: true` and runs each as a separate H200 step.
+- **`manual`** — presents an input step in the Buildkite UI where you select which workload to run, then generates a single H200 step for it.
 
 ## Agents
 

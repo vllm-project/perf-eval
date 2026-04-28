@@ -50,7 +50,7 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
 - **pipeline**: `perf-eval`
 - **repo**: `github.com/vllm-project/perf-eval`
 - **default branch**: `main`
-- **what it runs**: a single H200 step that installs `lm-eval[api]` + `pyyaml`, then `./run.sh workloads/qwen3_5_h200.yaml`. Defined in `.buildkite/pipeline.yaml`. The pipeline currently only exercises that one workload — adding a new workload file does **not** trigger a build for it unless `.buildkite/pipeline.yaml` is extended.
+- **what it runs**: a dynamic pipeline. A bootstrap step runs `.buildkite/generate_pipeline.py` which reads `TRIGGER_MODE` (default `nightly`) and generates per-workload H200 steps. In nightly mode it discovers all `workloads/*.yaml` with `nightly: true`. In manual mode it presents a Buildkite input step for workload selection.
 
 ### Workflow
 
@@ -61,6 +61,9 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
    - `commit: "<full SHA>"`
    - `branch: "<branch name>"` (use the actual branch, not `main`, when testing a feature branch)
    - `message: "<short description of what this tests>"` — match the existing convention: short, action-oriented (e.g. "Add gpqa diamond", "Writable HF_HOME for lm_eval datasets cache"). No emoji unless the user asks.
+   - `environment`: pass `TRIGGER_MODE` to control the pipeline mode:
+     - Omit or `[{key: "TRIGGER_MODE", value: "nightly"}]` — runs all `nightly: true` workloads.
+     - `[{key: "TRIGGER_MODE", value: "manual"}]` — presents a workload picker in the Buildkite UI (only useful when the user will interact with the build page).
 3. **Report the build URL** back to the user immediately so they can follow along; the response includes `web_url`.
 
 ### Watching a running build
@@ -75,4 +78,4 @@ A typical build takes ~30–90 minutes (the step has a 120-min hard timeout) —
 
 - Don't push to `main` or trigger builds without the user asking. Triggering a build is visible to the team and consumes H200 minutes.
 - Don't `--no-verify` past failing pre-commit hooks just to get a build out. Fix the hook failure first.
-- Don't change the `queue: H200` in `.buildkite/pipeline.yaml` — it's the only queue with the right hardware.
+- Don't change the `queue: H200` in `.buildkite/pipeline.yaml` or `generate_pipeline.py` — it's the only queue with the right hardware.
