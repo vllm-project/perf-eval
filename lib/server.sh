@@ -13,12 +13,14 @@ start_server() {
   local container=$1 port=$2 image=$3 model=$4 hf_home=$5 serve_args=$6
   echo "--- :rocket: starting vllm: $model"
   # shellcheck disable=SC2086  # serve_args intentionally word-split
+  # vllm/vllm-openai's entrypoint takes the model as the first positional
+  # arg; do not prepend `vllm` or `serve`.
   docker run -d --rm --name "$container" \
     --gpus all --ipc=host -p "${port}:${port}" \
     -v "${hf_home}:${hf_home}" \
     -e "HF_HOME=${hf_home}" \
     "$image" \
-    vllm serve "$model" --port "$port" $serve_args
+    "$model" --port "$port" $serve_args
 
   echo "--- :memo: streaming vllm logs"
   ( docker logs -f "$container" 2>&1 | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
