@@ -7,3 +7,5 @@ hf_home: /mnt/shared/hf-models
 tasks:
   - name: gsm8k
     num_fewshot: 5
+  - name: gpqa_diamond_cot_zeroshot
+    num_fewshot: 0
