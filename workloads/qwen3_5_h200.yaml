@@ -23,7 +23,7 @@ lm_eval:
     - name: gsm8k
       num_fewshot: 5
       model_args:
-        num_concurrent: 1024
+        num_concurrent: 256
         max_length: 40960
         max_gen_toks: 32768
     - name: aime25
