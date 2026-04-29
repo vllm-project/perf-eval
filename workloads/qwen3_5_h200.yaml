@@ -1,18 +1,19 @@
-# gsm8k + aime25 on Qwen3.5 (H200, DP=8 + expert parallel)
+# Qwen3.5 h200
 name: qwen3_5-h200
 gpu: H200
 num_gpus: 8
 nightly: true
 
 vllm:
-  model: Qwen/Qwen3.5-397B-A17B-FP8
+  model: nvidia/Qwen3.5-397B-A17B
   serve_args: >-
-    -dp 8 --enable-expert-parallel
+    --tensor-parallel-size 8
+    --enable-expert-parallel
     --reasoning-parser qwen3
-    --enable-prefix-caching
-    --language-model-only
+    -- language-model-only
     --trust-remote-code
-    --max-num-seqs 768
+    --max-num-seqs 256
+    --max-model-len auto
 
 lm_eval:
   model_args:
@@ -23,11 +24,10 @@ lm_eval:
     - name: gsm8k
       num_fewshot: 5
       model_args:
-        num_concurrent: 256
+        num_concurrent: 64
         max_length: 40960
-        max_gen_toks: 32768
     - name: aime25
       num_fewshot: 0
       model_args:
-        num_concurrent: 128
+        num_concurrent: 64
         max_length: 40960
