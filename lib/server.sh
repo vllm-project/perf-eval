@@ -18,7 +18,9 @@ start_server() {
   local container=$1 port=$2 image=$3 model=$4 serve_args=$5 env=$6
   echo "--- :rocket: starting vllm: $model"
 
-  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536 -p "${port}:${port}")
+  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
+                     -e VLLM_ENGINE_READY_TIMEOUT_S=1800
+                     -p "${port}:${port}")
   local hf_home=""
   while IFS= read -r kv; do
     [[ -z "$kv" ]] && continue
