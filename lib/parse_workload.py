@@ -93,7 +93,7 @@ def main(path: str) -> None:
     vllm = data.get("vllm") or {}
     for key in TOP_FIELDS:
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(data.get(key, '')))}")
-    image = vllm.get("image", "vllm/vllm-openai:nightly")
+    image = vllm.get("image", "vllm/vllm-openai:latest")
     print(f"WORKLOAD_IMAGE={shlex.quote(image)}")
     for key in ("model", "serve_args"):
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(vllm.get(key, '')))}")
