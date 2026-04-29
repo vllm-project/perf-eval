@@ -10,7 +10,7 @@ vllm:
     --tensor-parallel-size 8
     --enable-expert-parallel
     --reasoning-parser qwen3
-    -- language-model-only
+    --language-model-only
     --trust-remote-code
     --max-num-seqs 256
     --max-model-len auto
