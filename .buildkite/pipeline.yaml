@@ -1,7 +1,7 @@
 steps:
   - label: ":pipeline: generate steps"
     agents:
-      queue: H200
+      queue: small_cpu_queue_premerge
     commands:
       - python3 -m ensurepip --upgrade --default-pip 2>/dev/null || true
       - python3 -m pip install --user pyyaml
