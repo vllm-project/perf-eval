@@ -5,7 +5,7 @@ Supports three trigger modes (via TRIGGER_MODE env var):
 
   nightly      (default) Run every workload with ``nightly: true``.
   manual       Present a Buildkite input step so the user can pick a workload,
-               then a follow-up step uploads the real H200 step.
+               then a follow-up step uploads the real workload step.
   run-selected Run a single workload specified by WORKLOAD env var.
                Used internally by the manual-mode follow-up step.
 
@@ -26,7 +26,7 @@ SETUP_COMMANDS = [
 
 RUN_TEMPLATE = (
     'export HF_HOME="$PWD/.hf-cache" PATH="$HOME/.local/bin:$PATH"'
-    " && ./run.sh {path}"
+    " && ./lib/run.sh {path}"
 )
 
 
@@ -35,24 +35,47 @@ def load_workloads():
     for path in sorted(glob.glob("workloads/*.yaml")):
         with open(path) as f:
             data = yaml.safe_load(f)
-        name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
-        workloads.append({"path": path, "name": name, "data": data})
+        workloads.append({"path": path, "data": data})
     return workloads
 
 
-def make_h200_step(path, name):
+DEFAULT_TIMEOUT = 120
+PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
+
+GPU_EMOJI = {
+    "H200": ":h200:",
+    "A100": ":a100:",
+}
+
+
+def load_profiles():
+    with open(PROFILES_PATH) as f:
+        return yaml.safe_load(f)
+
+
+def make_step(path, data, profiles):
+    name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
+    gpu = data.get("gpu")
+    if not gpu:
+        sys.exit(f"{path}: missing required 'gpu' field")
+    profile = profiles.get(gpu)
+    if not profile:
+        sys.exit(f"{path}: unknown gpu {gpu!r} (expected one of {', '.join(profiles)})")
+    queue = profile["queue"]
+    timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
+    emoji = GPU_EMOJI.get(gpu, ":buildkite:")
     return {
-        "label": f":h200: {name}",
-        "agents": {"queue": "H200"},
-        "timeout_in_minutes": 120,
+        "label": f"{emoji} {name}",
+        "agents": {"queue": queue},
+        "timeout_in_minutes": timeout,
         "commands": SETUP_COMMANDS + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
 
 
-def nightly(workloads):
+def nightly(workloads, profiles):
     steps = [
-        make_h200_step(w["path"], w["name"])
+        make_step(w["path"], w["data"], profiles)
         for w in workloads
         if w["data"].get("nightly") is True
     ]
@@ -64,7 +87,13 @@ def nightly(workloads):
 def manual(workloads):
     if not workloads:
         sys.exit("TRIGGER_MODE=manual but no workload files found in workloads/")
-    options = [{"label": w["name"], "value": w["path"]} for w in workloads]
+    options = [
+        {
+            "label": w["data"].get("name", os.path.basename(w["path"]).removesuffix(".yaml")),
+            "value": w["path"],
+        }
+        for w in workloads
+    ]
     input_step = {
         "input": "Select a workload to run",
         "fields": [
@@ -78,7 +107,7 @@ def manual(workloads):
     }
     followup_step = {
         "label": ":pipeline: upload selected workload",
-        "agents": {"queue": "H200"},
+        "agents": {"queue": "small_cpu_queue_premerge"},
         "commands": [
             "python3 -m pip install --user pyyaml 2>/dev/null || true",
             'WORKLOAD="$(buildkite-agent meta-data get workload)"'
@@ -89,7 +118,7 @@ def manual(workloads):
     return [input_step, followup_step]
 
 
-def run_selected():
+def run_selected(profiles):
     path = os.environ.get("WORKLOAD", "")
     if not path:
         sys.exit("TRIGGER_MODE=run-selected but WORKLOAD env var is not set")
@@ -97,19 +126,20 @@ def run_selected():
         sys.exit(f"workload not found: {path}")
     with open(path) as f:
         data = yaml.safe_load(f)
-    name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
-    return [make_h200_step(path, name)]
+    return [make_step(path, data, profiles)]
 
 
 def main():
     mode = os.environ.get("TRIGGER_MODE", "nightly").lower()
 
+    profiles = load_profiles()
+
     if mode == "nightly":
-        steps = nightly(load_workloads())
+        steps = nightly(load_workloads(), profiles)
     elif mode == "manual":
         steps = manual(load_workloads())
     elif mode == "run-selected":
-        steps = run_selected()
+        steps = run_selected(profiles)
     else:
         sys.exit(f"unknown TRIGGER_MODE={mode!r} (expected nightly, manual, or run-selected)")
 

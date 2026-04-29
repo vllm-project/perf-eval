@@ -4,11 +4,15 @@ Usage:
     eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 
 Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/SERVE_ARGS (from the
-`vllm:` block), WORKLOAD_ENV (newline-separated KEY=VALUE pairs from
-`vllm.env`), and WORKLOAD_LM_EVAL_TASKS_TSV. Each TSV line is
+`vllm:` block and GPU profile), WORKLOAD_ENV (newline-separated KEY=VALUE
+pairs), and WORKLOAD_LM_EVAL_TASKS_TSV. Each TSV line is
 "name\\tnum_fewshot\\tmodel_args", where model_args is the comma-separated
 key=value string lm_eval expects. `lm_eval.model_args` (workload-level)
 is merged under each task's `model_args` block.
+
+Machine-specific defaults (image, HF_HOME) come from gpu_profiles.yaml,
+keyed by the workload's `gpu` field. The workload can override `vllm.image`
+or `vllm.env.HF_HOME` if needed.
 
 Per-task top-level fields are limited to `name`, `num_fewshot`, and
 `model_args`; any other top-level field is rejected with a hint to move
@@ -19,6 +23,7 @@ Each name in `lm_eval.tasks` is validated against lm_eval's task registry
 is started.
 """
 
+import os
 import shlex
 import sys
 
@@ -51,9 +56,25 @@ def known_task_names() -> set:
     return set(TaskManager().all_tasks)
 
 
+def load_profile(gpu: str, workload_path: str) -> dict:
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
+    profiles_path = os.path.join(repo_root, "lib", "gpu_profiles.yaml")
+    with open(profiles_path) as f:
+        profiles = yaml.safe_load(f)
+    if gpu not in profiles:
+        sys.exit(f"unknown gpu {gpu!r} in {profiles_path} (have {', '.join(profiles)})")
+    return profiles[gpu]
+
+
 def main(path: str) -> None:
     with open(path) as f:
         data = yaml.safe_load(f)
+
+    gpu = data.get("gpu")
+    if not gpu:
+        sys.exit(f"{path}: missing required 'gpu' field")
+    profile = load_profile(gpu, path)
+
     lm_eval = data.get("lm_eval") or {}
     tasks = lm_eval.get("tasks") or []
     if not tasks:
@@ -72,9 +93,13 @@ def main(path: str) -> None:
     vllm = data.get("vllm") or {}
     for key in TOP_FIELDS:
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(data.get(key, '')))}")
-    for key in VLLM_FIELDS:
+    image = vllm.get("image", "vllm/vllm-openai:nightly")
+    print(f"WORKLOAD_IMAGE={shlex.quote(image)}")
+    for key in ("model", "serve_args"):
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(vllm.get(key, '')))}")
     env = vllm.get("env") or {}
+    if "HF_HOME" not in env and profile.get("hf_home"):
+        env["HF_HOME"] = profile["hf_home"]
     env_lines = "\n".join(f"{k}={fmt(v)}" for k, v in env.items())
     print(f"WORKLOAD_ENV={shlex.quote(env_lines)}")
     base_args = lm_eval.get("model_args") or {}

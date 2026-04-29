@@ -1,6 +1,6 @@
 # Agent instructions for perf-eval
 
-This repo orchestrates lm-evaluation-harness runs against vLLM via YAML workloads in `workloads/`. `run.sh` parses a workload, brings up vLLM in Docker, and dispatches each task to a helper in `lib/`. Real runs need GPUs and are exercised on Buildkite.
+This repo orchestrates lm-evaluation-harness runs against vLLM via YAML workloads in `workloads/`. `lib/run.sh` parses a workload, brings up vLLM in Docker, and dispatches each task to a helper in `lib/`. Real runs need GPUs and are exercised on Buildkite.
 
 ## Keep the README in sync
 
@@ -37,7 +37,7 @@ exec(open('lib/parse_workload.py').read())
 **Shell syntax** — catches typos in the orchestrator and helpers without executing them:
 
 ```bash
-bash -n run.sh && bash -n lib/server.sh && bash -n lib/run_lm_eval.sh
+bash -n lib/run.sh && bash -n lib/server.sh && bash -n lib/run_lm_eval.sh
 ```
 
 If you actually need real validation (parser hitting lm-eval's task registry rather than a stub), `pip install 'lm-eval[api]' pyyaml` first. Without it the parser exits with `cannot validate task names: lm_eval not importable` — that's intentional, never silently skip validation.

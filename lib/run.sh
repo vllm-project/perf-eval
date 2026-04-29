@@ -2,7 +2,7 @@
 # Orchestrate a workload: bring up vLLM, then dispatch each task to the
 # helper script for its type.
 #
-# Usage: ./run.sh workloads/qwen3_5_h200.yaml
+# Usage: ./lib/run.sh workloads/qwen3_5_h200.yaml
 set -euo pipefail
 
 WORKLOAD="${1:?usage: $0 <workload.yaml>}"
@@ -10,10 +10,10 @@ WORKLOAD="${1:?usage: $0 <workload.yaml>}"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
-source "$DIR/lib/server.sh"
+source "$DIR/server.sh"
 # shellcheck disable=SC1091
-source "$DIR/lib/run_lm_eval.sh"
-eval "$(python3 "$DIR/lib/parse_workload.py" "$WORKLOAD")"
+source "$DIR/run_lm_eval.sh"
+eval "$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 
 PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
@@ -32,7 +32,7 @@ while IFS=$'\t' read -r task fewshot model_args; do
   run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \
               "$model_args" "$RESULTS_DIR"
 
-  python3 "$DIR/lib/ingest.py" \
+  python3 "$DIR/ingest.py" \
     --results-dir "${RESULTS_DIR}/${task}" \
     --workload "$WORKLOAD_NAME" \
     --task "$task" \

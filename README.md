@@ -9,21 +9,22 @@ Today: gsm8k + aime25 on Qwen3.5 (H200). Will grow.
 ```
 workloads/
   qwen3_5_h200.yaml      # one recipe = one (model, hardware, set of tasks)
-run.sh                   # orchestrator: parses recipe, brings up vLLM, dispatches tasks
 lib/
+  run.sh                 # orchestrator: parses recipe, brings up vLLM, dispatches tasks
   parse_workload.py      # YAML → shell exports + lm_eval task validation
   server.sh              # start/health/stop functions for the vLLM container
   run_lm_eval.sh         # per-task runner for lm-evaluation-harness tasks
+  gpu_profiles.yaml      # machine-specific defaults (queue, image, HF_HOME) per GPU type
 .buildkite/
-  pipeline.yaml            # bootstrap step: runs generate_pipeline.py
-  generate_pipeline.py     # generates per-workload steps (nightly or manual)
+  pipeline.yaml          # bootstrap step: runs generate_pipeline.py
+  generate_pipeline.py   # generates per-workload steps (nightly or manual)
 CLAUDE.md                # agent instructions (testing, build triggers, conventions)
 ```
 
 ## Run locally
 
 ```bash
-./run.sh workloads/qwen3_5_h200.yaml
+./lib/run.sh workloads/qwen3_5_h200.yaml
 ```
 
 Needs Docker, `lm-eval[api]`, and `pyyaml` on the host. The parser validates each task name against `lm_eval`'s registry, so `lm-eval` must be importable; without it the parser exits with `cannot validate task names: lm_eval not importable` (intentional, never silently skip validation).
@@ -34,13 +35,12 @@ A recipe is a single YAML file with a few top-level fields and two config groups
 
 ```yaml
 name: qwen3_5-h200       # used in container name + results/<name>/
+gpu: H200                # required — selects queue, image, HF_HOME from gpu_profiles.yaml
+num_gpus: 8              # number of GPUs available on the target machine
 nightly: true            # include in nightly scheduled builds (default: false)
 
 vllm:                    # everything about the served model
   model: Qwen/Qwen3.5-397B-A17B-FP8
-  image: vllm/vllm-openai:latest
-  env:                   # injected with -e; HF_HOME is also bind-mounted
-    HF_HOME: /mnt/shared/hf-models
   serve_args: >-         # appended to `vllm serve <model>`; word-split
     -dp 8 --enable-expert-parallel
     --reasoning-parser qwen3
@@ -69,12 +69,12 @@ lm_eval:                 # everything about the eval client
 
 ### `vllm:` block
 
-| field        | type   | description                                                                                              |
-| ------------ | ------ | -------------------------------------------------------------------------------------------------------- |
-| `model`      | string | HF repo id or local path; passed as the first positional arg to `vllm/vllm-openai`'s entrypoint.         |
-| `image`      | string | Docker image with `vllm` installed.                                                                      |
-| `env`        | dict   | Env vars passed to the container with `-e`. `HF_HOME` is also bind-mounted at the same path on the host. |
-| `serve_args` | string | Appended to `vllm serve <model>`. Word-split, so don't put fancy quoting in here.                        |
+| field        | type   | description                                                                                                                                          |
+| ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `model`      | string | HF repo id or local path; passed as the first positional arg to `vllm/vllm-openai`'s entrypoint.                                                     |
+| `image`      | string | (optional) Docker image override. Defaults to `vllm/vllm-openai:nightly`.                                                                            |
+| `env`        | dict   | (optional) Extra env vars passed to the container with `-e`. `HF_HOME` defaults from the GPU profile but can be overridden here.                      |
+| `serve_args` | string | Appended to `vllm serve <model>`. Word-split, so don't put fancy quoting in here.                                                                    |
 
 ### `lm_eval:` block
 
