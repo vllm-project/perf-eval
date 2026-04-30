@@ -3,10 +3,11 @@
 Usage:
     eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 
-Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/SERVE_ARGS (from the
-`vllm:` block and GPU profile), WORKLOAD_ENV (newline-separated KEY=VALUE
-pairs), WORKLOAD_LM_EVAL_TASKS_TSV, and WORKLOAD_VLLM_BENCH_TSV (bench configs
-to run after lm_eval). Each lm_eval TSV line is "name\\tnum_fewshot\\tmodel_args";
+Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/VLLM_COMMIT/SERVE_ARGS
+(from the `vllm:` block, override env vars, and GPU profile), WORKLOAD_ENV
+(newline-separated KEY=VALUE pairs), WORKLOAD_LM_EVAL_TASKS_TSV, and
+WORKLOAD_VLLM_BENCH_TSV (bench configs to run after lm_eval). Each lm_eval TSV
+line is "name\\tnum_fewshot\\tmodel_args";
 each bench TSV line is "name\\tdataset\\tinput_len\\toutput_len\\tnum_prompts\\tmax_concurrency".
 `lm_eval.model_args` (workload-level) is merged under each task's `model_args` block.
 
@@ -35,6 +36,7 @@ is started.
 """
 
 import os
+import re
 import shlex
 import sys
 
@@ -50,6 +52,19 @@ BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurr
 # template. vLLM publishes per-commit nightly images to Docker Hub as
 # vllm/vllm-openai:nightly-<sha>.
 COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
+
+
+def commit_from_image(image: str) -> str:
+    slash = image.rfind("/")
+    colon = image.rfind(":")
+    if colon <= slash:
+        return ""
+    tag = image[colon + 1 :].split("@", 1)[0]
+    nightly = re.match(r"nightly-([0-9a-f]{7,40})(?:[-_.].*)?$", tag, re.IGNORECASE)
+    if nightly:
+        return nightly.group(1)
+    sha = re.search(r"(?:^|[-_.])([0-9a-f]{12,40})(?:$|[-_.])", tag, re.IGNORECASE)
+    return sha.group(1) if sha else ""
 
 
 def fmt(v: object) -> str:
@@ -115,11 +130,15 @@ def main(path: str) -> None:
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     if override_image:
         image = override_image
+        vllm_commit = commit_from_image(image)
     elif override_commit:
         image = COMMIT_IMAGE_TEMPLATE.format(commit=override_commit)
+        vllm_commit = override_commit
     else:
         image = vllm.get("image", "vllm/vllm-openai:latest")
+        vllm_commit = commit_from_image(str(image))
     print(f"WORKLOAD_IMAGE={shlex.quote(image)}")
+    print(f"WORKLOAD_VLLM_COMMIT={shlex.quote(vllm_commit)}")
     for key in ("model", "serve_args"):
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(vllm.get(key, '')))}")
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}

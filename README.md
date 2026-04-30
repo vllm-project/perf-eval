@@ -130,6 +130,8 @@ The pipeline always emits one H200 step per selected workload. Selection is cont
 
 With no env vars set, the build runs the nightly schedule. Image precedence is `VLLM_IMAGE` > `VLLM_COMMIT` > workload's `vllm.image` > `vllm/vllm-openai:latest`.
 
+Eval result ingestion includes the resolved Docker image as `image`. It also includes `vllm_commit` when the run used `VLLM_COMMIT` or when the resolved image tag carries a commit, such as `vllm/vllm-openai:nightly-<sha>`.
+
 ## Agents
 
 `CLAUDE.md` has the workflow for AI agents working in this repo: how to smoke-test changes locally, how to launch a Buildkite build for a chosen branch/commit, and the AI-assistance disclosure rule for PRs and commits.

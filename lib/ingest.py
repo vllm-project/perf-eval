@@ -36,10 +36,11 @@ BK_ENV_VARS = (
 # Top-level fields the dashboard reads to show "image" and the vLLM commit.
 # WORKLOAD_IMAGE is the resolved docker URI (set by parse_workload.py via the
 # VLLM_IMAGE / VLLM_COMMIT override env vars or the workload yaml's vllm.image).
-# VLLM_COMMIT is the build-level override env var if the user pinned a commit.
+# WORKLOAD_VLLM_COMMIT is the commit used by that resolved image, when it can
+# be determined from VLLM_COMMIT or a commit-bearing image tag.
 VLLM_ENV_VARS = (
     ("WORKLOAD_IMAGE", "image"),
-    ("VLLM_COMMIT", "vllm_commit"),
+    ("WORKLOAD_VLLM_COMMIT", "vllm_commit"),
 )
 
 
