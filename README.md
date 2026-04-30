@@ -132,6 +132,7 @@ The pipeline always emits one H200 step per selected workload. Selection is cont
 - `WORKLOADS` (optional) — comma- or newline-separated list of workload paths or stems (`workloads/qwen3_5_h200.yaml`, `qwen3_5_h200`, both work). When set, runs exactly those workloads; when unset, runs every workload with `nightly: true`.
 - `VLLM_IMAGE` (optional) — full Docker image URI. Overrides every workload's `vllm.image`.
 - `VLLM_COMMIT` (optional) — commit SHA; resolved as `vllm/vllm-openai:nightly-<sha>` on Docker Hub. Ignored if `VLLM_IMAGE` is set.
+- `BENCH_ONLY` (optional) — set to `true`, `1`, or `yes` to run `vllm_bench` configs and skip `lm_eval` tasks.
 
 With no env vars set, the build runs the nightly schedule. Image precedence is `VLLM_IMAGE` > `VLLM_COMMIT` > workload's `vllm.image` > `vllm/vllm-openai:latest`.
 

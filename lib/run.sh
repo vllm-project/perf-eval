@@ -51,6 +51,11 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
 
+if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
+  echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval tasks"
+  exit 0
+fi
+
 while IFS=$'\t' read -r task fewshot model_args; do
   [[ -z "$task" ]] && continue
   run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \

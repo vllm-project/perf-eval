@@ -10,6 +10,7 @@ Always emits one H200 step per selected workload. Selection rules:
 Override env vars are propagated to each step:
   VLLM_IMAGE   full docker image URI; overrides workload's vllm.image
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
+  BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
 
 Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 """
@@ -74,7 +75,7 @@ def make_step(path, data, profiles):
     }
     step_env = {
         k: os.environ[k]
-        for k in ("VLLM_IMAGE", "VLLM_COMMIT")
+        for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
         if os.environ.get(k)
     }
     if step_env:
