@@ -64,13 +64,24 @@ def make_step(path, data, profiles):
     queue = profile["queue"]
     timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
     emoji = GPU_EMOJI.get(gpu, ":buildkite:")
-    return {
+    step = {
         "label": f"{emoji} {name}",
         "agents": {"queue": queue},
         "timeout_in_minutes": timeout,
         "commands": SETUP_COMMANDS + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
+    # Propagate VLLM_IMAGE / VLLM_COMMIT to the H200 step so parse_workload.py
+    # picks them up. Set on the step (not just at build level) so the manual
+    # mode follow-up step can pass them through after reading meta-data.
+    step_env = {
+        k: os.environ[k]
+        for k in ("VLLM_IMAGE", "VLLM_COMMIT")
+        if os.environ.get(k)
+    }
+    if step_env:
+        step["env"] = step_env
+    return step
 
 
 def nightly(workloads, profiles):
@@ -102,7 +113,22 @@ def manual(workloads):
                 "key": "workload",
                 "required": True,
                 "options": options,
-            }
+            },
+            {
+                "text": "Image override (optional)",
+                "key": "image",
+                "required": False,
+                "hint": "Full docker image URI; overrides workload's vllm.image",
+            },
+            {
+                "text": "vLLM commit (optional)",
+                "key": "vllm_commit",
+                "required": False,
+                "hint": (
+                    "Commit SHA → public.ecr.aws/q9t5s3a7/vllm/vllm-openai:<sha>."
+                    " Ignored if Image override is set."
+                ),
+            },
         ],
     }
     followup_step = {
@@ -111,6 +137,8 @@ def manual(workloads):
         "commands": [
             "python3 -m pip install --user pyyaml 2>/dev/null || true",
             'WORKLOAD="$(buildkite-agent meta-data get workload)"'
+            ' VLLM_IMAGE="$(buildkite-agent meta-data get image --default \'\')"'
+            ' VLLM_COMMIT="$(buildkite-agent meta-data get vllm_commit --default \'\')"'
             " TRIGGER_MODE=run-selected python3 .buildkite/generate_pipeline.py"
             " | buildkite-agent pipeline upload",
         ],

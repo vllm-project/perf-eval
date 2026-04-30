@@ -15,6 +15,12 @@ keyed by the workload's `gpu` field. The profile's `env:` block is merged
 under the workload's `vllm.env` (workload values win on conflict). The
 workload can override `vllm.image` or `vllm.env.HF_HOME` if needed.
 
+Image precedence (highest first):
+  1. `VLLM_IMAGE` env var (full image URI)
+  2. `VLLM_COMMIT` env var (commit SHA → public ECR vllm-openai image)
+  3. `vllm.image` from the workload YAML
+  4. `vllm/vllm-openai:latest` (default)
+
 Per-task top-level fields are limited to `name`, `num_fewshot`, and
 `model_args`; any other top-level field is rejected with a hint to move
 it under `model_args:`.
@@ -33,6 +39,10 @@ import yaml
 TOP_FIELDS = ("name",)
 VLLM_FIELDS = ("model", "image", "serve_args")
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
+
+# When VLLM_COMMIT is set without VLLM_IMAGE, build the image URI from this
+# template. vLLM CI publishes per-commit OpenAI images to public ECR.
+COMMIT_IMAGE_TEMPLATE = "public.ecr.aws/q9t5s3a7/vllm/vllm-openai:{commit}"
 
 
 def fmt(v: object) -> str:
@@ -94,7 +104,14 @@ def main(path: str) -> None:
     vllm = data.get("vllm") or {}
     for key in TOP_FIELDS:
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(data.get(key, '')))}")
-    image = vllm.get("image", "vllm/vllm-openai:latest")
+    override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
+    override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
+    if override_image:
+        image = override_image
+    elif override_commit:
+        image = COMMIT_IMAGE_TEMPLATE.format(commit=override_commit)
+    else:
+        image = vllm.get("image", "vllm/vllm-openai:latest")
     print(f"WORKLOAD_IMAGE={shlex.quote(image)}")
     for key in ("model", "serve_args"):
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(vllm.get(key, '')))}")

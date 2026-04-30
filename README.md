@@ -104,7 +104,16 @@ Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and set `nightly: tru
 The pipeline supports two trigger modes, controlled by the `TRIGGER_MODE` env var:
 
 - **`nightly`** (default) — discovers all `workloads/*.yaml` with `nightly: true` and runs each as a separate H200 step.
-- **`manual`** — presents an input step in the Buildkite UI where you select which workload to run, then generates a single H200 step for it.
+- **`manual`** — presents an input step in the Buildkite UI where you select which workload to run (plus optional image / vLLM commit overrides), then generates a single H200 step for it.
+
+### Overriding the vLLM image at trigger time
+
+Two env vars (also exposed as input fields in `manual` mode) let you swap the vLLM image without editing any workload YAML:
+
+- `VLLM_IMAGE` — full Docker image URI. Wins if both are set.
+- `VLLM_COMMIT` — commit SHA; resolved as `public.ecr.aws/q9t5s3a7/vllm/vllm-openai:<sha>`.
+
+Set them on the Buildkite build (e.g. via `environment` when triggering through the API) and they propagate to every workload step in the run; or use the input fields in `manual` mode to set them per-build via the UI. Workload-level `vllm.image` and the `vllm/vllm-openai:latest` default are only used when neither env var is set.
 
 ## Agents
 
