@@ -73,7 +73,7 @@ lm_eval:                 # everything about the eval client
 | ------------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `model`      | string | HF repo id or local path; passed as the first positional arg to `vllm/vllm-openai`'s entrypoint.                                                     |
 | `image`      | string | (optional) Docker image override. Defaults to `vllm/vllm-openai:nightly`.                                                                            |
-| `env`        | dict   | (optional) Extra env vars passed to the container with `-e`. `HF_HOME` defaults from the GPU profile but can be overridden here.                      |
+| `env`        | dict   | (optional) Extra env vars passed to the container with `-e`. The GPU profile's `env:` block is merged underneath this (workload values win on conflict), and `HF_HOME` falls back to the profile's `hf_home` field. |
 | `serve_args` | string | Appended to `vllm serve <model>`. Word-split, so don't put fancy quoting in here.                                                                    |
 
 ### `lm_eval:` block

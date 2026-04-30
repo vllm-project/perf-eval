@@ -10,9 +10,10 @@ pairs), and WORKLOAD_LM_EVAL_TASKS_TSV. Each TSV line is
 key=value string lm_eval expects. `lm_eval.model_args` (workload-level)
 is merged under each task's `model_args` block.
 
-Machine-specific defaults (image, HF_HOME) come from gpu_profiles.yaml,
-keyed by the workload's `gpu` field. The workload can override `vllm.image`
-or `vllm.env.HF_HOME` if needed.
+Machine-specific defaults (image, HF_HOME, env) come from gpu_profiles.yaml,
+keyed by the workload's `gpu` field. The profile's `env:` block is merged
+under the workload's `vllm.env` (workload values win on conflict). The
+workload can override `vllm.image` or `vllm.env.HF_HOME` if needed.
 
 Per-task top-level fields are limited to `name`, `num_fewshot`, and
 `model_args`; any other top-level field is rejected with a hint to move
@@ -97,7 +98,7 @@ def main(path: str) -> None:
     print(f"WORKLOAD_IMAGE={shlex.quote(image)}")
     for key in ("model", "serve_args"):
         print(f"WORKLOAD_{key.upper()}={shlex.quote(str(vllm.get(key, '')))}")
-    env = vllm.get("env") or {}
+    env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
     env_lines = "\n".join(f"{k}={fmt(v)}" for k, v in env.items())
