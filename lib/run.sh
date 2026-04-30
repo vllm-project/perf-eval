@@ -29,21 +29,10 @@ start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
              "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV"
 wait_healthy "$PORT"
 
-while IFS=$'\t' read -r task fewshot model_args; do
-  [[ -z "$task" ]] && continue
-  run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \
-              "$model_args" "$RESULTS_DIR"
-
-  python3 "$DIR/ingest.py" \
-    --results-dir "${RESULTS_DIR}/${task}" \
-    --workload "$WORKLOAD_NAME" \
-    --task "$task" \
-    ${INGEST_NO_SAMPLES:+--no-samples} || true
-done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
-
-# vllm bench serve runs after lm_eval, against the same server. Each config's
-# raw json lands in $RESULTS_DIR/bench-<name>.json and is then transformed
-# and POSTed to the perf dashboard ingest endpoint.
+# vllm bench serve runs first so we can validate perf flow without waiting
+# on a full lm_eval pass. Each config's raw json lands in
+# $RESULTS_DIR/bench-<name>.json and is then transformed and POSTed to the
+# perf dashboard ingest endpoint.
 while IFS=$'\t' read -r bname dataset isl osl nprompts conc; do
   [[ -z "$bname" ]] && continue
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
@@ -59,3 +48,15 @@ while IFS=$'\t' read -r bname dataset isl osl nprompts conc; do
     --image "$WORKLOAD_IMAGE" \
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
+
+while IFS=$'\t' read -r task fewshot model_args; do
+  [[ -z "$task" ]] && continue
+  run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \
+              "$model_args" "$RESULTS_DIR"
+
+  python3 "$DIR/ingest.py" \
+    --results-dir "${RESULTS_DIR}/${task}" \
+    --workload "$WORKLOAD_NAME" \
+    --task "$task" \
+    ${INGEST_NO_SAMPLES:+--no-samples} || true
+done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"

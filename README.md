@@ -97,7 +97,7 @@ Per-task top-level fields are limited to `name`, `num_fewshot`, `model_args`. An
 
 ### `vllm_bench:` block (optional)
 
-After `lm_eval` finishes, the orchestrator can run one or more `vllm bench serve` configs against the same server to capture throughput / latency metrics for the perf dashboard. Skip the block entirely if you don't want any bench runs.
+Before `lm_eval` runs, the orchestrator can run one or more `vllm bench serve` configs against the same server to capture throughput / latency metrics for the perf dashboard. Bench runs first so a single failing recipe surfaces perf-pipeline bugs without waiting on a full lm_eval pass. Skip the block entirely if you don't want any bench runs.
 
 ```yaml
 vllm_bench:
