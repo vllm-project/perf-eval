@@ -112,6 +112,7 @@ def manual(workloads):
                 "select": "Workload",
                 "key": "workload",
                 "required": True,
+                "multiple": True,
                 "options": options,
             },
             {
@@ -147,14 +148,22 @@ def manual(workloads):
 
 
 def run_selected(profiles):
-    path = os.environ.get("WORKLOAD", "")
-    if not path:
+    raw = os.environ.get("WORKLOAD", "")
+    if not raw:
         sys.exit("TRIGGER_MODE=run-selected but WORKLOAD env var is not set")
-    if not os.path.isfile(path):
-        sys.exit(f"workload not found: {path}")
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    return [make_step(path, data, profiles)]
+    # Manual-mode multi-select returns newline-separated values; env-var users
+    # may pass comma-separated. Accept either.
+    paths = [p.strip() for p in raw.replace(",", "\n").split("\n") if p.strip()]
+    if not paths:
+        sys.exit("TRIGGER_MODE=run-selected but WORKLOAD env var has no entries")
+    steps = []
+    for path in paths:
+        if not os.path.isfile(path):
+            sys.exit(f"workload not found: {path}")
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        steps.append(make_step(path, data, profiles))
+    return steps
 
 
 def main():
