@@ -8,7 +8,6 @@ nightly: true
 
 vllm:
   model: zai-org/GLM-5.1-FP8
-  image: vllm/vllm-openai:glm51-cu130
   serve_args: >-
     --tensor-parallel-size 8
     --speculative-config.method mtp
