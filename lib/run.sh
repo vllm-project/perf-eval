@@ -34,10 +34,11 @@ wait_healthy "$PORT"
 # on a full lm_eval pass. Each config's raw json lands in
 # $RESULTS_DIR/bench-<name>.json and is then transformed and POSTed to the
 # perf dashboard ingest endpoint.
-while IFS=$'\t' read -r bname dataset isl osl nprompts conc; do
+while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset speed_category; do
   [[ -z "$bname" ]] && continue
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
-                 "$bname" "$dataset" "$isl" "$osl" "$nprompts" "$conc" \
+                 "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
+                 "$conc" "$speed_subset" "$speed_category" \
                  "$RESULTS_DIR"
 
   python3 "$DIR/ingest_perf.py" \

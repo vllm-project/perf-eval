@@ -8,7 +8,8 @@ Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/VLLM_COMMIT/SERVE_ARGS
 (newline-separated KEY=VALUE pairs), WORKLOAD_LM_EVAL_TASKS_TSV, and
 WORKLOAD_VLLM_BENCH_TSV (bench configs to run after lm_eval). Each lm_eval TSV
 line is "name\\tnum_fewshot\\tmodel_args";
-each bench TSV line is "name\\tdataset\\tinput_len\\toutput_len\\tnum_prompts\\tmax_concurrency".
+each bench TSV line is
+"name\\tbackend\\tdataset\\tinput_len\\toutput_len\\tnum_prompts\\tmax_concurrency\\tspeed_bench_dataset_subset\\tspeed_bench_category".
 `lm_eval.model_args` (workload-level) is merged under each task's `model_args` block.
 
 Also sets WORKLOAD_BENCH_DEVICE/TP/PRECISION — metadata used to compute
@@ -45,7 +46,17 @@ import yaml
 TOP_FIELDS = ("name",)
 VLLM_FIELDS = ("model", "image", "serve_args")
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
-BENCH_FIELDS = {"name", "dataset", "input_len", "output_len", "num_prompts", "max_concurrency"}
+BENCH_FIELDS = {
+    "name",
+    "backend",
+    "dataset",
+    "input_len",
+    "output_len",
+    "num_prompts",
+    "max_concurrency",
+    "speed_bench_dataset_subset",
+    "speed_bench_category",
+}
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
 
 # When VLLM_COMMIT is set without VLLM_IMAGE, build the image URI from this
@@ -79,6 +90,13 @@ def fmt(v: object) -> str:
 
 def serialize(args: dict) -> str:
     return ",".join(f"{k}={fmt(v)}" for k, v in args.items())
+
+
+def optional_bench_field(config: dict, key: str) -> str:
+    value = config.get(key)
+    if value is None or value == "":
+        return "-"
+    return str(value)
 
 
 def known_task_names() -> set:
@@ -172,8 +190,11 @@ def main(path: str) -> None:
             sys.exit(f"{path}: duplicate vllm_bench config name {c['name']!r}")
         bench_names.add(c["name"])
         bench_lines.append(
-            f"{c['name']}\t{c.get('dataset', 'random')}\t{c['input_len']}\t"
-            f"{c['output_len']}\t{c['num_prompts']}\t{c['max_concurrency']}"
+            f"{c['name']}\t{optional_bench_field(c, 'backend')}\t"
+            f"{c.get('dataset', 'random')}\t{c['input_len']}\t{c['output_len']}\t"
+            f"{c['num_prompts']}\t{c['max_concurrency']}\t"
+            f"{optional_bench_field(c, 'speed_bench_dataset_subset')}\t"
+            f"{optional_bench_field(c, 'speed_bench_category')}"
         )
     print(f"WORKLOAD_VLLM_BENCH_TSV={shlex.quote(chr(10).join(bench_lines))}")
 

@@ -107,14 +107,19 @@ vllm_bench:
     precision: fp8         # default: matched against the model name (fp4/fp8/int4/int8/bf16/fp16)
   configs:
     - name: 1k-in-1k-out-conc-256   # used as the result filename
+      backend: null                  # optional; passed to `--backend` when set
       dataset: random               # passed to `vllm bench serve --dataset-name`
-      input_len: 1024
-      output_len: 1024
+      input_len: 1024                # passed as `--random-input-len` for random; used as ingest metadata for speed_bench
+      output_len: 1024               # passed as `--random-output-len` for random, `--speed-bench-output-len` for speed_bench
       num_prompts: 500
       max_concurrency: 256
+      speed_bench_dataset_subset: null       # optional; passed to `--speed-bench-dataset-subset`
+      speed_bench_category: null     # optional; passed to `--speed-bench-category`
 ```
 
 Each config is invoked as `docker exec <container> vllm bench serve …`, the raw JSON is copied to `results/<recipe-name>/bench-<config-name>.json`, and `lib/ingest_perf.py` transforms it (latencies ms → seconds, throughputs ÷ tp) before POSTing to the perf-dashboard ingest endpoint at `vllm-perf-data-ingest-…run.app`.
+
+For `dataset: random`, the runner uses vLLM's random dataset length flags. For `dataset: speed_bench`, the runner uses `--speed-bench-output-len`; `input_len` is still required so dashboard ingestion can tag the row. When `backend` is set, the runner passes `--base-url http://127.0.0.1:<port>` automatically.
 
 ## Add a recipe
 
