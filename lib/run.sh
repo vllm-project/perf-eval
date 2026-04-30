@@ -13,6 +13,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$DIR/server.sh"
 # shellcheck disable=SC1091
 source "$DIR/run_lm_eval.sh"
+# shellcheck disable=SC1091
+source "$DIR/run_vllm_bench.sh"
 eval "$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 
 PORT=8000
@@ -38,3 +40,22 @@ while IFS=$'\t' read -r task fewshot model_args; do
     --task "$task" \
     ${INGEST_NO_SAMPLES:+--no-samples} || true
 done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
+
+# vllm bench serve runs after lm_eval, against the same server. Each config's
+# raw json lands in $RESULTS_DIR/bench-<name>.json and is then transformed
+# and POSTed to the perf dashboard ingest endpoint.
+while IFS=$'\t' read -r bname dataset isl osl nprompts conc; do
+  [[ -z "$bname" ]] && continue
+  run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
+                 "$bname" "$dataset" "$isl" "$osl" "$nprompts" "$conc" \
+                 "$RESULTS_DIR"
+
+  python3 "$DIR/ingest_perf.py" \
+    --raw-result "${RESULTS_DIR}/bench-${bname}.json" \
+    --device "$WORKLOAD_BENCH_DEVICE" \
+    --tp "$WORKLOAD_BENCH_TP" \
+    --precision "$WORKLOAD_BENCH_PRECISION" \
+    --model "$WORKLOAD_MODEL" \
+    --image "$WORKLOAD_IMAGE" \
+    --isl "$isl" --osl "$osl" --conc "$conc" || true
+done <<< "$WORKLOAD_VLLM_BENCH_TSV"

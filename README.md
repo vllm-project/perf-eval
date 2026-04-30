@@ -95,6 +95,27 @@ Per-task top-level fields are limited to `name`, `num_fewshot`, `model_args`. An
 
 `num_fewshot` lives on the task (not the workload) because `lm_eval --num_fewshot` is a single global value — different tasks need different shot counts, so each runs as a separate `lm_eval` invocation. Results land in `results/<recipe-name>/<task-name>/`.
 
+### `vllm_bench:` block (optional)
+
+After `lm_eval` finishes, the orchestrator can run one or more `vllm bench serve` configs against the same server to capture throughput / latency metrics for the perf dashboard. Skip the block entirely if you don't want any bench runs.
+
+```yaml
+vllm_bench:
+  metadata:                # optional; auto-derived if omitted
+    device: h200           # default: lowercased `gpu` field
+    tp: 8                  # default: parsed from vllm.serve_args (TP * DP)
+    precision: fp8         # default: matched against the model name (fp4/fp8/int4/int8/bf16/fp16)
+  configs:
+    - name: 1k-in-1k-out-conc-256   # used as the result filename
+      dataset: random               # passed to `vllm bench serve --dataset-name`
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 500
+      max_concurrency: 256
+```
+
+Each config is invoked as `docker exec <container> vllm bench serve …`, the raw JSON is copied to `results/<recipe-name>/bench-<config-name>.json`, and `lib/ingest_perf.py` transforms it (latencies ms → seconds, throughputs ÷ tp) before POSTing to the perf-dashboard ingest endpoint at `vllm-perf-data-ingest-…run.app`.
+
 ## Add a recipe
 
 Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and set `nightly: true` if the workload should run in nightly scheduled builds. The pipeline dynamically discovers workloads — no need to edit `.buildkite/pipeline.yaml`.

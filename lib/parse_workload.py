@@ -5,10 +5,14 @@ Usage:
 
 Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/SERVE_ARGS (from the
 `vllm:` block and GPU profile), WORKLOAD_ENV (newline-separated KEY=VALUE
-pairs), and WORKLOAD_LM_EVAL_TASKS_TSV. Each TSV line is
-"name\\tnum_fewshot\\tmodel_args", where model_args is the comma-separated
-key=value string lm_eval expects. `lm_eval.model_args` (workload-level)
-is merged under each task's `model_args` block.
+pairs), WORKLOAD_LM_EVAL_TASKS_TSV, and WORKLOAD_VLLM_BENCH_TSV (bench configs
+to run after lm_eval). Each lm_eval TSV line is "name\\tnum_fewshot\\tmodel_args";
+each bench TSV line is "name\\tdataset\\tinput_len\\toutput_len\\tnum_prompts\\tmax_concurrency".
+`lm_eval.model_args` (workload-level) is merged under each task's `model_args` block.
+
+Also sets WORKLOAD_BENCH_DEVICE/TP/PRECISION — metadata used to compute
+per-GPU metrics and tag rows in the perf dashboard. Auto-derived from the
+GPU profile and serve_args; override via `vllm_bench.metadata`.
 
 Machine-specific defaults (image, HF_HOME, env) come from gpu_profiles.yaml,
 keyed by the workload's `gpu` field. The profile's `env:` block is merged
@@ -39,6 +43,8 @@ import yaml
 TOP_FIELDS = ("name",)
 VLLM_FIELDS = ("model", "image", "serve_args")
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
+BENCH_FIELDS = {"name", "dataset", "input_len", "output_len", "num_prompts", "max_concurrency"}
+BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
 
 # When VLLM_COMMIT is set without VLLM_IMAGE, build the image URI from this
 # template. vLLM publishes per-commit nightly images to Docker Hub as
@@ -127,6 +133,78 @@ def main(path: str) -> None:
         merged = {**base_args, **(t.get("model_args") or {})}
         lines.append(f"{t['name']}\t{t.get('num_fewshot', 0)}\t{serialize(merged)}")
     print(f"WORKLOAD_LM_EVAL_TASKS_TSV={shlex.quote(chr(10).join(lines))}")
+
+    # vllm_bench is optional; emit empty TSV when absent so run.sh can iterate.
+    bench = data.get("vllm_bench") or {}
+    bench_configs = bench.get("configs") or []
+    bench_names = set()
+    bench_lines = []
+    for c in bench_configs:
+        extra = set(c) - BENCH_FIELDS
+        if extra:
+            sys.exit(
+                f"{path}: vllm_bench config {c.get('name')!r} has unsupported fields "
+                f"{sorted(extra)}; allowed: {sorted(BENCH_FIELDS)}"
+            )
+        for k in BENCH_REQUIRED:
+            if c.get(k) is None:
+                sys.exit(f"{path}: vllm_bench config {c.get('name')!r} missing required field {k!r}")
+        if c["name"] in bench_names:
+            sys.exit(f"{path}: duplicate vllm_bench config name {c['name']!r}")
+        bench_names.add(c["name"])
+        bench_lines.append(
+            f"{c['name']}\t{c.get('dataset', 'random')}\t{c['input_len']}\t"
+            f"{c['output_len']}\t{c['num_prompts']}\t{c['max_concurrency']}"
+        )
+    print(f"WORKLOAD_VLLM_BENCH_TSV={shlex.quote(chr(10).join(bench_lines))}")
+
+    # Bench ingest metadata (device, tp, precision). Auto-derive defaults from
+    # the GPU profile and serve_args; allow `vllm_bench.metadata` to override.
+    metadata = bench.get("metadata") or {}
+    device = metadata.get("device") or gpu.lower()
+    tp = metadata.get("tp")
+    if tp is None:
+        tp = parse_tp(vllm.get("serve_args") or "")
+    precision = metadata.get("precision") or precision_from_model(vllm.get("model") or "")
+    print(f"WORKLOAD_BENCH_DEVICE={shlex.quote(str(device))}")
+    print(f"WORKLOAD_BENCH_TP={shlex.quote(str(tp))}")
+    print(f"WORKLOAD_BENCH_PRECISION={shlex.quote(str(precision))}")
+
+
+def parse_tp(serve_args: str) -> int:
+    """Best-effort parse of the effective parallel-degree (TP * DP) from serve_args.
+
+    `vllm bench serve` reports aggregate throughput; we divide by this to get
+    per-GPU metrics for the dashboard. Falls back to 1 if nothing matches.
+    """
+    toks = serve_args.split()
+    def find(*names):
+        for i, t in enumerate(toks):
+            if t in names and i + 1 < len(toks):
+                try:
+                    return int(toks[i + 1])
+                except ValueError:
+                    return None
+            if "=" in t:
+                key, _, val = t.partition("=")
+                if key in names:
+                    try:
+                        return int(val)
+                    except ValueError:
+                        return None
+        return None
+    tp = find("--tensor-parallel-size", "-tp", "--tp") or 1
+    dp = find("--data-parallel-size", "-dp", "--dp") or 1
+    return tp * dp
+
+
+def precision_from_model(model: str) -> str:
+    """Best-effort derivation: look at the HF repo name for a precision suffix."""
+    name = model.lower()
+    for marker in ("fp4", "fp8", "int4", "int8", "bf16", "fp16"):
+        if marker in name:
+            return marker
+    return "bf16"
 
 
 if __name__ == "__main__":

@@ -26,3 +26,12 @@ lm_eval:
       model_args:
         num_concurrent: 64
         max_length: 40960
+
+vllm_bench:
+  configs:
+    - name: 1k-in-1k-out-conc-256
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 500
+      max_concurrency: 256
