@@ -106,7 +106,8 @@ def manual(workloads):
         for w in workloads
     ]
     input_step = {
-        "input": "Select a workload to run",
+        "block": "Select workloads + overrides",
+        "key": "select-workloads",
         "fields": [
             {
                 "select": "Workloads",
@@ -134,6 +135,7 @@ def manual(workloads):
     }
     followup_step = {
         "label": ":pipeline: upload selected workloads",
+        "depends_on": "select-workloads",
         "agents": {"queue": "small_cpu_queue_premerge"},
         "commands": [
             "python3 -m pip install --user pyyaml 2>/dev/null || true",
