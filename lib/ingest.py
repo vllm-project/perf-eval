@@ -33,6 +33,14 @@ BK_ENV_VARS = (
     "BUILDKITE_COMMIT",
     "BUILDKITE_PIPELINE_SLUG",
 )
+# Top-level fields the dashboard reads to show "image" and the vLLM commit.
+# WORKLOAD_IMAGE is the resolved docker URI (set by parse_workload.py via the
+# VLLM_IMAGE / VLLM_COMMIT override env vars or the workload yaml's vllm.image).
+# VLLM_COMMIT is the build-level override env var if the user pinned a commit.
+VLLM_ENV_VARS = (
+    ("WORKLOAD_IMAGE", "image"),
+    ("VLLM_COMMIT", "vllm_commit"),
+)
 
 
 def post(endpoint: str, payload: dict) -> None:
@@ -54,6 +62,10 @@ def metadata(workload: str, task: str) -> dict:
         v = os.environ.get(k)
         if v:
             md[k.lower()] = v
+    for env_key, field in VLLM_ENV_VARS:
+        v = (os.environ.get(env_key) or "").strip()
+        if v:
+            md[field] = v
     return md
 
 
