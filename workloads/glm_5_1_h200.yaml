@@ -16,7 +16,6 @@ vllm:
     --reasoning-parser glm45
     --enable-auto-tool-choice
     --chat-template-content-format=string
-    --served-model-name glm-5.1-fp8
 
 lm_eval:
   model_args:
