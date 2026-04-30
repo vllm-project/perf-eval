@@ -19,7 +19,7 @@ start_server() {
   echo "--- :rocket: starting vllm: $model"
 
   local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
-                     -e VLLM_ENGINE_READY_TIMEOUT_S=1800
+                     -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
   local hf_home=""
   while IFS= read -r kv; do
@@ -44,7 +44,7 @@ start_server() {
 }
 
 wait_healthy() {
-  local port=$1 timeout=${2:-1500}
+  local port=$1 timeout=${2:-3600}
   echo "+++ :hourglass: waiting for /health (timeout ${timeout}s)"
   local deadline=$(( $(date +%s) + timeout ))
   while (( $(date +%s) < deadline )); do
