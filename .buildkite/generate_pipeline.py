@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Generate Buildkite pipeline steps from workload YAML files.
 
-Supports three trigger modes (via TRIGGER_MODE env var):
+Always emits one H200 step per selected workload. Selection rules:
 
-  nightly      (default) Run every workload with ``nightly: true``.
-  manual       Present a Buildkite input step so the user can pick a workload,
-               then a follow-up step uploads the real workload step.
-  run-selected Run a single workload specified by WORKLOAD env var.
-               Used internally by the manual-mode follow-up step.
+  WORKLOADS env var set?  → run exactly those paths (comma- or newline-
+                             separated; resolved against workloads/*.yaml)
+  Otherwise               → run every workload with ``nightly: true``
+
+Override env vars are propagated to each step:
+  VLLM_IMAGE   full docker image URI; overrides workload's vllm.image
+  VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
 
 Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 """
@@ -29,16 +31,6 @@ RUN_TEMPLATE = (
     " && ./lib/run.sh {path}"
 )
 
-
-def load_workloads():
-    workloads = []
-    for path in sorted(glob.glob("workloads/*.yaml")):
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        workloads.append({"path": path, "data": data})
-    return workloads
-
-
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
 
@@ -51,6 +43,15 @@ GPU_EMOJI = {
 def load_profiles():
     with open(PROFILES_PATH) as f:
         return yaml.safe_load(f)
+
+
+def load_workloads():
+    workloads = []
+    for path in sorted(glob.glob("workloads/*.yaml")):
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        workloads.append({"path": path, "data": data})
+    return workloads
 
 
 def make_step(path, data, profiles):
@@ -71,9 +72,6 @@ def make_step(path, data, profiles):
         "commands": SETUP_COMMANDS + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
-    # Propagate VLLM_IMAGE / VLLM_COMMIT to the H200 step so parse_workload.py
-    # picks them up. Set on the step (not just at build level) so the manual
-    # mode follow-up step can pass them through after reading meta-data.
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT")
@@ -84,120 +82,40 @@ def make_step(path, data, profiles):
     return step
 
 
-def nightly(workloads, profiles):
-    steps = [
-        make_step(w["path"], w["data"], profiles)
-        for w in workloads
-        if w["data"].get("nightly") is True
-    ]
-    if not steps:
-        sys.exit("TRIGGER_MODE=nightly but no workloads have nightly: true")
-    return steps
-
-
-def manual(workloads):
-    if not workloads:
-        sys.exit("TRIGGER_MODE=manual but no workload files found in workloads/")
-    options = [
-        {
-            "label": w["data"].get("name", os.path.basename(w["path"]).removesuffix(".yaml")),
-            "value": w["path"],
-        }
-        for w in workloads
-    ]
-    input_step = {
-        "block": "Select workloads + overrides",
-        "key": "select-workloads",
-        "fields": [
-            {
-                "select": "Workloads",
-                "key": "workloads",
-                "required": True,
-                "multiple": True,
-                "options": options,
-            },
-            {
-                "text": "Image override (optional)",
-                "key": "image",
-                "required": False,
-                "hint": "Full docker image URI; overrides workload's vllm.image",
-            },
-            {
-                "text": "vLLM commit (optional)",
-                "key": "vllm_commit",
-                "required": False,
-                "hint": (
-                    "Commit SHA → public.ecr.aws/q9t5s3a7/vllm/vllm-openai:<sha>."
-                    " Ignored if Image override is set."
-                ),
-            },
-        ],
-    }
-    followup_step = {
-        "label": ":pipeline: upload selected workloads",
-        "depends_on": "select-workloads",
-        "agents": {"queue": "small_cpu_queue_premerge"},
-        "commands": [
-            "python3 -m pip install --user pyyaml 2>/dev/null || true",
-            FOLLOWUP_BASH,
-        ],
-    }
-    return [input_step, followup_step]
-
-
-# Heredoc-quoted so YAML doesn't reflow it; all meta-data fetches use
-# --default so missing keys give a warning instead of failing silently.
-FOLLOWUP_BASH = """\
-set -euo pipefail
-WORKLOAD="$(buildkite-agent meta-data get workloads --default '')"
-VLLM_IMAGE="$(buildkite-agent meta-data get image --default '')"
-VLLM_COMMIT="$(buildkite-agent meta-data get vllm_commit --default '')"
-echo "selected workloads:"
-printf '  %s\\n' $WORKLOAD
-echo "image override: ${VLLM_IMAGE:-<none>}"
-echo "vllm commit:    ${VLLM_COMMIT:-<none>}"
-if [[ -z "$WORKLOAD" ]]; then
-  echo "no workloads selected — re-trigger and pick at least one" >&2
-  exit 1
-fi
-export WORKLOAD VLLM_IMAGE VLLM_COMMIT
-TRIGGER_MODE=run-selected python3 .buildkite/generate_pipeline.py | buildkite-agent pipeline upload
-"""
-
-
-def run_selected(profiles):
-    raw = os.environ.get("WORKLOAD", "")
-    if not raw:
-        sys.exit("TRIGGER_MODE=run-selected but WORKLOAD env var is not set")
-    # Manual-mode multi-select returns newline-separated values; env-var users
-    # may pass comma-separated. Accept either.
-    paths = [p.strip() for p in raw.replace(",", "\n").split("\n") if p.strip()]
-    if not paths:
-        sys.exit("TRIGGER_MODE=run-selected but WORKLOAD env var has no entries")
-    steps = []
-    for path in paths:
-        if not os.path.isfile(path):
-            sys.exit(f"workload not found: {path}")
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        steps.append(make_step(path, data, profiles))
-    return steps
+def select_workloads(workloads):
+    raw = (os.environ.get("WORKLOADS") or "").strip()
+    if raw:
+        # Accept comma- or newline-separated. Each entry is a workload path
+        # (e.g. workloads/qwen3_5_h200.yaml) or a bare name (qwen3_5_h200).
+        entries = [e.strip() for e in raw.replace(",", "\n").split("\n") if e.strip()]
+        by_path = {w["path"]: w for w in workloads}
+        by_stem = {os.path.basename(w["path"]).removesuffix(".yaml"): w for w in workloads}
+        selected = []
+        for e in entries:
+            if e in by_path:
+                selected.append(by_path[e])
+            elif e in by_stem:
+                selected.append(by_stem[e])
+            elif (f"workloads/{e}.yaml") in by_path:
+                selected.append(by_path[f"workloads/{e}.yaml"])
+            else:
+                sys.exit(f"WORKLOADS entry {e!r} did not match any file in workloads/")
+        return selected
+    return [w for w in workloads if w["data"].get("nightly") is True]
 
 
 def main():
-    mode = os.environ.get("TRIGGER_MODE", "nightly").lower()
-
     profiles = load_profiles()
-
-    if mode == "nightly":
-        steps = nightly(load_workloads(), profiles)
-    elif mode == "manual":
-        steps = manual(load_workloads())
-    elif mode == "run-selected":
-        steps = run_selected(profiles)
-    else:
-        sys.exit(f"unknown TRIGGER_MODE={mode!r} (expected nightly, manual, or run-selected)")
-
+    workloads = load_workloads()
+    if not workloads:
+        sys.exit("no workload files found in workloads/")
+    selected = select_workloads(workloads)
+    if not selected:
+        sys.exit(
+            "no workloads to run: WORKLOADS env var not set and no workload"
+            " has `nightly: true`"
+        )
+    steps = [make_step(w["path"], w["data"], profiles) for w in selected]
     print(yaml.dump({"steps": steps}, default_flow_style=False, sort_keys=False))
 
 

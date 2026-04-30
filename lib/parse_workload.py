@@ -41,8 +41,9 @@ VLLM_FIELDS = ("model", "image", "serve_args")
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 
 # When VLLM_COMMIT is set without VLLM_IMAGE, build the image URI from this
-# template. vLLM CI publishes per-commit OpenAI images to public ECR.
-COMMIT_IMAGE_TEMPLATE = "public.ecr.aws/q9t5s3a7/vllm/vllm-openai:{commit}"
+# template. vLLM publishes per-commit nightly images to Docker Hub as
+# vllm/vllm-openai:nightly-<sha>.
+COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 
 
 def fmt(v: object) -> str:

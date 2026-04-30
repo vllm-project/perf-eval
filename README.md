@@ -99,21 +99,15 @@ Per-task top-level fields are limited to `name`, `num_fewshot`, `model_args`. An
 
 Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and set `nightly: true` if the workload should run in nightly scheduled builds. The pipeline dynamically discovers workloads — no need to edit `.buildkite/pipeline.yaml`.
 
-## Buildkite pipeline modes
+## Buildkite pipeline
 
-The pipeline supports two trigger modes, controlled by the `TRIGGER_MODE` env var:
+The pipeline always emits one H200 step per selected workload. Selection is controlled by env vars set on the Buildkite build (via `environment` when triggering through the API, or the "Environment Variables" field in the UI's New Build dialog):
 
-- **`nightly`** (default) — discovers all `workloads/*.yaml` with `nightly: true` and runs each as a separate H200 step.
-- **`manual`** — presents an input step in the Buildkite UI where you select which workload to run (plus optional image / vLLM commit overrides), then generates a single H200 step for it.
+- `WORKLOADS` (optional) — comma- or newline-separated list of workload paths or stems (`workloads/qwen3_5_h200.yaml`, `qwen3_5_h200`, both work). When set, runs exactly those workloads; when unset, runs every workload with `nightly: true`.
+- `VLLM_IMAGE` (optional) — full Docker image URI. Overrides every workload's `vllm.image`.
+- `VLLM_COMMIT` (optional) — commit SHA; resolved as `vllm/vllm-openai:nightly-<sha>` on Docker Hub. Ignored if `VLLM_IMAGE` is set.
 
-### Overriding the vLLM image at trigger time
-
-Two env vars (also exposed as input fields in `manual` mode) let you swap the vLLM image without editing any workload YAML:
-
-- `VLLM_IMAGE` — full Docker image URI. Wins if both are set.
-- `VLLM_COMMIT` — commit SHA; resolved as `public.ecr.aws/q9t5s3a7/vllm/vllm-openai:<sha>`.
-
-Set them on the Buildkite build (e.g. via `environment` when triggering through the API) and they propagate to every workload step in the run; or use the input fields in `manual` mode to set them per-build via the UI. Workload-level `vllm.image` and the `vllm/vllm-openai:latest` default are only used when neither env var is set.
+With no env vars set, the build runs the nightly schedule. Image precedence is `VLLM_IMAGE` > `VLLM_COMMIT` > workload's `vllm.image` > `vllm/vllm-openai:latest`.
 
 ## Agents
 
