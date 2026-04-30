@@ -109,8 +109,8 @@ def manual(workloads):
         "input": "Select a workload to run",
         "fields": [
             {
-                "select": "Workload",
-                "key": "workload",
+                "select": "Workloads",
+                "key": "workloads",
                 "required": True,
                 "multiple": True,
                 "options": options,
@@ -133,18 +133,34 @@ def manual(workloads):
         ],
     }
     followup_step = {
-        "label": ":pipeline: upload selected workload",
+        "label": ":pipeline: upload selected workloads",
         "agents": {"queue": "small_cpu_queue_premerge"},
         "commands": [
             "python3 -m pip install --user pyyaml 2>/dev/null || true",
-            'WORKLOAD="$(buildkite-agent meta-data get workload)"'
-            ' VLLM_IMAGE="$(buildkite-agent meta-data get image --default \'\')"'
-            ' VLLM_COMMIT="$(buildkite-agent meta-data get vllm_commit --default \'\')"'
-            " TRIGGER_MODE=run-selected python3 .buildkite/generate_pipeline.py"
-            " | buildkite-agent pipeline upload",
+            FOLLOWUP_BASH,
         ],
     }
     return [input_step, followup_step]
+
+
+# Heredoc-quoted so YAML doesn't reflow it; all meta-data fetches use
+# --default so missing keys give a warning instead of failing silently.
+FOLLOWUP_BASH = """\
+set -euo pipefail
+WORKLOAD="$(buildkite-agent meta-data get workloads --default '')"
+VLLM_IMAGE="$(buildkite-agent meta-data get image --default '')"
+VLLM_COMMIT="$(buildkite-agent meta-data get vllm_commit --default '')"
+echo "selected workloads:"
+printf '  %s\\n' $WORKLOAD
+echo "image override: ${VLLM_IMAGE:-<none>}"
+echo "vllm commit:    ${VLLM_COMMIT:-<none>}"
+if [[ -z "$WORKLOAD" ]]; then
+  echo "no workloads selected — re-trigger and pick at least one" >&2
+  exit 1
+fi
+export WORKLOAD VLLM_IMAGE VLLM_COMMIT
+TRIGGER_MODE=run-selected python3 .buildkite/generate_pipeline.py | buildkite-agent pipeline upload
+"""
 
 
 def run_selected(profiles):
