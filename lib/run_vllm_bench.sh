@@ -43,19 +43,44 @@ PY
 }
 
 prepare_speed_bench_dataset_local() {
-  local subset=$1 data_dir=$2
+  local subset=$1 category=$2 data_dir=$3
   ensure_speed_bench_prepare_deps
   mkdir -p "$data_dir"
   if [[ ! -s "${data_dir}/${subset}.jsonl" ]]; then
     echo "--- :arrow_down: preparing SPEED-Bench ${subset} dataset in ${data_dir}"
-    curl -LsSf "$SPEED_BENCH_PREPARE_URL" | python3 - --config "$subset" --output_dir "$data_dir"
+    python3 - "$SPEED_BENCH_PREPARE_URL" "$subset" "$category" "$data_dir" <<'PY'
+import sys
+import urllib.request
+from pathlib import Path
+
+prepare_url, subset, category, data_dir = sys.argv[1:]
+source = urllib.request.urlopen(prepare_url, timeout=60).read()
+namespace = {"__name__": "speed_bench_prepare", "__file__": "prepare.py"}
+exec(compile(source, "prepare.py", "exec"), namespace)
+
+dataset = namespace["load_dataset"]("nvidia/SPEED-Bench", subset, split="test")
+if category:
+    dataset = dataset.filter(lambda example: example["category"] == category)
+dataset = namespace["_resolve_external_data"](dataset, subset)
+dataset = dataset.map(
+    lambda example: {
+        "messages": [
+            {"role": "user", "content": turn}
+            for turn in example["turns"]
+        ]
+    },
+    remove_columns=["turns"],
+)
+Path(data_dir).mkdir(parents=True, exist_ok=True)
+dataset.to_json(Path(data_dir) / f"{subset}.jsonl")
+PY
   fi
   test -s "${data_dir}/${subset}.jsonl"
 }
 
 prepare_speed_bench_dataset() {
-  local container=$1 runtime=$2 subset=$3 data_dir=$4
-  prepare_speed_bench_dataset_local "$subset" "$data_dir"
+  local container=$1 runtime=$2 subset=$3 category=$4 data_dir=$5
+  prepare_speed_bench_dataset_local "$subset" "$category" "$data_dir"
   if [[ "$runtime" != "native" ]]; then
     docker exec "$container" mkdir -p "$data_dir"
     docker cp "${data_dir}/." "${container}:${data_dir}/"
@@ -104,9 +129,13 @@ run_vllm_bench() {
     cmd+=(--random-input-len "$input_len" --random-output-len "$output_len")
   elif [[ "$dataset" == "speed_bench" ]]; then
     [[ -z "$speed_bench_dataset_subset" ]] && speed_bench_dataset_subset="qualitative"
-    speed_bench_dataset_dir="${VLLM_SPEED_BENCH_DIR:-/tmp/vllm-speed-bench}"
+    speed_bench_dataset_dir="${VLLM_SPEED_BENCH_DIR:-/tmp/vllm-speed-bench}/${speed_bench_dataset_subset}"
+    if [[ -n "$speed_bench_category" ]]; then
+      speed_bench_dataset_dir="${speed_bench_dataset_dir}-${speed_bench_category}"
+    fi
     prepare_speed_bench_dataset \
-      "$container" "$runtime" "$speed_bench_dataset_subset" "$speed_bench_dataset_dir"
+      "$container" "$runtime" "$speed_bench_dataset_subset" \
+      "$speed_bench_category" "$speed_bench_dataset_dir"
     cmd+=(
       --dataset-path "$speed_bench_dataset_dir"
       --speed-bench-output-len "$output_len"
