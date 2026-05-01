@@ -1,13 +1,15 @@
-# Kimi-K2.5 on B200 (per vLLM recipe: 8xB200 verified)
+# Kimi-K2.5 on B200. The vLLM Blackwell recipe uses TP4; keep the
+# context window bounded for the 8k/1k bench workload.
 name: kimi_k2_5-b200
 gpu: B200
-num_gpus: 8
+num_gpus: 4
 nightly: false
 
 vllm:
   model: moonshotai/Kimi-K2.5
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 4
+    --max-model-len 16384
     --mm-encoder-tp-mode data
     --tool-call-parser kimi_k2
     --reasoning-parser kimi_k2

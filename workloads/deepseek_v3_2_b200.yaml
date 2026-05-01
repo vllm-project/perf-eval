@@ -1,6 +1,5 @@
-# DeepSeek-V3.2 on B200
-# Initial B200 recipe mirrors the current H200 serve args; tune after the
-# first B200 perf run if the recommended parallelism differs.
+# DeepSeek-V3.2 on B200. The vLLM recipe recommends DP/EP on Blackwell
+# instead of TP8; keep the context window bounded for the 8k/1k bench workload.
 name: deepseek_v3_2-b200
 gpu: B200
 num_gpus: 8
@@ -11,7 +10,9 @@ vllm:
   env:
     TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
   serve_args: >-
-    --tensor-parallel-size 8
+    --data-parallel-size 8
+    --enable-expert-parallel
+    --max-model-len 16384
     --tokenizer-mode deepseek_v32
     --tool-call-parser deepseek_v32
     --reasoning-parser deepseek_v3
