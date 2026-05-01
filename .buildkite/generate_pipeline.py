@@ -21,21 +21,25 @@ import sys
 
 import yaml
 
-FULL_SETUP_COMMANDS = [
-    "python3 -m venv .venv",
-    ". .venv/bin/activate"
-    " && (python -m ensurepip --upgrade --default-pip 2>/dev/null"
-    " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)"
-    " && python -m pip install --upgrade 'lm-eval[api]' pyyaml",
-]
+def setup_command(packages):
+    return (
+        "if python3 -m venv .venv; then\n"
+        "  . .venv/bin/activate\n"
+        "  (python -m ensurepip --upgrade --default-pip 2>/dev/null"
+        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)\n"
+        f"  python -m pip install --upgrade {packages}\n"
+        "else\n"
+        "  rm -rf .venv\n"
+        "  (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
+        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user)\n"
+        f"  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade {packages}\n"
+        "fi"
+    )
 
-BENCH_ONLY_SETUP_COMMANDS = [
-    "python3 -m venv .venv",
-    ". .venv/bin/activate"
-    " && (python -m ensurepip --upgrade --default-pip 2>/dev/null"
-    " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)"
-    " && python -m pip install --upgrade pyyaml",
-]
+
+FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
+
+BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
 RUN_TEMPLATE = (
     'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
