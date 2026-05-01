@@ -14,7 +14,7 @@ vllm:
     --tensor-parallel-size 2
     --data-parallel-size 4
     --enable-expert-parallel
-    --max-model-len 16384
+    --max-model-len 32768
     --tokenizer-mode deepseek_v32
     --tool-call-parser deepseek_v32
     --reasoning-parser deepseek_v3
@@ -31,7 +31,7 @@ lm_eval:
       num_fewshot: 5
       model_args:
         num_concurrent: 64
-        max_length: 16384
+        max_length: 32768
         max_gen_toks: 4096
 
 vllm_bench:
