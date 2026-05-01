@@ -120,6 +120,7 @@ vllm_bench:
 Each config is invoked as `docker exec <container> vllm bench serve …`, the raw JSON is copied to `results/<recipe-name>/bench-<config-name>.json`, and `lib/ingest_perf.py` transforms it (latencies ms → seconds, throughputs ÷ tp) before POSTing to the perf-dashboard ingest endpoint at `vllm-perf-data-ingest-…run.app`.
 
 For `dataset: random`, the runner uses vLLM's random dataset length flags. For `dataset: speed_bench`, the runner uses `--speed-bench-output-len`; `input_len` is still required so dashboard ingestion can tag the row. When `backend` is set, the runner passes `--base-url http://127.0.0.1:<port>` automatically.
+When `backend: openai-chat` is set, the runner also passes `--endpoint /v1/chat/completions`.
 `speed_bench` requires a vLLM image whose `vllm bench serve` CLI includes that dataset; older images such as `vllm/vllm-openai:v0.19.0` only support the random/spec/custom/HF dataset families.
 
 ## Add a recipe

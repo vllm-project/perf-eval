@@ -29,6 +29,9 @@ run_vllm_bench() {
   local cmd=(docker exec "$container" vllm bench serve)
   if [[ -n "$backend" ]]; then
     cmd+=(--backend "$backend" --base-url "http://127.0.0.1:${port}")
+    if [[ "$backend" == "openai-chat" ]]; then
+      cmd+=(--endpoint /v1/chat/completions)
+    fi
   else
     cmd+=(--host 127.0.0.1 --port "$port")
   fi
