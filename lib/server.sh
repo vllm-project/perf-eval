@@ -63,7 +63,10 @@ start_server() {
 wait_healthy() {
   local port=$1 timeout=${2:-3600}
   echo "+++ :hourglass: waiting for /health (timeout ${timeout}s)"
-  local deadline=$(( $(date +%s) + timeout ))
+  local now start deadline next_status elapsed
+  start=$(date +%s)
+  deadline=$(( start + timeout ))
+  next_status=$(( start + 60 ))
   while (( $(date +%s) < deadline )); do
     if curl -fs "http://localhost:${port}/health" >/dev/null 2>&1; then
       echo "server healthy"
@@ -73,6 +76,12 @@ wait_healthy() {
       echo "vLLM server exited before becoming healthy" >&2
       [[ -n "${VLLM_LOG_FILE:-}" ]] && tail -n 80 "$VLLM_LOG_FILE" >&2 || true
       return 1
+    fi
+    now=$(date +%s)
+    if (( now >= next_status )); then
+      elapsed=$(( now - start ))
+      echo "still waiting for /health after ${elapsed}s"
+      next_status=$(( now + 60 ))
     fi
     sleep 5
   done
