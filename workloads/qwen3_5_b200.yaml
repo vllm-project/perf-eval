@@ -3,6 +3,7 @@ name: qwen3_5-b200
 gpu: B200
 num_gpus: 8
 nightly: false
+bench_only: true
 
 vllm:
   model: Qwen/Qwen3.5-397B-A17B-FP8

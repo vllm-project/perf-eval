@@ -12,6 +12,9 @@ Override env vars are propagated to each step:
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
   BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
 
+Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
+without forcing the whole build to skip lm_eval.
+
 Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 """
 
@@ -153,11 +156,10 @@ def make_step(path, data, profiles):
     queue = profile["queue"]
     timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
     emoji = GPU_EMOJI.get(gpu, ":buildkite:")
-    setup_commands = (
-        BENCH_ONLY_SETUP_COMMANDS
-        if is_truthy(os.environ.get("BENCH_ONLY"))
-        else FULL_SETUP_COMMANDS
+    bench_only = is_truthy(os.environ.get("BENCH_ONLY")) or is_truthy(
+        data.get("bench_only")
     )
+    setup_commands = BENCH_ONLY_SETUP_COMMANDS if bench_only else FULL_SETUP_COMMANDS
     step = {
         "label": f"{emoji} {name}",
         "agents": {"queue": queue},
@@ -172,6 +174,8 @@ def make_step(path, data, profiles):
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
         if os.environ.get(k)
     }
+    if bench_only and "BENCH_ONLY" not in step_env:
+        step_env["BENCH_ONLY"] = "1"
     if step_env:
         step["env"] = step_env
     return step

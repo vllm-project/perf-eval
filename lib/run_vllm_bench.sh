@@ -74,5 +74,37 @@ run_vllm_bench() {
   if [[ "$runtime" != "native" ]]; then
     docker cp "${container}:${in_container_json}" "$host_json"
   fi
+  python3 - "$host_json" "$num_prompts" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+expected = int(sys.argv[2])
+
+with open(path) as f:
+    result = json.load(f)
+
+
+def read_int(*keys, default=None):
+    for key in keys:
+        value = result.get(key)
+        if value is not None:
+            return int(value)
+    if default is not None:
+        return default
+    raise KeyError(keys[0])
+
+
+completed = read_int("completed", "successful", "successful_requests")
+failed = read_int("failed", "errored", "failed_requests", "num_failed_requests", default=0)
+
+if failed or completed != expected:
+    print(
+        f"vllm bench serve incomplete: completed={completed} "
+        f"failed={failed} expected={expected}",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+PY
   echo "  saved $host_json"
 }

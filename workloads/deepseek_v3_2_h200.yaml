@@ -11,7 +11,10 @@ vllm:
   env:
     TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 2
+    --data-parallel-size 4
+    --enable-expert-parallel
+    --max-model-len 16384
     --tokenizer-mode deepseek_v32
     --tool-call-parser deepseek_v32
     --reasoning-parser deepseek_v3
@@ -28,8 +31,8 @@ lm_eval:
       num_fewshot: 5
       model_args:
         num_concurrent: 64
-        max_length: 40960
-        max_gen_toks: 32768
+        max_length: 16384
+        max_gen_toks: 4096
 
 vllm_bench:
   configs:
