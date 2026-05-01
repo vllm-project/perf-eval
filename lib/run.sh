@@ -15,7 +15,8 @@ source "$DIR/server.sh"
 source "$DIR/run_lm_eval.sh"
 # shellcheck disable=SC1091
 source "$DIR/run_vllm_bench.sh"
-eval "$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
+WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
+eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT
 
 PORT=8000

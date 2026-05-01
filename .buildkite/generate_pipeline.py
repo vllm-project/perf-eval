@@ -38,7 +38,7 @@ BENCH_ONLY_SETUP_COMMANDS = [
 ]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="$PWD/.hf-cache" PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"'
+    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
 
