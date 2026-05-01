@@ -87,6 +87,33 @@ prepare_speed_bench_dataset() {
   fi
 }
 
+ensure_speed_bench_runtime_deps() {
+  local container=$1 runtime=$2
+  if [[ "$runtime" == "native" ]]; then
+    if ! python3 -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("pandas") else 1)'; then
+      echo "--- :python: installing SPEED-Bench runtime dependencies"
+      if python3 - <<'PY'
+import sys
+sys.exit(0 if sys.prefix != sys.base_prefix else 1)
+PY
+      then
+        python3 -m pip install --quiet pandas
+      else
+        PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet pandas
+      fi
+    fi
+  else
+    if ! docker exec "$container" python3 -c 'import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("pandas") else 1)'; then
+      echo "--- :docker: installing SPEED-Bench runtime dependencies in vLLM container"
+      docker exec "$container" bash -lc '
+set -e
+PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet pandas ||
+  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet pandas
+'
+    fi
+  fi
+}
+
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
@@ -136,6 +163,7 @@ run_vllm_bench() {
     prepare_speed_bench_dataset \
       "$container" "$runtime" "$speed_bench_dataset_subset" \
       "$speed_bench_category" "$speed_bench_dataset_dir"
+    ensure_speed_bench_runtime_deps "$container" "$runtime"
     cmd+=(
       --dataset-path "$speed_bench_dataset_dir"
       --speed-bench-output-len "$output_len"
