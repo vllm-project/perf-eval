@@ -12,6 +12,28 @@
 # container. The raw JSON lands in "<output_dir>/bench-<name>.json" on the host
 # so the perf-ingest helper can pick it up.
 
+SPEED_BENCH_PREPARE_URL="https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py"
+
+prepare_speed_bench_dataset() {
+  local container=$1 runtime=$2 subset=$3 data_dir=$4
+  local script='set -euo pipefail
+data_dir=$1
+subset=$2
+prepare_url=$3
+mkdir -p "$data_dir"
+if [[ ! -s "${data_dir}/${subset}.jsonl" ]]; then
+  echo "--- :arrow_down: preparing SPEED-Bench ${subset} dataset in ${data_dir}"
+  curl -LsSf "$prepare_url" | python3 - --config "$subset" --output_dir "$data_dir"
+fi
+test -s "${data_dir}/${subset}.jsonl"'
+
+  if [[ "$runtime" == "native" ]]; then
+    bash -lc "$script" _ "$data_dir" "$subset" "$SPEED_BENCH_PREPARE_URL"
+  else
+    docker exec "$container" bash -lc "$script" _ "$data_dir" "$subset" "$SPEED_BENCH_PREPARE_URL"
+  fi
+}
+
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
@@ -20,6 +42,7 @@ run_vllm_bench() {
   local in_container_json="/tmp/bench-${name}.json"
   local host_json="${outdir}/bench-${name}.json"
   local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
+  local speed_bench_dataset_dir=""
 
   [[ "$backend" == "-" ]] && backend=""
   [[ "$speed_bench_dataset_subset" == "-" ]] && speed_bench_dataset_subset=""
@@ -52,7 +75,14 @@ run_vllm_bench() {
   if [[ "$dataset" == "random" ]]; then
     cmd+=(--random-input-len "$input_len" --random-output-len "$output_len")
   elif [[ "$dataset" == "speed_bench" ]]; then
-    cmd+=(--speed-bench-output-len "$output_len")
+    [[ -z "$speed_bench_dataset_subset" ]] && speed_bench_dataset_subset="qualitative"
+    speed_bench_dataset_dir="${VLLM_SPEED_BENCH_DIR:-/tmp/vllm-speed-bench}"
+    prepare_speed_bench_dataset \
+      "$container" "$runtime" "$speed_bench_dataset_subset" "$speed_bench_dataset_dir"
+    cmd+=(
+      --dataset-path "$speed_bench_dataset_dir"
+      --speed-bench-output-len "$output_len"
+    )
     if [[ -n "$speed_bench_dataset_subset" ]]; then
       cmd+=(--speed-bench-dataset-subset "$speed_bench_dataset_subset")
     fi

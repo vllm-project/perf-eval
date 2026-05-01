@@ -26,6 +26,8 @@ Image precedence (highest first):
   2. `VLLM_COMMIT` env var (commit SHA → public ECR vllm-openai image)
   3. `vllm.image` from the workload YAML
   4. `vllm/vllm-openai:latest` (default)
+If both `VLLM_IMAGE` and `VLLM_COMMIT` are set, `VLLM_IMAGE` still selects the
+image and `VLLM_COMMIT` is retained as result metadata.
 
 Per-task top-level fields are limited to `name`, `num_fewshot`, and
 `model_args`; any other top-level field is rejected with a hint to move
@@ -154,7 +156,7 @@ def main(path: str) -> None:
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     if override_image:
         image = override_image
-        vllm_commit = commit_from_image(image)
+        vllm_commit = override_commit or commit_from_image(image)
     elif override_commit:
         image = COMMIT_IMAGE_TEMPLATE.format(commit=override_commit)
         vllm_commit = override_commit
