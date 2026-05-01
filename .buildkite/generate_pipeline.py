@@ -145,6 +145,11 @@ def load_workloads():
     return workloads
 
 
+def queue_for_gpu(gpu, profile):
+    override = (os.environ.get(f"{gpu.upper()}_QUEUE") or "").strip()
+    return override or profile["queue"]
+
+
 def make_step(path, data, profiles):
     name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
     gpu = data.get("gpu")
@@ -153,7 +158,7 @@ def make_step(path, data, profiles):
     profile = profiles.get(gpu)
     if not profile:
         sys.exit(f"{path}: unknown gpu {gpu!r} (expected one of {', '.join(profiles)})")
-    queue = profile["queue"]
+    queue = queue_for_gpu(gpu, profile)
     timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
     emoji = GPU_EMOJI.get(gpu, ":buildkite:")
     bench_only = is_truthy(os.environ.get("BENCH_ONLY")) or is_truthy(
