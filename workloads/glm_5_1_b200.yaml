@@ -1,0 +1,41 @@
+# GLM-5.1 (FP8) on B200
+# Recipe recommends the glm51-cu130 image when CUDA >= 13.
+# MTP speculative decoding is part of the recommended config.
+name: glm_5_1-b200
+gpu: B200
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: zai-org/GLM-5.1-FP8
+  serve_args: >-
+    --tensor-parallel-size 8
+    --speculative-config.method mtp
+    --speculative-config.num_speculative_tokens 3
+    --tool-call-parser glm47
+    --reasoning-parser glm45
+    --enable-auto-tool-choice
+    --chat-template-content-format=string
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128

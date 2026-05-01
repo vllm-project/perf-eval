@@ -18,7 +18,7 @@ This applies to non-trivial changes (new code, refactors, design decisions). Pur
 
 ## Local testing
 
-You cannot run a real eval locally — it needs an H200 host with Docker, vLLM, and lm-eval installed. What you *can* run locally:
+You cannot run a real eval locally — it needs a GPU host with Docker, vLLM, and lm-eval installed. What you *can* run locally:
 
 **Parser smoke test** — exec the parser with a stubbed `lm_eval` registry to verify TSV output and validation behavior. The stub avoids needing `lm-eval` installed; populate `all_tasks` with the names referenced by the YAML under test:
 
@@ -50,7 +50,7 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
 - **pipeline**: `perf-eval`
 - **repo**: `github.com/vllm-project/perf-eval`
 - **default branch**: `main`
-- **what it runs**: a dynamic pipeline. A bootstrap step runs `.buildkite/generate_pipeline.py` which reads `TRIGGER_MODE` (default `nightly`) and generates per-workload H200 steps. In nightly mode it discovers all `workloads/*.yaml` with `nightly: true`. In manual mode it presents a Buildkite input step for workload selection.
+- **what it runs**: a dynamic pipeline. A bootstrap step runs `.buildkite/generate_pipeline.py` and generates per-workload steps using each workload's GPU profile. When `WORKLOADS` is set, it runs exactly those workload paths or stems. Otherwise it discovers all `workloads/*.yaml` with `nightly: true`.
 
 ### Workflow
 
@@ -61,9 +61,7 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
    - `commit: "<full SHA>"`
    - `branch: "<branch name>"` (use the actual branch, not `main`, when testing a feature branch)
    - `message: "<short description of what this tests>"` — match the existing convention: short, action-oriented (e.g. "Add gpqa diamond", "Writable HF_HOME for lm_eval datasets cache"). No emoji unless the user asks.
-   - `environment`: pass `TRIGGER_MODE` to control the pipeline mode:
-     - Omit or `[{key: "TRIGGER_MODE", value: "nightly"}]` — runs all `nightly: true` workloads.
-     - `[{key: "TRIGGER_MODE", value: "manual"}]` — presents a workload picker in the Buildkite UI (only useful when the user will interact with the build page).
+   - `environment`: pass `WORKLOADS` for an explicit workload list, `VLLM_IMAGE` or `VLLM_COMMIT` for image selection, and `BENCH_ONLY=true` when only the `vllm_bench` configs should run. Omit `WORKLOADS` to run all `nightly: true` workloads.
 3. **Report the build URL** back to the user immediately so they can follow along; the response includes `web_url`.
 
 ### Watching a running build
@@ -72,10 +70,10 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
 - `mcp__claude_ai_Buildkite__tail_logs` with the `job_id` for the most recent log lines — start here for failure diagnosis, it's far cheaper than `read_logs`.
 - `mcp__claude_ai_Buildkite__search_logs` with patterns like `"error|failed|exception|Traceback"` if `tail_logs` doesn't show the failure.
 
-A typical build takes ~30–90 minutes (the step has a 120-min hard timeout) — it downloads model weights into a per-build HF cache, then runs every task in the workload. The H200 queue is shared with other vLLM pipelines, so don't trigger duplicate builds for the same commit unless asked.
+A typical build takes ~30–90 minutes (the step has a 120-min hard timeout) — it downloads model weights into the workload GPU profile's HF cache, then runs every task in the workload. GPU queues are shared with other vLLM pipelines, so don't trigger duplicate builds for the same commit unless asked.
 
 ### Don't
 
-- Don't push to `main` or trigger builds without the user asking. Triggering a build is visible to the team and consumes H200 minutes.
+- Don't push to `main` or trigger builds without the user asking. Triggering a build is visible to the team and consumes GPU minutes.
 - Don't `--no-verify` past failing pre-commit hooks just to get a build out. Fix the hook failure first.
-- Don't change the `queue: H200` in `.buildkite/pipeline.yaml` or `generate_pipeline.py` — it's the only queue with the right hardware.
+- Don't hard-code GPU queues in `.buildkite/pipeline.yaml` or `generate_pipeline.py`; add or update entries in `lib/gpu_profiles.yaml` instead.

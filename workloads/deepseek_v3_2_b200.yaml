@@ -1,0 +1,42 @@
+# DeepSeek-V3.2 on B200
+# Initial B200 recipe mirrors the current H200 serve args; tune after the
+# first B200 perf run if the recommended parallelism differs.
+name: deepseek_v3_2-b200
+gpu: B200
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: deepseek-ai/DeepSeek-V3.2
+  env:
+    TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+  serve_args: >-
+    --tensor-parallel-size 8
+    --tokenizer-mode deepseek_v32
+    --tool-call-parser deepseek_v32
+    --reasoning-parser deepseek_v3
+    --enable-auto-tool-choice
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128

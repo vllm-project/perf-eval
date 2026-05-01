@@ -5,7 +5,7 @@
 #   run_vllm_bench <container> <port> <model> <name> <backend> <dataset> \
 #                  <input_len> <output_len> <num_prompts> <max_concurrency> \
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
-#                  <output_dir>
+#                  <trust_remote_code> <output_dir>
 #
 # `vllm bench serve` is invoked inside the vllm/vllm-openai container via
 # `docker exec` so we don't need vLLM installed on the host. The raw JSON it
@@ -15,7 +15,8 @@
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
-  local speed_bench_dataset_subset=${11} speed_bench_category=${12} outdir=${13}
+  local speed_bench_dataset_subset=${11} speed_bench_category=${12}
+  local trust_remote_code=${13} outdir=${14}
   local in_container_json="/tmp/bench-${name}.json"
   local host_json="${outdir}/bench-${name}.json"
 
@@ -41,6 +42,9 @@ run_vllm_bench() {
     --num-prompts "$num_prompts"
     --max-concurrency "$max_concurrency"
   )
+  if [[ "$trust_remote_code" == "true" ]]; then
+    cmd+=(--trust-remote-code)
+  fi
   if [[ "$dataset" == "random" ]]; then
     cmd+=(--random-input-len "$input_len" --random-output-len "$output_len")
   elif [[ "$dataset" == "speed_bench" ]]; then

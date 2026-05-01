@@ -22,6 +22,11 @@ PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
 RESULTS_DIR="results/${WORKLOAD_NAME}"
 BASE_URL="http://localhost:${PORT}"
+BENCH_TRUST_REMOTE_CODE=false
+if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$) ]] ||
+   [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code=(true|True|1|yes|Yes)([[:space:]]|$) ]]; then
+  BENCH_TRUST_REMOTE_CODE=true
+fi
 mkdir -p "$RESULTS_DIR"
 
 trap 'stop_server "$CONTAINER"' EXIT
@@ -39,7 +44,7 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
                  "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
                  "$conc" "$speed_subset" "$speed_category" \
-                 "$RESULTS_DIR"
+                 "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
 
   python3 "$DIR/ingest_perf.py" \
     --raw-result "${RESULTS_DIR}/bench-${bname}.json" \

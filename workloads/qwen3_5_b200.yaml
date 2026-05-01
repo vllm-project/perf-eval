@@ -1,0 +1,38 @@
+# Qwen3.5 on B200
+name: qwen3_5-b200
+gpu: B200
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: Qwen/Qwen3.5-397B-A17B-FP8
+  serve_args: >-
+    --tensor-parallel-size 8
+    --enable-expert-parallel
+    --reasoning-parser qwen3
+    --language-model-only
+    --trust-remote-code
+    --max-num-seqs 256
+    --max-model-len auto
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128

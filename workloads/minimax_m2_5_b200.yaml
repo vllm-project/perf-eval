@@ -1,0 +1,41 @@
+# MiniMax-M2.5 on B200
+# Recipe recommends TP=4 + EP.
+# Skipping --compilation-config (kernel-fusion perf opt) to avoid YAML/shell
+# quoting headaches with its inline JSON value; can add later if needed.
+name: minimax_m2_5-b200
+gpu: B200
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: MiniMaxAI/MiniMax-M2.5
+  serve_args: >-
+    --tensor-parallel-size 4
+    --enable-expert-parallel
+    --tool-call-parser minimax_m2
+    --reasoning-parser minimax_m2
+    --enable-auto-tool-choice
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128

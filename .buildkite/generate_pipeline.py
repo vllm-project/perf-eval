@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate Buildkite pipeline steps from workload YAML files.
 
-Always emits one H200 step per selected workload. Selection rules:
+Always emits one GPU-profiled step per selected workload. Selection rules:
 
   WORKLOADS env var set?  → run exactly those paths (comma- or newline-
                              separated; resolved against workloads/*.yaml)
@@ -37,6 +37,7 @@ PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profil
 
 GPU_EMOJI = {
     "H200": ":h200:",
+    "B200": ":b200:",
     "A100": ":a100:",
 }
 

@@ -2,13 +2,15 @@
 
 Run accuracy + perf workloads against vLLM, defined by small YAML recipes.
 
-Today: gsm8k + aime25 on Qwen3.5 (H200). Will grow.
+Workloads are split by model and hardware. H200 recipes are currently included
+in the nightly schedule; B200 recipes are separate opt-in configs.
 
 ## Layout
 
 ```
 workloads/
   qwen3_5_h200.yaml      # one recipe = one (model, hardware, set of tasks)
+  qwen3_5_b200.yaml      # hardware variants live in separate recipe files
 lib/
   run.sh                 # orchestrator: parses recipe, brings up vLLM, dispatches tasks
   parse_workload.py      # YAML → shell exports + lm_eval task validation
@@ -17,7 +19,7 @@ lib/
   gpu_profiles.yaml      # machine-specific defaults (queue, image, HF_HOME) per GPU type
 .buildkite/
   pipeline.yaml          # bootstrap step: runs generate_pipeline.py
-  generate_pipeline.py   # generates per-workload steps (nightly or manual)
+  generate_pipeline.py   # generates per-workload steps (nightly or selected)
 CLAUDE.md                # agent instructions (testing, build triggers, conventions)
 ```
 
@@ -121,22 +123,25 @@ Each config is invoked as `docker exec <container> vllm bench serve …`, the ra
 
 For `dataset: random`, the runner uses vLLM's random dataset length flags. For `dataset: speed_bench`, the runner uses `--speed-bench-output-len`; `input_len` is still required so dashboard ingestion can tag the row. When `backend` is set, the runner passes `--base-url http://127.0.0.1:<port>` automatically.
 When `backend: openai-chat` is set, the runner also passes `--endpoint /v1/chat/completions`.
+When `vllm.serve_args` includes `--trust-remote-code`, the runner also passes `--trust-remote-code` to `vllm bench serve` so the bench-side tokenizer can load models that require custom code.
 `speed_bench` requires a vLLM image whose `vllm bench serve` CLI includes that dataset; older images such as `vllm/vllm-openai:v0.19.0` only support the random/spec/custom/HF dataset families.
 
 ## Add a recipe
 
-Copy `workloads/qwen3_5_h200.yaml`, edit the fields above, and set `nightly: true` if the workload should run in nightly scheduled builds. The pipeline dynamically discovers workloads — no need to edit `.buildkite/pipeline.yaml`.
+Copy an existing workload, edit the fields above, and set `nightly: true` if the workload should run in nightly scheduled builds. Keep hardware variants as separate recipe files, for example `*_h200.yaml` and `*_b200.yaml`. The pipeline dynamically discovers workloads — no need to edit `.buildkite/pipeline.yaml`.
 
 ## Buildkite pipeline
 
-The pipeline always emits one H200 step per selected workload. Selection is controlled by env vars set on the Buildkite build (via `environment` when triggering through the API, or the "Environment Variables" field in the UI's New Build dialog):
+The pipeline emits one step per selected workload, using the workload's `gpu` field to choose the Buildkite queue and GPU defaults from `lib/gpu_profiles.yaml`. Selection is controlled by env vars set on the Buildkite build (via `environment` when triggering through the API, or the "Environment Variables" field in the UI's New Build dialog):
 
-- `WORKLOADS` (optional) — comma- or newline-separated list of workload paths or stems (`workloads/qwen3_5_h200.yaml`, `qwen3_5_h200`, both work). When set, runs exactly those workloads; when unset, runs every workload with `nightly: true`.
+- `WORKLOADS` (optional) — comma- or newline-separated list of workload paths or stems (`workloads/qwen3_5_h200.yaml`, `qwen3_5_h200`, `qwen3_5_b200` all work). When set, runs exactly those workloads; when unset, runs every workload with `nightly: true`.
 - `VLLM_IMAGE` (optional) — full Docker image URI. Overrides every workload's `vllm.image`.
 - `VLLM_COMMIT` (optional) — commit SHA; resolved as `vllm/vllm-openai:nightly-<sha>` on Docker Hub. Ignored if `VLLM_IMAGE` is set.
 - `BENCH_ONLY` (optional) — set to `true`, `1`, or `yes` to run `vllm_bench` configs and skip `lm_eval` tasks.
 
 With no env vars set, the build runs the nightly schedule. Image precedence is `VLLM_IMAGE` > `VLLM_COMMIT` > workload's `vllm.image` > `vllm/vllm-openai:latest`.
+
+B200 configs use the `B200` GPU profile, which routes to the `b200-k8s` queue and uses `/mnt/shared/hf_cache` for Hugging Face cache. They are currently `nightly: false`, so run them explicitly with `WORKLOADS`.
 
 Eval result ingestion includes the resolved Docker image as `image`. It also includes `vllm_commit` when the run used `VLLM_COMMIT` or when the resolved image tag carries a commit, such as `vllm/vllm-openai:nightly-<sha>`.
 
