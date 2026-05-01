@@ -13,7 +13,7 @@ vllm:
   serve_args: >-
     --data-parallel-size 8
     --enable-expert-parallel
-    --max-model-len 32768
+    --max-model-len 40960
     --tokenizer-mode deepseek_v32
     --tool-call-parser deepseek_v32
     --reasoning-parser deepseek_v3
