@@ -24,7 +24,7 @@ import yaml
 SETUP_COMMANDS = [
     "python3 -m ensurepip --upgrade --default-pip 2>/dev/null"
     " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user",
-    "python3 -m pip install --user --upgrade 'lm-eval[api]' pyyaml",
+    "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade 'lm-eval[api]' pyyaml",
 ]
 
 RUN_TEMPLATE = (
