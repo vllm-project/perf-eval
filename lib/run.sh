@@ -17,7 +17,7 @@ source "$DIR/run_lm_eval.sh"
 source "$DIR/run_vllm_bench.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
-export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT
+export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
 
 PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
@@ -33,7 +33,7 @@ mkdir -p "$RESULTS_DIR"
 trap 'stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
-             "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV"
+             "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
 wait_healthy "$PORT"
 
 # vllm bench serve runs first so we can validate perf flow without waiting

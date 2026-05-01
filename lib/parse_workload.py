@@ -4,10 +4,10 @@ Usage:
     eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 
 Sets WORKLOAD_NAME (top-level), WORKLOAD_MODEL/IMAGE/VLLM_COMMIT/SERVE_ARGS
-(from the `vllm:` block, override env vars, and GPU profile), WORKLOAD_ENV
-(newline-separated KEY=VALUE pairs), WORKLOAD_LM_EVAL_TASKS_TSV, and
-WORKLOAD_VLLM_BENCH_TSV (bench configs to run after lm_eval). Each lm_eval TSV
-line is "name\\tnum_fewshot\\tmodel_args";
+(from the `vllm:` block, override env vars, and GPU profile),
+WORKLOAD_SERVER_RUNTIME, WORKLOAD_ENV (newline-separated KEY=VALUE pairs),
+WORKLOAD_LM_EVAL_TASKS_TSV, and WORKLOAD_VLLM_BENCH_TSV (bench configs to run
+after lm_eval). Each lm_eval TSV line is "name\\tnum_fewshot\\tmodel_args";
 each bench TSV line is
 "name\\tbackend\\tdataset\\tinput_len\\toutput_len\\tnum_prompts\\tmax_concurrency\\tspeed_bench_dataset_subset\\tspeed_bench_category".
 `lm_eval.model_args` (workload-level) is merged under each task's `model_args` block.
@@ -169,6 +169,7 @@ def main(path: str) -> None:
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
     env_lines = "\n".join(f"{k}={fmt(v)}" for k, v in env.items())
+    print(f"WORKLOAD_SERVER_RUNTIME={shlex.quote(str(profile.get('server_runtime', 'docker')))}")
     print(f"WORKLOAD_ENV={shlex.quote(env_lines)}")
     base_args = lm_eval.get("model_args") or {}
     lines = []

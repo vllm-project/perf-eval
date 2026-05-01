@@ -141,7 +141,7 @@ The pipeline emits one step per selected workload, using the workload's `gpu` fi
 
 With no env vars set, the build runs the nightly schedule. Image precedence is `VLLM_IMAGE` > `VLLM_COMMIT` > workload's `vllm.image` > `vllm/vllm-openai:latest`.
 
-B200 configs use the `B200` GPU profile, which routes to the `b200-k8s` queue and uses `/mnt/shared/hf_cache` for Hugging Face cache. They are currently `nightly: false`, so run them explicitly with `WORKLOADS`.
+B200 configs use the `B200` GPU profile, which routes to the `b200-k8s` queue, uses a Kubernetes pod running the resolved vLLM image, and uses `/mnt/shared/hf_cache` for Hugging Face cache. Because B200 jobs run inside the vLLM pod rather than on a Docker host, the runner starts `vllm serve` and `vllm bench serve` directly instead of using `docker run` / `docker exec`. They are currently `nightly: false`, so run them explicitly with `WORKLOADS`.
 
 Eval result ingestion includes the resolved Docker image as `image`. It also includes `vllm_commit` when the run used `VLLM_COMMIT` or when the resolved image tag carries a commit, such as `vllm/vllm-openai:nightly-<sha>`.
 

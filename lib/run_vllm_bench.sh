@@ -7,10 +7,10 @@
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
 #                  <trust_remote_code> <output_dir>
 #
-# `vllm bench serve` is invoked inside the vllm/vllm-openai container via
-# `docker exec` so we don't need vLLM installed on the host. The raw JSON it
-# produces is copied back to "<output_dir>/bench-<name>.json" on the host so
-# the perf-ingest helper can pick it up.
+# Docker runtime invokes `vllm bench serve` inside the vllm/vllm-openai
+# container via `docker exec`. Native runtime invokes it directly in the job
+# container. The raw JSON lands in "<output_dir>/bench-<name>.json" on the host
+# so the perf-ingest helper can pick it up.
 
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
@@ -19,6 +19,7 @@ run_vllm_bench() {
   local trust_remote_code=${13} outdir=${14}
   local in_container_json="/tmp/bench-${name}.json"
   local host_json="${outdir}/bench-${name}.json"
+  local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
 
   [[ "$backend" == "-" ]] && backend=""
   [[ "$speed_bench_dataset_subset" == "-" ]] && speed_bench_dataset_subset=""
@@ -27,7 +28,10 @@ run_vllm_bench() {
   echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts})"
   mkdir -p "$outdir"
 
-  local cmd=(docker exec "$container" vllm bench serve)
+  local cmd=(vllm bench serve)
+  if [[ "$runtime" != "native" ]]; then
+    cmd=(docker exec "$container" "${cmd[@]}")
+  fi
   if [[ -n "$backend" ]]; then
     cmd+=(--backend "$backend" --base-url "http://127.0.0.1:${port}")
     if [[ "$backend" == "openai-chat" ]]; then
@@ -59,10 +63,16 @@ run_vllm_bench() {
   if [[ -n "$speed_bench_category" ]]; then
     cmd+=(--speed-bench-category "$speed_bench_category")
   fi
-  cmd+=(--save-result --result-filename "$in_container_json")
+  if [[ "$runtime" == "native" ]]; then
+    cmd+=(--save-result --result-filename "$host_json")
+  else
+    cmd+=(--save-result --result-filename "$in_container_json")
+  fi
 
   "${cmd[@]}"
 
-  docker cp "${container}:${in_container_json}" "$host_json"
+  if [[ "$runtime" != "native" ]]; then
+    docker cp "${container}:${in_container_json}" "$host_json"
+  fi
   echo "  saved $host_json"
 }

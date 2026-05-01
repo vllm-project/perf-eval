@@ -44,6 +44,7 @@ RUN_TEMPLATE = (
 
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
+COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 
 GPU_EMOJI = {
     "H200": ":h200:",
@@ -54,6 +55,73 @@ GPU_EMOJI = {
 
 def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
+
+
+def resolved_image(data):
+    vllm = data.get("vllm") or {}
+    override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
+    if override_image:
+        return override_image
+    override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
+    if override_commit:
+        return COMMIT_IMAGE_TEMPLATE.format(commit=override_commit)
+    return vllm.get("image", "vllm/vllm-openai:latest")
+
+
+def b200_k8s_plugin(image, num_gpus):
+    return {
+        "kubernetes": {
+            "podSpec": {
+                "runtimeClassName": "nvidia",
+                "hostNetwork": True,
+                "dnsPolicy": "ClusterFirstWithHostNet",
+                "imagePullSecrets": [
+                    {"name": "k8s-ecr-login-renew-docker-secret"},
+                ],
+                "containers": [
+                    {
+                        "image": image,
+                        "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
+                        "securityContext": {
+                            "capabilities": {
+                                "add": ["IPC_LOCK", "SYS_RESOURCE"],
+                            },
+                        },
+                        "volumeMounts": [
+                            {"name": "devshm", "mountPath": "/dev/shm"},
+                            {"name": "raid", "mountPath": "/raid"},
+                            {"name": "shared", "mountPath": "/mnt/shared"},
+                        ],
+                        "env": [
+                            {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
+                            {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
+                            {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
+                            {
+                                "name": "HF_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": "hf-token-secret",
+                                        "key": "token",
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                ],
+                "volumes": [
+                    {"name": "devshm", "emptyDir": {"medium": "Memory"}},
+                    {
+                        "name": "raid",
+                        "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
+                    },
+                    {
+                        "name": "shared",
+                        "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
+                    },
+                ],
+            },
+        },
+    }
 
 
 def load_profiles():
@@ -93,6 +161,8 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
+    if profile.get("server_runtime") == "native":
+        step["plugins"] = [b200_k8s_plugin(resolved_image(data), data.get("num_gpus", 1))]
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
