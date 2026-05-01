@@ -21,12 +21,20 @@ import sys
 
 import yaml
 
-SETUP_COMMANDS = [
+FULL_SETUP_COMMANDS = [
     "python3 -m venv .venv",
     ". .venv/bin/activate"
     " && (python -m ensurepip --upgrade --default-pip 2>/dev/null"
     " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)"
     " && python -m pip install --upgrade 'lm-eval[api]' pyyaml",
+]
+
+BENCH_ONLY_SETUP_COMMANDS = [
+    "python3 -m venv .venv",
+    ". .venv/bin/activate"
+    " && (python -m ensurepip --upgrade --default-pip 2>/dev/null"
+    " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)"
+    " && python -m pip install --upgrade pyyaml",
 ]
 
 RUN_TEMPLATE = (
@@ -42,6 +50,10 @@ GPU_EMOJI = {
     "B200": ":b200:",
     "A100": ":a100:",
 }
+
+
+def is_truthy(value):
+    return str(value or "").lower() in {"1", "true", "yes"}
 
 
 def load_profiles():
@@ -69,11 +81,16 @@ def make_step(path, data, profiles):
     queue = profile["queue"]
     timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
     emoji = GPU_EMOJI.get(gpu, ":buildkite:")
+    setup_commands = (
+        BENCH_ONLY_SETUP_COMMANDS
+        if is_truthy(os.environ.get("BENCH_ONLY"))
+        else FULL_SETUP_COMMANDS
+    )
     step = {
         "label": f"{emoji} {name}",
         "agents": {"queue": queue},
         "timeout_in_minutes": timeout,
-        "commands": SETUP_COMMANDS + [RUN_TEMPLATE.format(path=path)],
+        "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
     step_env = {

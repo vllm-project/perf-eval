@@ -33,7 +33,8 @@ it under `model_args:`.
 
 Each name in `lm_eval.tasks` is validated against lm_eval's task registry
 (tasks + groups + tags); unknown names exit non-zero before the server
-is started.
+is started. When BENCH_ONLY is truthy, task registry validation is skipped
+because lm_eval tasks will not run.
 """
 
 import os
@@ -107,6 +108,10 @@ def known_task_names() -> set:
     return set(TaskManager().all_tasks)
 
 
+def env_truthy(name: str) -> bool:
+    return os.environ.get(name, "").lower() in {"1", "true", "yes"}
+
+
 def load_profile(gpu: str, workload_path: str) -> dict:
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
     profiles_path = os.path.join(repo_root, "lib", "gpu_profiles.yaml")
@@ -130,16 +135,17 @@ def main(path: str) -> None:
     tasks = lm_eval.get("tasks") or []
     if not tasks:
         sys.exit(f"{path}: missing or empty `lm_eval.tasks`")
-    known = known_task_names()
+    validate_tasks = not env_truthy("BENCH_ONLY")
+    known = known_task_names() if validate_tasks else set()
     for t in tasks:
-        if t["name"] not in known:
-            sys.exit(f"{path}: unknown lm_eval task {t['name']!r}")
         extra = set(t) - TASK_FIELDS
         if extra:
             sys.exit(
                 f"{path}: task {t['name']!r} has unsupported top-level fields "
                 f"{sorted(extra)}; move them under `model_args:`"
             )
+        if validate_tasks and t["name"] not in known:
+            sys.exit(f"{path}: unknown lm_eval task {t['name']!r}")
 
     vllm = data.get("vllm") or {}
     for key in TOP_FIELDS:
