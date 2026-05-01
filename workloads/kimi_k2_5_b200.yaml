@@ -1,16 +1,20 @@
-# Kimi-K2.5 on B200. The vLLM Blackwell recipe uses TP4; keep the
-# context window bounded for the 8k/1k bench workload.
+# Kimi-K2.5 on B200. The vLLM Blackwell recipe uses the NVIDIA NVFP4
+# checkpoint with FlashInfer FP4 MoE enabled; keep the context window
+# bounded for the 8k/1k bench workload.
 name: kimi_k2_5-b200
 gpu: B200
 num_gpus: 4
 nightly: false
 
 vllm:
-  model: moonshotai/Kimi-K2.5
+  model: nvidia/Kimi-K2.5-NVFP4
+  env:
+    VLLM_USE_FLASHINFER_MOE_FP4: 1
   serve_args: >-
     --tensor-parallel-size 4
     --max-model-len 16384
     --mm-encoder-tp-mode data
+    --compilation_config.pass_config.fuse_allreduce_rms true
     --tool-call-parser kimi_k2
     --reasoning-parser kimi_k2
     --enable-auto-tool-choice
