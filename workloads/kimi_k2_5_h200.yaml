@@ -31,8 +31,10 @@ vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128
       backend: openai-chat
-      dataset: random
+      dataset: speed_bench
       input_len: 8192
       output_len: 1024
       num_prompts: 512
       max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
