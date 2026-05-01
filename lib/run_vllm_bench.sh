@@ -14,23 +14,51 @@
 
 SPEED_BENCH_PREPARE_URL="https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py"
 
+ensure_speed_bench_prepare_deps() {
+  if ! python3 - <<'PY'
+import importlib.util
+import sys
+
+missing = [
+    module
+    for module in ("datasets", "numpy", "pandas", "tiktoken")
+    if importlib.util.find_spec(module) is None
+]
+if missing:
+    print("missing SPEED-Bench prep deps: " + ", ".join(missing))
+    sys.exit(1)
+PY
+  then
+    echo "--- :python: installing SPEED-Bench prep dependencies"
+    if python3 - <<'PY'
+import sys
+sys.exit(0 if sys.prefix != sys.base_prefix else 1)
+PY
+    then
+      python3 -m pip install --quiet datasets numpy pandas tiktoken
+    else
+      PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet datasets numpy pandas tiktoken
+    fi
+  fi
+}
+
+prepare_speed_bench_dataset_local() {
+  local subset=$1 data_dir=$2
+  ensure_speed_bench_prepare_deps
+  mkdir -p "$data_dir"
+  if [[ ! -s "${data_dir}/${subset}.jsonl" ]]; then
+    echo "--- :arrow_down: preparing SPEED-Bench ${subset} dataset in ${data_dir}"
+    curl -LsSf "$SPEED_BENCH_PREPARE_URL" | python3 - --config "$subset" --output_dir "$data_dir"
+  fi
+  test -s "${data_dir}/${subset}.jsonl"
+}
+
 prepare_speed_bench_dataset() {
   local container=$1 runtime=$2 subset=$3 data_dir=$4
-  local script='set -euo pipefail
-data_dir=$1
-subset=$2
-prepare_url=$3
-mkdir -p "$data_dir"
-if [[ ! -s "${data_dir}/${subset}.jsonl" ]]; then
-  echo "--- :arrow_down: preparing SPEED-Bench ${subset} dataset in ${data_dir}"
-  curl -LsSf "$prepare_url" | python3 - --config "$subset" --output_dir "$data_dir"
-fi
-test -s "${data_dir}/${subset}.jsonl"'
-
-  if [[ "$runtime" == "native" ]]; then
-    bash -lc "$script" _ "$data_dir" "$subset" "$SPEED_BENCH_PREPARE_URL"
-  else
-    docker exec "$container" bash -lc "$script" _ "$data_dir" "$subset" "$SPEED_BENCH_PREPARE_URL"
+  prepare_speed_bench_dataset_local "$subset" "$data_dir"
+  if [[ "$runtime" != "native" ]]; then
+    docker exec "$container" mkdir -p "$data_dir"
+    docker cp "${data_dir}/." "${container}:${data_dir}/"
   fi
 }
 
