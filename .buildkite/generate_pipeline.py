@@ -22,13 +22,15 @@ import sys
 import yaml
 
 SETUP_COMMANDS = [
-    "python3 -m ensurepip --upgrade --default-pip 2>/dev/null"
-    " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user",
-    "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade 'lm-eval[api]' pyyaml",
+    "python3 -m venv .venv",
+    ". .venv/bin/activate"
+    " && (python -m ensurepip --upgrade --default-pip 2>/dev/null"
+    " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)"
+    " && python -m pip install --upgrade 'lm-eval[api]' pyyaml",
 ]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="$PWD/.hf-cache" PATH="$HOME/.local/bin:$PATH"'
+    'export HF_HOME="$PWD/.hf-cache" PATH="$PWD/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
 
