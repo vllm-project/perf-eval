@@ -1,0 +1,8 @@
+steps:
+  - label: ":pipeline: generate steps"
+    agents:
+      queue: small_cpu_queue_premerge
+    commands:
+      - python3 -m ensurepip --upgrade --default-pip 2>/dev/null || true
+      - python3 -m pip install --user pyyaml
+      - export PATH="$HOME/.local/bin:$PATH" && python3 .buildkite/generate_pipeline.py | buildkite-agent pipeline upload

@@ -1,0 +1,15 @@
+H200:
+  queue: H200
+  hf_home: /mnt/shared/hf-models
+  env:
+    # Skip the multi-minute DeepGEMM warmup; kernels are still available
+    # if vLLM decides to use them, we just don't precompile every shape.
+    VLLM_DEEP_GEMM_WARMUP: skip
+
+B200:
+  queue: b200-k8s
+  hf_home: /mnt/shared/hf_cache
+  server_runtime: native
+  env:
+    VLLM_DEEP_GEMM_WARMUP: skip
+    NCCL_CUMEM_HOST_ENABLE: 0
