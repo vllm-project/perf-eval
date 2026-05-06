@@ -85,7 +85,7 @@ def resolve_image(vllm: dict) -> tuple[str, str]:
         return override_image, override_commit or commit_from_image(override_image)
     if override_commit:
         return COMMIT_IMAGE_TEMPLATE.format(commit=override_commit), override_commit
-    image = vllm.get("image", "vllm/vllm-openai:latest")
+    image = vllm.get("image", "vllm/vllm-openai:nightly")
     return image, commit_from_image(str(image))
 
 
