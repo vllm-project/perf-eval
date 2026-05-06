@@ -12,6 +12,65 @@
 # JSON lands in "<output_dir>/bench-<name>.json" so ingest_perf.py can pick
 # it up.
 
+# vLLM's SpeedBench class expects a local <subset>.jsonl file built by
+# NeMo's prepare.py — the bench CLI does not download the dataset itself.
+SPEED_BENCH_PREPARE_URL="https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py"
+
+pip_install_quiet() {
+  if python3 -c 'import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)'; then
+    python3 -m pip install --quiet "$@"
+  else
+    PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet "$@"
+  fi
+}
+
+prepare_speed_bench_dataset() {
+  local container=$1 runtime=$2 subset=$3 category=$4 data_dir=$5
+
+  if [[ ! -s "${data_dir}/${subset}.jsonl" ]]; then
+    if ! python3 -c 'import importlib.util as u, sys; sys.exit(0 if all(u.find_spec(m) for m in ("datasets","numpy","pandas","tiktoken")) else 1)' 2>/dev/null; then
+      echo "--- :python: installing SPEED-Bench prep dependencies"
+      pip_install_quiet datasets numpy pandas tiktoken
+    fi
+    mkdir -p "$data_dir"
+    echo "--- :arrow_down: preparing SPEED-Bench ${subset} dataset in ${data_dir}"
+    python3 - "$SPEED_BENCH_PREPARE_URL" "$subset" "$category" "$data_dir" <<'PY'
+import sys, urllib.request
+from pathlib import Path
+
+prepare_url, subset, category, data_dir = sys.argv[1:]
+source = urllib.request.urlopen(prepare_url, timeout=60).read()
+ns = {"__name__": "speed_bench_prepare", "__file__": "prepare.py"}
+exec(compile(source, "prepare.py", "exec"), ns)
+
+dataset = ns["load_dataset"]("nvidia/SPEED-Bench", subset, split="test")
+if category:
+    dataset = dataset.filter(lambda ex: ex["category"] == category)
+dataset = ns["_resolve_external_data"](dataset, subset)
+dataset = dataset.map(
+    lambda ex: {"messages": [{"role": "user", "content": t} for t in ex["turns"]]},
+    remove_columns=["turns"],
+)
+Path(data_dir).mkdir(parents=True, exist_ok=True)
+dataset.to_json(Path(data_dir) / f"{subset}.jsonl")
+PY
+  fi
+  test -s "${data_dir}/${subset}.jsonl"
+
+  # Docker runtime: ship the data into the container and make sure pandas is
+  # available there (vLLM's SpeedBench loads the JSONL via pandas).
+  if [[ "$runtime" != "native" ]]; then
+    docker exec "$container" mkdir -p "$data_dir"
+    docker cp "${data_dir}/." "${container}:${data_dir}/"
+    if ! docker exec "$container" python3 -c 'import pandas' 2>/dev/null; then
+      echo "--- :docker: installing pandas in vLLM container"
+      docker exec "$container" bash -lc \
+        'PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet pandas \
+          || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet pandas'
+    fi
+  fi
+}
+
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
@@ -51,8 +110,20 @@ run_vllm_bench() {
       cmd+=(--random-input-len "$input_len" --random-output-len "$output_len")
       ;;
     speed_bench)
-      cmd+=(--speed-bench-output-len "$output_len")
-      [[ -n "$speed_bench_dataset_subset" ]] && cmd+=(--speed-bench-dataset-subset "$speed_bench_dataset_subset")
+      [[ -z "$speed_bench_dataset_subset" ]] && speed_bench_dataset_subset="qualitative"
+      local data_dir="${VLLM_SPEED_BENCH_DIR:-/tmp/vllm-speed-bench}/${speed_bench_dataset_subset}"
+      [[ -n "$speed_bench_category" ]] && data_dir="${data_dir}-${speed_bench_category}"
+      prepare_speed_bench_dataset "$container" "$runtime" \
+        "$speed_bench_dataset_subset" "$speed_bench_category" "$data_dir"
+      # SPEED-Bench applies the client-side chat template at tokenizer init,
+      # which breaks for chat-template-less models — rely on server-side
+      # usage accounting instead.
+      cmd+=(
+        --dataset-path "$data_dir"
+        --speed-bench-output-len "$output_len"
+        --speed-bench-dataset-subset "$speed_bench_dataset_subset"
+        --skip-tokenizer-init
+      )
       [[ -n "$speed_bench_category" ]] && cmd+=(--speed-bench-category "$speed_bench_category")
       ;;
     *)
@@ -61,13 +132,11 @@ run_vllm_bench() {
       ;;
   esac
 
-  local result_path
   if [[ "$runtime" == "native" ]]; then
-    result_path="$host_json"
+    cmd+=(--save-result --result-filename "$host_json")
   else
-    result_path="$in_container_json"
+    cmd+=(--save-result --result-filename "$in_container_json")
   fi
-  cmd+=(--save-result --result-filename "$result_path")
 
   "${cmd[@]}"
 
