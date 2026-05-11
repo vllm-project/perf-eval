@@ -1,0 +1,46 @@
+# DeepSeek-V4-Pro on H200 (8xH200 single-node, DP+EP)
+name: deepseek_v4_pro-h200
+gpu: H200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: deepseek-ai/DeepSeek-V4-Pro
+  env:
+    TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+  serve_args: >-
+    --data-parallel-size 8
+    --enable-expert-parallel
+    --max-model-len 32768
+    --kv-cache-dtype fp8
+    --block-size 256
+    --tokenizer-mode deepseek_v4
+    --tool-call-parser deepseek_v4
+    --reasoning-parser deepseek_v4
+    --enable-auto-tool-choice
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
