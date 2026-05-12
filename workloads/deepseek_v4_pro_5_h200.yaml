@@ -12,13 +12,18 @@ vllm:
     --data-parallel-size 8
     --enable-expert-parallel
     --max-model-len 32768
+    --max-num-seqs 512
     --kv-cache-dtype fp8
     --block-size 256
     --tokenizer-mode deepseek_v4
+    --gpu-memory-utilization 0.95
     --tool-call-parser deepseek_v4
     --reasoning-parser deepseek_v4
     --enable-auto-tool-choice
     --trust-remote-code
+    --no-enable-flashinfer-autotune 
+    --compilation-config '{"mode": 0, "cudagraph_mode": "FULL_DECODE_ONLY"}' 
+
 
 lm_eval:
   model_args:
