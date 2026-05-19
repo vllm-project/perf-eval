@@ -123,7 +123,7 @@ def parse_score_from_csv(work_dir: Path, model: str, category: str) -> dict | No
 
     # Fallback: look for per-category JSONL score files (older BFCL versions)
     model_slug = model.replace("/", "_")
-    for p in (work_dir / "score").rglob(f"{category}_score.json"):
+    for p in (work_dir / "score").rglob(f"*{category}_score.json"):
         with open(p) as f:
             return json.loads(f.readline())
 
@@ -173,7 +173,7 @@ def main():
     host = parsed.hostname or "localhost"
     port = parsed.port or 8000
 
-    os.environ["OPENAI_BASE_URL"] = base_url
+    os.environ["OPENAI_BASE_URL"] = base_url.rstrip("/") + "/v1"
     os.environ["OPENAI_API_KEY"] = os.environ.get("OPENAI_API_KEY", "dummy")
     os.environ["BFCL_PROJECT_ROOT"] = str(work_dir)
     os.environ["LOCAL_SERVER_ENDPOINT"] = f"http://{host}"
