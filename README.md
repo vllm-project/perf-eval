@@ -24,13 +24,14 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 ### Recipe schema
 
-A recipe has top-level metadata plus three blocks:
+A recipe has top-level metadata plus up to three eval blocks:
 
 - **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
+- **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
 
-Include either or both of `lm_eval:` / `vllm_bench:` depending on what you want out of this recipe.
+Include one or more of `lm_eval:` / `vllm_bench:` / `bfcl:` depending on what you want out of this recipe.
 
 ```yaml
 name: qwen3_5-h200       # used in container name and results/<name>/
@@ -60,6 +61,14 @@ lm_eval:                 # accuracy tasks (optional)
     - name: aime25
       num_fewshot: 0
 
+bfcl:                    # function-calling eval (optional)
+  test_categories:       # BFCL test categories to run
+    - simple_python
+    - multiple
+    - parallel
+  num_threads: 8         # optional, default 8
+  temperature: 0.001     # optional, default 0.001
+
 vllm_bench:              # perf runs (optional) — fed to the perf dashboard
   configs:
     - name: 1k-in-1k-out-conc-256
@@ -76,6 +85,7 @@ A few things worth knowing:
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
+- **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 

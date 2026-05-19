@@ -26,6 +26,18 @@ BENCH_FIELDS = {
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
+BFCL_FIELDS = {"test_categories", "num_threads", "temperature"}
+BFCL_KNOWN_CATEGORIES = {
+    "simple_python", "simple_java", "simple_javascript",
+    "multiple", "parallel", "parallel_multiple", "irrelevance",
+    "live_simple", "live_multiple", "live_parallel",
+    "live_parallel_multiple", "live_irrelevance", "live_relevance",
+    "multi_turn_base", "multi_turn_miss_func",
+    "multi_turn_miss_param", "multi_turn_long_context",
+    "memory_kv", "memory_vector", "memory_rec_sum",
+    "all", "all_scoring", "single_turn", "multi_turn",
+    "live", "non_live", "non_python", "python", "memory", "agentic",
+}
 COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 
 
@@ -181,6 +193,28 @@ def bench_tsv(configs: list, path: str) -> str:
     return "\n".join(lines)
 
 
+def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
+    extra = set(bfcl) - BFCL_FIELDS
+    if extra:
+        sys.exit(f"{path}: bfcl block has unsupported fields {sorted(extra)}")
+    cats = bfcl.get("test_categories") or []
+    if not cats:
+        sys.exit(f"{path}: bfcl block requires at least one test_categories entry")
+    for cat in cats:
+        if cat not in BFCL_KNOWN_CATEGORIES:
+            sys.exit(f"{path}: unknown bfcl test category {cat!r}")
+    if "--tool-call-parser" not in serve_args:
+        print(f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
+              "some models may need it for function-calling", file=sys.stderr)
+
+
+def bfcl_tsv(bfcl: dict) -> str:
+    cats = bfcl.get("test_categories") or []
+    num_threads = bfcl.get("num_threads", 8)
+    temperature = bfcl.get("temperature", 0.001)
+    return "\n".join(f"{cat}\t{num_threads}\t{temperature}" for cat in cats)
+
+
 def main(path: str) -> None:
     with open(path) as f:
         data = yaml.safe_load(f)
@@ -194,7 +228,18 @@ def main(path: str) -> None:
     bench = data.get("vllm_bench") or {}
 
     tasks = lm_eval.get("tasks") or []
-    validate_tasks(tasks, path)
+    bfcl = data.get("bfcl") or {}
+    bench_configs = bench.get("configs") or []
+
+    if not tasks and not bench_configs and not bfcl:
+        sys.exit(f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl")
+
+    if tasks:
+        validate_tasks(tasks, path)
+
+    serve_args = vllm.get("serve_args") or ""
+    if bfcl:
+        validate_bfcl(bfcl, serve_args, path)
 
     image, vllm_commit = resolve_image(vllm)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
@@ -204,17 +249,18 @@ def main(path: str) -> None:
     metadata = bench.get("metadata") or {}
     tp = metadata.get("tp")
     if tp is None:
-        tp = parse_tp(vllm.get("serve_args") or "")
+        tp = parse_tp(serve_args)
 
     emit("NAME", data.get("name", ""))
     emit("IMAGE", image)
     emit("VLLM_COMMIT", vllm_commit)
     emit("MODEL", vllm.get("model", ""))
-    emit("SERVE_ARGS", vllm.get("serve_args", ""))
+    emit("SERVE_ARGS", serve_args)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
-    emit("VLLM_BENCH_TSV", bench_tsv(bench.get("configs") or [], path))
+    emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
+    emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
     emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
