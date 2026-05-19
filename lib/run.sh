@@ -77,6 +77,7 @@ done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
 # bfcl function-calling eval
 while IFS=$'\t' read -r category num_threads temperature; do
   [[ -z "$category" ]] && continue
+  echo "--- :phone: bfcl ${category}"
   python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
     "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
 
