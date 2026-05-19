@@ -164,7 +164,13 @@ def make_step(path, data, profiles):
     bench_only = is_truthy(os.environ.get("BENCH_ONLY")) or is_truthy(
         data.get("bench_only")
     )
-    setup_commands = BENCH_ONLY_SETUP_COMMANDS if bench_only else FULL_SETUP_COMMANDS
+    has_bfcl = bool(data.get("bfcl"))
+    if bench_only:
+        setup_commands = BENCH_ONLY_SETUP_COMMANDS
+    elif has_bfcl:
+        setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
+    else:
+        setup_commands = FULL_SETUP_COMMANDS
     step = {
         "label": f"{emoji} {name}",
         "agents": {"queue": queue},

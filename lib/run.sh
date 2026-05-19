@@ -58,7 +58,7 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
 
 if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
-  echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval tasks"
+  echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"
   exit 0
 fi
 
@@ -73,3 +73,16 @@ while IFS=$'\t' read -r task fewshot model_args; do
     --task "$task" \
     ${INGEST_NO_SAMPLES:+--no-samples} || true
 done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
+
+# bfcl function-calling eval
+while IFS=$'\t' read -r category num_threads temperature; do
+  [[ -z "$category" ]] && continue
+  python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
+    "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
+
+  python3 "$DIR/ingest.py" \
+    --results-dir "${RESULTS_DIR}/bfcl-${category}" \
+    --workload "$WORKLOAD_NAME" \
+    --task "bfcl_${category}" \
+    --no-samples || true
+done <<< "$WORKLOAD_BFCL_TSV"
