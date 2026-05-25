@@ -1,0 +1,37 @@
+# DeepSeek-V4-Flash on B200 (TP=2 × DP=4 + EP, deep_gemm_mega_moe, MTP spec-decode)
+name: deepseek_v4_flash-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: deepseek-ai/DeepSeek-V4-Flash
+  serve_args: >-
+    --tensor-parallel-size 2
+    --data-parallel-size 4
+    --enable-expert-parallel
+    --max-model-len 32768
+    --kv-cache-dtype fp8
+    --block-size 256
+    --moe-backend deep_gemm_mega_moe
+    --attention_config.use_fp4_indexer_cache=True
+    --tokenizer-mode deepseek_v4
+    --tool-call-parser deepseek_v4
+    --reasoning-parser deepseek_v4
+    --enable-auto-tool-choice
+    --trust-remote-code
+    --speculative_config.method=mtp
+    --speculative_config.num_speculative_tokens=2
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
