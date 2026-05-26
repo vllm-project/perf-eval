@@ -1,0 +1,38 @@
+# GPT-OSS 120B on H200 (8xH200, TP=8)
+# Tracking perf regression: https://github.com/vllm-project/vllm/issues/40838
+name: gpt_oss_120b-h200
+gpu: H200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: openai/gpt-oss-120b
+  serve_args: >-
+    --tensor-parallel-size 8
+    --max-model-len 32768
+    --max-num-seqs 512
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
