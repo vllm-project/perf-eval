@@ -1,4 +1,4 @@
-# GPT-OSS 120B on H200 (8xH200, TP=8)
+# GPT-OSS 120B on H200 (8xH200, TP=4)
 # Tracking perf regression: https://github.com/vllm-project/vllm/issues/40838
 name: gpt_oss_120b-h200
 gpu: H200
@@ -8,7 +8,7 @@ nightly: true
 vllm:
   model: openai/gpt-oss-120b
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 4
     --max-model-len 32768
     --max-num-seqs 512
     --tool-call-parser openai
