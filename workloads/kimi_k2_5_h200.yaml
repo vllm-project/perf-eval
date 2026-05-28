@@ -27,6 +27,14 @@ lm_eval:
         max_length: 40960
         max_gen_toks: 32768
 
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+  num_threads: 8
+
 vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128

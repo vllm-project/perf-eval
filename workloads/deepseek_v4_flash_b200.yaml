@@ -23,6 +23,14 @@ vllm:
     --speculative_config.method=mtp
     --speculative_config.num_speculative_tokens=2
 
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+  num_threads: 8
+
 lm_eval:
   model_args:
     tokenized_requests: false
