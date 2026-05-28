@@ -59,6 +59,18 @@ GPU_EMOJI = {
     "A100": ":a100:",
 }
 
+ECR_PUBLIC_PREFIX = "public.ecr.aws/"
+ECR_PULL_THROUGH_CACHE = (
+    "936637512419.dkr.ecr.us-west-2.amazonaws.com/vllm-ci-pull-through-cache/"
+)
+
+
+def ecr_pull_through(image):
+    """Rewrite public ECR URLs to the private pull-through cache."""
+    if image.startswith(ECR_PUBLIC_PREFIX):
+        return ECR_PULL_THROUGH_CACHE + image[len(ECR_PUBLIC_PREFIX):]
+    return image
+
 
 def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
@@ -179,7 +191,7 @@ def make_step(path, data, profiles):
         "artifact_paths": ["results/**/*"],
     }
     if profile.get("server_runtime") == "native":
-        step["plugins"] = [b200_k8s_plugin(resolved_image(data), data.get("num_gpus", 1))]
+        step["plugins"] = [b200_k8s_plugin(ecr_pull_through(resolved_image(data)), data.get("num_gpus", 1))]
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
