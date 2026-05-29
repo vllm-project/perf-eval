@@ -1,4 +1,4 @@
-# DeepSeek-V3.2 NVFP4 on B200 (TP=8, FLASHINFER_MLA)
+# DeepSeek-V3.2 NVFP4 on B200 (TP=8; sparse attention, auto MLA backend)
 # Recipe: https://recipes.vllm.ai/nvidia/DeepSeek-V3.2-NVFP4
 name: deepseek_v3_2-b200
 gpu: B200
@@ -12,7 +12,6 @@ vllm:
     --kernel-config.enable_flashinfer_autotune=False
     --kv-cache-dtype fp8
     --tensor-parallel-size 8
-    --attention-backend FLASHINFER_MLA
     --tokenizer-mode deepseek_v32
     --tool-call-parser deepseek_v32
     --enable-auto-tool-choice
