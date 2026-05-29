@@ -8,7 +8,10 @@ H200:
 
 B200:
   queue: b200-k8s
-  hf_home: /mnt/shared/hf_cache
+  # Cache models on the 28T /raid volume, not the ~1.8T root disk. /mnt/shared
+  # is NOT a shared mount on the DGX B200 nodes — it's a plain dir on root, so
+  # caching there fills root and triggers kubelet disk-pressure pod eviction.
+  hf_home: /raid/hf_cache
   server_runtime: native
   env:
     VLLM_DEEP_GEMM_WARMUP: skip

@@ -114,7 +114,7 @@ def b200_k8s_plugin(image, num_gpus):
                         "env": [
                             {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
                             {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
-                            {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
+                            {"name": "HF_HOME", "value": "/raid/hf_cache"},
                             {
                                 "name": "HF_TOKEN",
                                 "valueFrom": {
