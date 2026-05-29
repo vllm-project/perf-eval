@@ -13,7 +13,7 @@ vllm:
     --tool-call-parser minimax_m2
     --enable-auto-tool-choice
     --reasoning-parser minimax_m2
-    --compilation-config '{"mode":3,"cudagraph_mode":"PIECEWISE","pass_config":{"fuse_minimax_qk_norm":true}}'
+    --compilation-config {"mode":3,"cudagraph_mode":"PIECEWISE","pass_config":{"fuse_minimax_qk_norm":true}}
 
 lm_eval:
   model_args:

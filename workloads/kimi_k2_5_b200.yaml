@@ -15,7 +15,7 @@ vllm:
     --tool-call-parser kimi_k2
     --enable-auto-tool-choice
     --reasoning-parser kimi_k2
-    --speculative-config '{"model":"lightseekorg/kimi-k2.5-eagle3-mla","method":"eagle3","num_speculative_tokens":3}'
+    --speculative-config {"model":"lightseekorg/kimi-k2.5-eagle3-mla","method":"eagle3","num_speculative_tokens":3}
     --mm-encoder-tp-mode data
   env:
     VLLM_USE_FLASHINFER_MOE_FP4: "1"
