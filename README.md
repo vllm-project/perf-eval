@@ -82,6 +82,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 A few things worth knowing:
 
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
+- **AMD hardware** (e.g. the `MI355X` profile) uses two extra profile fields. `image_repo: vllm/vllm-openai-rocm` makes image resolution map `VLLM_COMMIT` onto that repo's `nightly-<commit>` tag instead of using the CUDA `VLLM_IMAGE` verbatim (an explicit ROCm `VLLM_IMAGE` is still honored). `server_runtime: docker-rocm` makes the Docker runtime expose GPUs via `/dev/kfd` + `/dev/dri` (plus `--group-add video` and `--security-opt seccomp=unconfined`) instead of NVIDIA's `--gpus all`.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.

@@ -13,3 +13,10 @@ B200:
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
+
+MI355X:
+  queue: amd_mi355_8
+  # Persistent HF cache mount is not yet set up on mi355 agents
+  hf_home: /mnt/shared/hf-models
+  image_repo: vllm/vllm-openai-rocm
+  server_runtime: docker-rocm
