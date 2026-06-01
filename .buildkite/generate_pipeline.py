@@ -57,6 +57,7 @@ GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
     "A100": ":a100:",
+    "MI355X": ":amd:",
 }
 
 ECR_PUBLIC_PREFIX = "public.ecr.aws/"
