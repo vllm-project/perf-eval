@@ -38,7 +38,6 @@ BFCL_KNOWN_CATEGORIES = {
     "all", "all_scoring", "single_turn", "multi_turn",
     "live", "non_live", "non_python", "python", "memory", "agentic",
 }
-COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 
 
 def emit(name: str, value: object) -> None:
@@ -89,15 +88,23 @@ def load_profile(gpu: str, workload_path: str) -> dict:
     return profiles[gpu]
 
 
-def resolve_image(vllm: dict) -> tuple[str, str]:
+def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload."""
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
-    if override_image:
+    # ROCm images are located at vllm/vllm-openai-rocm. The default
+    # images (CUDA) are stored at vllm/vllm-openai
+    custom_repo = (profile.get("image_repo") or "").strip()
+    repo = custom_repo or "vllm/vllm-openai"
+
+    if override_image and (not custom_repo or repo in override_image):
         return override_image, override_commit or commit_from_image(override_image)
-    if override_commit:
-        return COMMIT_IMAGE_TEMPLATE.format(commit=override_commit), override_commit
-    image = vllm.get("image", "vllm/vllm-openai:nightly")
+
+    commit = override_commit or commit_from_image(override_image)
+    if commit:
+        return f"{repo}:nightly-{commit}", commit
+
+    image = vllm.get("image", f"{repo}:nightly")
     return image, commit_from_image(str(image))
 
 
@@ -241,7 +248,7 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
-    image, vllm_commit = resolve_image(vllm)
+    image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
