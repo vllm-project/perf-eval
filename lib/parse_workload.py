@@ -13,7 +13,6 @@ are not validated against the registry (because they will not run).
 """
 
 import os
-import re
 import shlex
 import sys
 
@@ -60,14 +59,14 @@ def env_truthy(name: str) -> bool:
 
 
 def commit_from_image(image: str) -> str:
-    """Extract a commit SHA from an image tag, if one is embedded."""
-    _, sep, tag = image.rpartition(":")
-    if not sep:
+    """Extract the commit SHA from a 'repo:nightly-<sha>' image tag."""
+    ref = image.split("@", 1)[0]      # drop any "@sha256:..." digest first
+    tag = ref.rpartition(":")[2]      # text after the tag separator
+    prefix = "nightly-"
+    if not tag.startswith(prefix):
         return ""
-    tag = tag.split("@", 1)[0]
-    m = (re.match(r"nightly-([0-9a-f]{7,40})(?:[-_.].*)?$", tag, re.IGNORECASE)
-         or re.search(r"(?:^|[-_.])([0-9a-f]{12,40})(?:$|[-_.])", tag, re.IGNORECASE))
-    return m.group(1) if m else ""
+    # tag is "nightly-<sha>"; drop any trailing "-suffix" (e.g. -cu124).
+    return tag[len(prefix):].split("-", 1)[0]
 
 
 def known_task_names() -> set:
