@@ -16,7 +16,7 @@ B200:
 
 MI355X:
   queue: amd_mi355_8
-  # Persistent HF cache mount is not yet set up on mi355 agents
-  hf_home: /mnt/shared/hf-models
   image_repo: vllm/vllm-openai-rocm
-  server_runtime: docker-rocm
+  server_runtime: native
+  k8s_plugin: amd
+  hf_home: /mnt/shared/hf-models

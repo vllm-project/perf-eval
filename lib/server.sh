@@ -35,14 +35,7 @@ start_server() {
     return
   fi
 
-  local gpu_args
-  if [[ "$runtime" == "docker-rocm" ]]; then
-    gpu_args=(--device=/dev/kfd --device=/dev/dri --group-add video
-              --cap-add SYS_PTRACE --security-opt seccomp=unconfined)
-  else
-    gpu_args=(--gpus all)
-  fi
-  local docker_args=("${gpu_args[@]}" --ipc=host --ulimit nofile=65536:65536
+  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
                      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
   local hf_home=""
