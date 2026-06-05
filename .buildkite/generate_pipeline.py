@@ -169,6 +169,9 @@ def mi355x_k8s_plugin(image, num_gpus, profile=None):
     return {
         "kubernetes": {
             "podSpec": {
+                "imagePullSecrets": [
+                    {"name": "docker-config"},
+                ],
                 "containers": [
                     {
                         "image": image,
@@ -188,7 +191,7 @@ def mi355x_k8s_plugin(image, num_gpus, profile=None):
                                 "name": "HF_TOKEN",
                                 "valueFrom": {
                                     "secretKeyRef": {
-                                        "name": "hf-token-secret",
+                                        "name": "hf-token",
                                         "key": "token",
                                     },
                                 },
