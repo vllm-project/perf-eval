@@ -139,7 +139,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None):
                                 "name": "HF_TOKEN",
                                 "valueFrom": {
                                     "secretKeyRef": {
-                                        "name": "hf-token",
+                                        "name": "hf-token-secret",
                                         "key": "token",
                                     },
                                 },
@@ -191,7 +191,7 @@ def mi355x_k8s_plugin(image, num_gpus, profile=None):
                                 "name": "HF_TOKEN",
                                 "valueFrom": {
                                     "secretKeyRef": {
-                                        "name": "hf-token-secret",
+                                        "name": "hf-token",
                                         "key": "token",
                                     },
                                 },
