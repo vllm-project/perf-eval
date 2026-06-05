@@ -20,6 +20,7 @@ Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 
 import glob
 import os
+import re
 import sys
 
 import yaml
@@ -78,22 +79,17 @@ def is_truthy(value):
 
 
 def commit_from_image(image):
-    """Extract the commit SHA from a 'repo:nightly-<sha>' image tag."""
-    ref = image.split("@", 1)[0]
-    tag = ref.rpartition(":")[2]
-    prefix = "nightly-"
-    if not tag.startswith(prefix):
+    """Extract a commit SHA from an image tag, if one is embedded."""
+    _, sep, tag = image.rpartition(":")
+    if not sep:
         return ""
-    # tag is "nightly-<sha>"; drop any trailing "-suffix" (e.g. -cu124).
-    return tag[len(prefix):].split("-", 1)[0]
+    tag = tag.split("@", 1)[0]
+    m = (re.match(r"nightly-([0-9a-f]{7,40})(?:[-_.].*)?$", tag, re.IGNORECASE)
+         or re.search(r"(?:^|[-_.])([0-9a-f]{12,40})(?:$|[-_.])", tag, re.IGNORECASE))
+    return m.group(1) if m else ""
 
 
 def resolved_image(data, profile):
-    """Resolve the docker image for the k8s pod (mirrors parse_workload).
-
-    Honors a profile ``image_repo`` (e.g. ROCm) the same way the in-job parser
-    does, so the pod pulls the right repo for the hardware.
-    """
     vllm = data.get("vllm") or {}
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
