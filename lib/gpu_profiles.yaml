@@ -15,7 +15,7 @@ B200:
     NCCL_CUMEM_HOST_ENABLE: 0
 
 MI355X:
-  queue: default
+  queue: amd_mi355_8
   image_repo: vllm/vllm-openai-rocm
   server_runtime: native
   k8s_plugin: amd
