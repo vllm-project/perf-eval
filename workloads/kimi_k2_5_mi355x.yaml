@@ -2,8 +2,7 @@
 name: kimi_k2_5-mi355x
 gpu: MI355X
 num_gpus: 8
-# Opt-in for now: trigger explicitly with WORKLOADS=kimi_k2_5_mi355x until the
-# MI355X path is proven, then flip to nightly: true to join the schedule.
+# Opt-in for now: WORKLOADS=kimi_k2_5_mi355x
 nightly: false
 
 vllm:
