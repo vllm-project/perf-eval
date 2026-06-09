@@ -36,6 +36,7 @@ bfcl:
     - multiple
     - parallel
     - parallel_multiple
+    - multi_turn
   num_threads: 8
 
 vllm_bench:
