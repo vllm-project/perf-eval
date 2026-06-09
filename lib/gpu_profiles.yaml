@@ -10,12 +10,20 @@ B200:
   queue: b200-k8s
   hf_home: /mnt/shared/hf_cache
   server_runtime: native
+  k8s_plugin: nvidia
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
 
+MI300X:
+  queue: mi300_perf_eval
+  image_repo: vllm/vllm-openai-rocm
+  server_runtime: native
+  k8s_plugin: amd
+  hf_home: /mnt/shared/hf-models
+
 MI355X:
-  queue: amd_mi300_perf_eval
+  queue: mi355_perf_eval
   image_repo: vllm/vllm-openai-rocm
   server_runtime: native
   k8s_plugin: amd

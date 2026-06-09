@@ -261,7 +261,12 @@ def make_step(path, data, profiles):
         "artifact_paths": ["results/**/*"],
     }
     if profile.get("server_runtime") == "native":
-        kind = profile.get("k8s_plugin", "nvidia")
+        kind = profile.get("k8s_plugin")
+        if not kind:
+            sys.exit(
+                f"{path}: profile {gpu!r} sets server_runtime: native but no"
+                f" k8s_plugin; set one explicitly (have {', '.join(K8S_PLUGINS)})"
+            )
         builder = K8S_PLUGINS.get(kind)
         if builder is None:
             sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
