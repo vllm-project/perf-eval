@@ -1,17 +1,19 @@
-# Kimi-K2.5 on AMD MI300X
-name: kimi_k2_5-mi300x
-gpu: MI300X
+# DeepSeek-V4-Pro on MI355X
+name: deepseek_v4_pro-mi355x
+gpu: MI355X
 num_gpus: 8
-# Opt-in for now: WORKLOADS=kimi_k2_5_mi300x
+# Opt-in for now: WORKLOADS=deepseek_v4_pro_mi355x
 nightly: false
 
 vllm:
-  model: moonshotai/Kimi-K2.5
+  model: deepseek-ai/DeepSeek-V4-Pro
   env:
     VLLM_ROCM_USE_AITER: 1
   serve_args: >-
     --tensor-parallel-size 8
+    --kv-cache-dtype fp8
     --trust-remote-code
+    --no-enable-prefix-caching
 
 lm_eval:
   model_args:
@@ -23,8 +25,8 @@ lm_eval:
       num_fewshot: 5
       model_args:
         num_concurrent: 64
-        max_length: 40960
-        max_gen_toks: 32768
+        max_length: 32768
+        max_gen_toks: 8192
 
 vllm_bench:
   configs:
