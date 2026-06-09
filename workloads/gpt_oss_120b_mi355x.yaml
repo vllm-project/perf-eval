@@ -7,6 +7,8 @@ nightly: false
 
 vllm:
   model: openai/gpt-oss-120b
+  env:
+    VLLM_ROCM_USE_AITER: 1
   serve_args: >-
     --tensor-parallel-size 1
     --trust-remote-code
