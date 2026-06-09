@@ -59,6 +59,7 @@ GPU_EMOJI = {
     "B200": ":b200:",
     "A100": ":a100:",
     "MI355X": ":amd:",
+    "MI300X": ":amd:",
 }
 
 ECR_PUBLIC_PREFIX = "public.ecr.aws/"
@@ -159,7 +160,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None):
     }
 
 
-def mi355x_k8s_plugin(image, num_gpus, profile=None):
+def amd_k8s_plugin(image, num_gpus, profile=None):
     profile = profile or {}
     hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
     return {
@@ -209,7 +210,7 @@ def mi355x_k8s_plugin(image, num_gpus, profile=None):
 
 K8S_PLUGINS = {
     "nvidia": b200_k8s_plugin,
-    "amd": mi355x_k8s_plugin,
+    "amd": amd_k8s_plugin,
 }
 
 

@@ -11,10 +11,6 @@ vllm:
     VLLM_ROCM_USE_AITER: 1
   serve_args: >-
     --tensor-parallel-size 8
-    --mm-encoder-tp-mode data
-    --tool-call-parser kimi_k2
-    --reasoning-parser kimi_k2
-    --enable-auto-tool-choice
     --trust-remote-code
 
 lm_eval:
@@ -29,14 +25,6 @@ lm_eval:
         num_concurrent: 64
         max_length: 40960
         max_gen_toks: 32768
-
-bfcl:
-  test_categories:
-    - simple_python
-    - multiple
-    - parallel
-    - parallel_multiple
-  num_threads: 8
 
 vllm_bench:
   configs:
