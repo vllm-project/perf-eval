@@ -14,6 +14,7 @@ vllm:
     --kv-cache-dtype fp8
     --trust-remote-code
     --no-enable-prefix-caching
+    --quantization deepseek_v4_fp8
 
 lm_eval:
   model_args:
