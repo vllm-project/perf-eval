@@ -10,6 +10,9 @@
 # is also bind-mounted at the same path inside the container so the model cache
 # on the host is visible to vLLM. For native runtime, values are exported before
 # starting `vllm serve` in the current job container.
+# Note: attention backend selection is passed via --attention-backend in
+# serve_args, not as an environment variable (vLLM does not support
+# VLLM_ATTENTION_BACKEND as an env var).
 #
 # After start_server, vLLM logs are streamed to stdout (prefixed with `[vllm]`)
 # so build output reflects server startup progress in real time. The streamer's

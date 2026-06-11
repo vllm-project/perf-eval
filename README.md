@@ -26,7 +26,7 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 A recipe has top-level metadata plus up to three eval blocks:
 
-- **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
+- **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides, optional `attention_backends` list). Required.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
@@ -47,6 +47,9 @@ vllm:                    # how the server is brought up
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
     -dp 8 --enable-expert-parallel
     --trust-remote-code
+  attention_backends:                   # optional; list of VLLM_ATTENTION_BACKEND values
+    - FLASH_ATTN                        # when set, the full eval suite runs once per
+    - FLASHINFER                        # backend; results land in attn-<BACKEND>/ subdirs
 
 lm_eval:                 # accuracy tasks (optional)
   model_args:            # workload-level defaults, merged into every task
@@ -81,6 +84,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 
 A few things worth knowing:
 
+- **`vllm.attention_backends`** is an optional list of vLLM attention backend names (`FLASH_ATTN`, `FLASHINFER`, `XFORMERS`, `TRITON_ATTN`, `TRITON_MLA`, `ROCM_FLASH`, `PAGED_ATTENTION`,`ROCM_AITER_FA`,`ROCM_AITER_UNIFIED_ATTN`, `ROCM_ATTN`,`ROCM_AITER_MLA`,`ROCM_AITER_MLA_SPARSE`, `ROCM_AITER_TRITON_MLA`). When set, the orchestrator starts the server once per backend — adding `--attention-backend $ATTN_BACKEND` — and runs the complete eval suite (bench, lm_eval, bfcl) for each. Results are stored under `results/<name>/attn-<BACKEND>/` so every backend gets its own isolated output directory. Without this field, the server starts once with whatever attention backend vLLM selects by default and results go to `results/<name>/` as usual. See `workloads/gpt_oss_120b_mi355x_attn_sweep.yaml` for an example.
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.

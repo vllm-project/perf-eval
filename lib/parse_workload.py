@@ -20,6 +20,15 @@ import sys
 import yaml
 
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
+VLLM_FIELDS = {
+    "model", "image", "serve_args", "env", "attention_backends",
+}
+KNOWN_ATTENTION_BACKENDS = {
+    "FLASH_ATTN", "FLASHINFER", "XFORMERS", "TRITON_ATTN",
+    "TRITON_MLA", "ROCM_FLASH", "PAGED_ATTENTION", "ROCM_AITER_FA",
+    "ROCM_AITER_UNIFIED_ATTN", "ROCM_ATTN", "ROCM_AITER_MLA",
+    "ROCM_AITER_MLA_SPARSE", "ROCM_AITER_TRITON_MLA"
+}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency",
@@ -215,6 +224,19 @@ def bfcl_tsv(bfcl: dict) -> str:
     return "\n".join(f"{cat}\t{num_threads}\t{temperature}" for cat in cats)
 
 
+def validate_attention_backends(backends: list, path: str) -> None:
+    if not backends:
+        sys.exit(f"{path}: vllm.attention_backends must not be empty if specified")
+    for b in backends:
+        if b not in KNOWN_ATTENTION_BACKENDS:
+            sys.exit(
+                f"{path}: unknown attention backend {b!r}; "
+                f"known: {', '.join(sorted(KNOWN_ATTENTION_BACKENDS))}"
+            )
+    if len(backends) != len(set(backends)):
+        sys.exit(f"{path}: duplicate entries in vllm.attention_backends")
+
+
 def main(path: str) -> None:
     with open(path) as f:
         data = yaml.safe_load(f)
@@ -241,6 +263,10 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
+    attention_backends = vllm.get("attention_backends") or []
+    if attention_backends:
+        validate_attention_backends(attention_backends, path)
+
     image, vllm_commit = resolve_image(vllm)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
@@ -264,6 +290,9 @@ def main(path: str) -> None:
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
     emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
+    # One backend per line; empty string when not specified (run.sh treats this
+    # as a single "default" pass with no VLLM_ATTENTION_BACKEND override).
+    emit("ATTENTION_BACKENDS", "\n".join(attention_backends))
 
 
 if __name__ == "__main__":

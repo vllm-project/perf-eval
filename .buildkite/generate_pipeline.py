@@ -20,6 +20,7 @@ Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 
 import glob
 import os
+import re
 import sys
 
 import yaml
@@ -51,12 +52,14 @@ RUN_TEMPLATE = (
 
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
-COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
+DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
 
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
     "A100": ":a100:",
+    "MI355X": ":amd:",
+    "MI300X": ":amd:",
 }
 
 ECR_PUBLIC_PREFIX = "public.ecr.aws/"
@@ -76,18 +79,32 @@ def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
 
 
-def resolved_image(data):
+def commit_from_image(image):
+    """Extract a commit SHA from an image tag, if one is embedded."""
+    _, sep, tag = image.rpartition(":")
+    if not sep:
+        return ""
+    tag = tag.split("@", 1)[0]
+    m = (re.match(r"nightly-([0-9a-f]{7,40})(?:[-_.].*)?$", tag, re.IGNORECASE)
+         or re.search(r"(?:^|[-_.])([0-9a-f]{12,40})(?:$|[-_.])", tag, re.IGNORECASE))
+    return m.group(1) if m else ""
+
+
+def resolved_image(data, profile):
     vllm = data.get("vllm") or {}
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
-    if override_image:
-        return override_image
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
-    if override_commit:
-        return COMMIT_IMAGE_TEMPLATE.format(commit=override_commit)
-    return vllm.get("image", "vllm/vllm-openai:latest")
+    custom_repo = (profile.get("image_repo") or "").strip()
+    repo = custom_repo or DEFAULT_IMAGE_REPO
+    if override_image and (not custom_repo or repo in override_image):
+        return override_image
+    commit = override_commit or commit_from_image(override_image)
+    if commit:
+        return f"{repo}:nightly-{commit}"
+    return vllm.get("image", f"{repo}:nightly")
 
 
-def b200_k8s_plugin(image, num_gpus):
+def b200_k8s_plugin(image, num_gpus, profile=None):
     return {
         "kubernetes": {
             "podSpec": {
@@ -143,6 +160,60 @@ def b200_k8s_plugin(image, num_gpus):
     }
 
 
+def amd_k8s_plugin(image, num_gpus, profile=None):
+    profile = profile or {}
+    hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
+    return {
+        "kubernetes": {
+            "podSpec": {
+                "imagePullSecrets": [
+                    {"name": "docker-config"},
+                ],
+                "containers": [
+                    {
+                        "image": image,
+                        "resources": {"limits": {"amd.com/gpu": num_gpus}},
+                        "securityContext": {
+                            "seccompProfile": {"type": "Unconfined"},
+                            "capabilities": {"add": ["IPC_LOCK", "SYS_PTRACE"]},
+                        },
+                        "volumeMounts": [
+                            {"name": "devshm", "mountPath": "/dev/shm"},
+                            {"name": "hf-cache", "mountPath": hf_home},
+                        ],
+                        "env": [
+                            {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
+                            {"name": "HF_HOME", "value": hf_home},
+                            {
+                                "name": "HF_TOKEN",
+                                "valueFrom": {
+                                    "secretKeyRef": {
+                                        "name": "hf-token",
+                                        "key": "token",
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                ],
+                "volumes": [
+                    {"name": "devshm", "emptyDir": {"medium": "Memory"}},
+                    {
+                        "name": "hf-cache",
+                        "hostPath": {"path": hf_home, "type": "DirectoryOrCreate"},
+                    },
+                ],
+            },
+        },
+    }
+
+
+K8S_PLUGINS = {
+    "nvidia": b200_k8s_plugin,
+    "amd": amd_k8s_plugin,
+}
+
+
 def load_profiles():
     with open(PROFILES_PATH) as f:
         return yaml.safe_load(f)
@@ -191,7 +262,17 @@ def make_step(path, data, profiles):
         "artifact_paths": ["results/**/*"],
     }
     if profile.get("server_runtime") == "native":
-        step["plugins"] = [b200_k8s_plugin(ecr_pull_through(resolved_image(data)), data.get("num_gpus", 1))]
+        kind = profile.get("k8s_plugin")
+        if not kind:
+            sys.exit(
+                f"{path}: profile {gpu!r} sets server_runtime: native but no"
+                f" k8s_plugin; set one explicitly (have {', '.join(K8S_PLUGINS)})"
+            )
+        builder = K8S_PLUGINS.get(kind)
+        if builder is None:
+            sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
+        image = ecr_pull_through(resolved_image(data, profile))
+        step["plugins"] = [builder(image, data.get("num_gpus", 1), profile)]
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
