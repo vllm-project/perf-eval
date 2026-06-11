@@ -29,7 +29,6 @@ bfcl:
     - multiple
     - parallel
     - parallel_multiple
-    - multi_turn
   num_threads: 8
 
 lm_eval:
