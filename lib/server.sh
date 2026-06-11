@@ -26,9 +26,6 @@ start_server() {
     done <<< "$env"
     local log_file="/tmp/${container}.log"
     VLLM_LOG_FILE="$log_file"
-    echo "--- :mag: vllm identity"
-    echo "vllm binary: $(command -v vllm || echo 'not found')"
-    vllm --version 2>&1 | sed 's/^/[vllm --version] /' || true
     # shellcheck disable=SC2086  # serve_args intentionally word-split
     vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
     VLLM_SERVER_PID=$!
