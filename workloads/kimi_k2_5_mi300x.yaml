@@ -2,8 +2,7 @@
 name: kimi_k2_5-mi300x
 gpu: MI300X
 num_gpus: 8
-# Opt-in for now: WORKLOADS=kimi_k2_5_mi300x
-nightly: false
+nightly: true
 
 vllm:
   model: moonshotai/Kimi-K2.5
