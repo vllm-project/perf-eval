@@ -1,12 +1,12 @@
 # Nemotron-3-Ultra-550B-A55B (FP8) on H200
 # Hybrid Mamba-2 + LatentMoE architecture (550B total, 55B active).
-name: nemotron_3_ultra-h200
-gpu: H200
+name: nemotron_3_ultra-b200
+gpu: B200
 num_gpus: 8
 nightly: true
 
 vllm:
-  model: RedHatAI/NVIDIA-Nemotron-3-Ultra-550B-A55B-FP8-dynamic
+  model: nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4
   serve_args: >-
     --trust-remote-code
     --kv-cache-dtype fp8
