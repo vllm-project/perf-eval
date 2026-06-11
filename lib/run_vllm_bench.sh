@@ -107,7 +107,9 @@ run_vllm_bench() {
 
   case "$dataset" in
     random)
-      cmd+=(--random-input-len "$input_len" --random-output-len "$output_len")
+      # --ignore-eos forces every request to emit the full output_len; without it
+      # the model can stop early on the random prompt and decode throughput collapses.
+      cmd+=(--random-input-len "$input_len" --random-output-len "$output_len" --ignore-eos)
       ;;
     speed_bench)
       [[ -z "$speed_bench_dataset_subset" ]] && speed_bench_dataset_subset="qualitative"
