@@ -60,6 +60,9 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
   start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
                "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
   wait_healthy "$PORT"
+  #if [[ "$ATTN_BACKEND" != "default" ]]; then
+  #  verify_attention_backend "$CONTAINER" "$ATTN_BACKEND" "$WORKLOAD_SERVER_RUNTIME"
+  #fi
 
   # vllm bench serve runs first so we can validate perf flow without waiting
   # on a full lm_eval pass. Each config's raw json lands in
@@ -84,7 +87,10 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
 
   if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
     echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"
-    exit 0
+    stop_server "$CONTAINER"
+    trap - EXIT
+    drain_gpu
+    continue
   fi
 
   while IFS=$'\t' read -r task fewshot model_args; do
@@ -113,4 +119,7 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
       --no-samples || true
   done <<< "$WORKLOAD_BFCL_TSV"
 
-done << "$WORKLOAD_BFCL_TSV"
+  stop_server "$CONTAINER"
+  trap - EXIT
+  drain_gpu
+done

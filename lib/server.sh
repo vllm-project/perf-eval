@@ -30,6 +30,7 @@ start_server() {
     local log_file="/tmp/${container}.log"
     VLLM_LOG_FILE="$log_file"
     # shellcheck disable=SC2086  # serve_args intentionally word-split
+    echo "Server call: vllm server $model --port $port $serve_args"
     vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
     VLLM_SERVER_PID=$!
     echo "--- :memo: streaming vllm logs"
@@ -103,4 +104,37 @@ stop_server() {
     wait "$VLLM_SERVER_PID" 2>/dev/null || true
   fi
   docker rm -f "$container" >/dev/null 2>&1 || true
+}
+
+# Wait until all GPUs have freed their VRAM below a low watermark, or until
+# timeout. Call this between backends so the next vllm serve doesn't OOM on
+# memory still held by the dying container's ROCm context.
+# rocm-smi --showmeminfo vram emits lines like:
+#   GPU[0] : VRAM Total Used Memory (B): 12345678
+drain_gpu() {
+  local timeout=${1:-120} threshold_gib=${2:-1}
+  local threshold_bytes=$(( threshold_gib * 1024 * 1024 * 1024 ))
+  echo "--- :hourglass: waiting for GPU VRAM to drain (threshold ${threshold_gib} GiB, timeout ${timeout}s)"
+  local deadline
+  deadline=$(( $(date +%s) + timeout ))
+  if ! command -v rocm-smi >/dev/null 2>&1; then
+    echo "rocm-smi unavailable; skipping GPU drain check" >&2
+    return 0
+  fi
+  while (( $(date +%s) < deadline )); do
+    local max_used
+    max_used=$(rocm-smi --showmeminfo vram --noheader 2>/dev/null \
+                 | awk '/VRAM Total Used Memory/{if($NF+0>m)m=$NF+0} END{print m+0}') || true
+    if [[ -z "$max_used" ]]; then
+      echo "rocm-smi returned no data; skipping GPU drain check" >&2
+      return 0
+    fi
+    if (( max_used < threshold_bytes )); then
+      echo "GPU VRAM drained (max used: $(( max_used / 1024 / 1024 )) MiB)"
+      return 0
+    fi
+    echo "GPU still holds $(( max_used / 1024 / 1024 )) MiB VRAM; waiting..."
+    sleep 5
+  done
+  echo "WARNING: GPU VRAM did not drain within ${timeout}s (max used: $(( max_used / 1024 / 1024 )) MiB); proceeding anyway" >&2
 }
