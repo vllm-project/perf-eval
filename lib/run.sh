@@ -6,8 +6,7 @@
 # started once per backend (with --attention-backend appended to serve_args),
 # and the full eval suite runs for each. Results land in
 # results/<name>/attn-<backend>/ instead of results/<name>/.
-#
-# Usage: ./lib/run.sh workloads/qwen3_5_h200.yaml
+
 set -euo pipefail
 
 WORKLOAD="${1:?usage: $0 <workload.yaml>}"
@@ -60,9 +59,6 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
   start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
                "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
   wait_healthy "$PORT"
-  #if [[ "$ATTN_BACKEND" != "default" ]]; then
-  #  verify_attention_backend "$CONTAINER" "$ATTN_BACKEND" "$WORKLOAD_SERVER_RUNTIME"
-  #fi
 
   # vllm bench serve runs first so we can validate perf flow without waiting
   # on a full lm_eval pass. Each config's raw json lands in
