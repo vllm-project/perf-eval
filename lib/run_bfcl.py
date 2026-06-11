@@ -97,37 +97,137 @@ CATEGORY_TO_CSV = {
     "multi_turn_long_context": "data_multi_turn.csv",
 }
 
+# BFCL aggregate categories expand to multiple sub-categories at runtime.
+# Their scores live in summary columns of the category CSV, not as
+# BFCL_v4_{category} columns (and there is no per-aggregate *_score.json).
+AGGREGATE_CATEGORY_SCORES = {
+    "multi_turn": ("data_multi_turn.csv", "Multi Turn Overall Acc"),
+    "live": ("data_live.csv", "Live Overall Acc"),
+    "non_live": ("data_non_live.csv", "Non-Live Overall Acc"),
+    "agentic": ("data_agentic.csv", "Agentic Overall Acc"),
+    "web_search": ("data_agentic.csv", "Web Search Summary"),
+    "memory": ("data_agentic.csv", "Memory Summary"),
+    "all": ("data_overall.csv", "Overall Acc"),
+    "all_scoring": ("data_overall.csv", "Overall Acc"),
+}
+
+
+def _score_dir(work_dir: Path) -> Path:
+    return work_dir / "score"
+
+
+def _model_row_match(model: str, row: dict) -> bool:
+    model_name = row.get("Model", row.get("model", ""))
+    return model in model_name or model.replace("/", "_") in model_name
+
+
+def _accuracy_from_percentage(value: object) -> float | None:
+    if value in (None, "", "N/A"):
+        return None
+    try:
+        return float(value) / 100.0
+    except (ValueError, TypeError):
+        return None
+
+
+def _csv_values_for_lookup(
+    row: dict, *, column: str | None, column_contains: str | None
+) -> list[object]:
+    if column is not None:
+        return [row.get(column)]
+    return [value for key, value in row.items() if column_contains in key]
+
+
+def _parse_csv_accuracy(
+    work_dir: Path,
+    model: str,
+    csv_name: str,
+    *,
+    column: str | None = None,
+    column_contains: str | None = None,
+) -> dict | None:
+    """Read a percentage accuracy from a BFCL score CSV for the given model."""
+    csv_path = _score_dir(work_dir) / csv_name
+    if not csv_path.exists():
+        return None
+
+    with open(csv_path) as f:
+        for row in csv.DictReader(f):
+            if not _model_row_match(model, row):
+                continue
+            for value in _csv_values_for_lookup(
+                row, column=column, column_contains=column_contains
+            ):
+                if accuracy := _accuracy_from_percentage(value):
+                    return {"accuracy": accuracy}
+    return None
+
+
+def _read_score_json(path: Path) -> dict:
+    with open(path) as f:
+        return json.loads(f.readline())
+
+
+def _find_score_json(work_dir: Path, category: str) -> dict | None:
+    for path in _score_dir(work_dir).rglob(f"*{category}_score.json"):
+        return _read_score_json(path)
+    return None
+
+
+def _parse_subcategory_json_average(
+    work_dir: Path, subcategories: list[str]
+) -> dict | None:
+    accuracies = []
+    for subcat in subcategories:
+        score = _find_score_json(work_dir, subcat)
+        if score and (acc := score.get("accuracy")) is not None:
+            accuracies.append(float(acc))
+    if not accuracies:
+        return None
+    return {"accuracy": sum(accuracies) / len(accuracies)}
+
+
+def _parse_aggregate_score(
+    work_dir: Path, model: str, category: str
+) -> dict | None:
+    csv_name, column = AGGREGATE_CATEGORY_SCORES[category]
+    if score := _parse_csv_accuracy(work_dir, model, csv_name, column=column):
+        return score
+
+    from bfcl_eval.constants.category_mapping import TEST_COLLECTION_MAPPING
+
+    subcategories = TEST_COLLECTION_MAPPING.get(category, [])
+    if subcategories:
+        return _parse_subcategory_json_average(work_dir, subcategories)
+    return None
+
+
+def _parse_leaf_csv_score(
+    work_dir: Path, model: str, category: str
+) -> dict | None:
+    csv_candidates = []
+    if csv_name := CATEGORY_TO_CSV.get(category):
+        csv_candidates.append(csv_name)
+    csv_candidates.append("data_overall.csv")
+
+    marker = f"BFCL_v4_{category}"
+    for csv_name in csv_candidates:
+        if score := _parse_csv_accuracy(
+            work_dir, model, csv_name, column_contains=marker
+        ):
+            return score
+    return None
+
 
 def parse_score_from_csv(work_dir: Path, model: str, category: str) -> dict | None:
-    """Extract per-category accuracy from BFCL V4 aggregate CSV files."""
-    csv_name = CATEGORY_TO_CSV.get(category)
-    csv_candidates = [work_dir / "score" / csv_name] if csv_name else []
-    csv_candidates.append(work_dir / "score" / "data_overall.csv")
+    """Extract per-category accuracy from BFCL V4 score CSVs and JSON files."""
+    if category in AGGREGATE_CATEGORY_SCORES:
+        return _parse_aggregate_score(work_dir, model, category)
 
-    bfcl_category = f"BFCL_v4_{category}"
-    for csv_path in csv_candidates:
-        if not csv_path.exists():
-            continue
-        with open(csv_path) as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                model_name = row.get("Model", row.get("model", ""))
-                if model not in model_name and model.replace("/", "_") not in model_name:
-                    continue
-                for key, value in row.items():
-                    if bfcl_category in key:
-                        try:
-                            return {"accuracy": float(value) / 100.0}
-                        except (ValueError, TypeError):
-                            continue
+    if score := _parse_leaf_csv_score(work_dir, model, category):
+        return score
 
-    # Fallback: look for per-category JSONL score files (older BFCL versions)
-    model_slug = model.replace("/", "_")
-    for p in (work_dir / "score").rglob(f"*{category}_score.json"):
-        with open(p) as f:
-            return json.loads(f.readline())
-
-    return None
+    return _find_score_json(work_dir, category)
 
 
 def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
