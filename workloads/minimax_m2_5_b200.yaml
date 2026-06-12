@@ -1,0 +1,41 @@
+# MiniMax-M2.5 on B200 (TP=4)
+# Recipe: https://recipes.vllm.ai/MiniMaxAI/MiniMax-M2.5
+name: minimax_m2_5-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: MiniMaxAI/MiniMax-M2.5
+  serve_args: >-
+    --trust-remote-code
+    --tensor-parallel-size 4
+    --tool-call-parser minimax_m2
+    --enable-auto-tool-choice
+    --reasoning-parser minimax_m2
+    --compilation-config {"mode":3,"cudagraph_mode":"PIECEWISE","pass_config":{"fuse_minimax_qk_norm":true}}
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

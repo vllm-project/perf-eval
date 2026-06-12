@@ -1,0 +1,46 @@
+# Kimi-K2.5 NVFP4 on B200 (TP=8, Eagle3 speculative)
+# Recipe: https://recipes.vllm.ai/nvidia/Kimi-K2.5-NVFP4
+name: kimi_k2_5-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/Kimi-K2.5-NVFP4
+  serve_args: >-
+    --trust-remote-code
+    --kv-cache-dtype fp8
+    --tensor-parallel-size 8
+    --attention-config.mla_prefill_backend=TRTLLM_RAGGED
+    --tool-call-parser kimi_k2
+    --enable-auto-tool-choice
+    --reasoning-parser kimi_k2
+    --speculative-config {"model":"lightseekorg/kimi-k2.5-eagle3-mla","method":"eagle3","num_speculative_tokens":3}
+    --mm-encoder-tp-mode data
+  env:
+    VLLM_USE_FLASHINFER_MOE_FP4: "1"
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
