@@ -15,6 +15,7 @@ vllm:
     --kv-cache-dtype=fp8
   attention_backends:
     - ROCM_AITER_UNIFIED_ATTN
+    - ROCM_AITER_FA
 
 lm_eval:
   model_args:

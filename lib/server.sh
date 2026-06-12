@@ -30,8 +30,12 @@ start_server() {
     local log_file="/tmp/${container}.log"
     VLLM_LOG_FILE="$log_file"
     # shellcheck disable=SC2086  # serve_args intentionally word-split
-    echo "Server call: vllm server $model --port $port $serve_args"
-    vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
+    #echo "Server call: vllm server $model --port $port $serve_args"
+    #vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
+    local -a serve_args_arr
+    IFS=' ' read -ra serve_args_arr <<< "$serve_args"
+    echo "Server call: vllm serve $model --port $port ${serve_args_arr[*]}"
+    vllm serve "$model" --port "$port" "${serve_args_arr[@]}" >"$log_file" 2>&1 &
     VLLM_SERVER_PID=$!
     echo "--- :memo: streaming vllm logs"
     ( tail -f "$log_file" 2>/dev/null | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
@@ -53,11 +57,14 @@ start_server() {
   fi
 
   # shellcheck disable=SC2086  # serve_args intentionally word-split
+  local -a server_args_arr
+  IFS=' ' read -ra serve_args_arr <<< "$serve_args"
   # vllm/vllm-openai's entrypoint takes the model as the first positional
   # arg; do not prepend `vllm` or `serve`.
   docker run -d --rm --name "$container" "${docker_args[@]}" \
     "$image" \
-    "$model" --port "$port" $serve_args
+  #  "$model" --port "$port" $serve_args
+    "$model" --port "$port" "${serve_args_arr[@]}"
 
   echo "--- :memo: streaming vllm logs"
   ( docker logs -f "$container" 2>&1 | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
