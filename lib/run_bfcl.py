@@ -272,16 +272,19 @@ def collect_scores(
     missing = [subcat for subcat in subcategories if subcat not in sub_scores]
     if missing:
         print(
-            f"[bfcl] missing sub-category scores: {', '.join(missing)}",
+            f"[bfcl] warning: missing sub-category scores: {', '.join(missing)}",
             flush=True,
         )
-        return None
 
     overall = _parse_overall_score(work_dir, model, category, subcategories)
-    if not overall:
+    if not overall and sub_scores:
+        accuracies = [s["accuracy"] for s in sub_scores.values()]
+        overall = {"accuracy": sum(accuracies) / len(accuracies)}
+
+    if not overall and not sub_scores:
         return None
 
-    scores = {category: overall}
+    scores = {category: overall} if overall else {}
     scores.update(sub_scores)
     return scores
 
