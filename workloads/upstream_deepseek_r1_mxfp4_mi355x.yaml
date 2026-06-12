@@ -1,0 +1,91 @@
+# Ported from AFO-LLM configs/vllm_upstream.yaml
+# SERVING only — TP=8, MXFP4 preview checkpoint
+# in=[1024,8192] x out=1024 x conc=[4,8,16,32,64]
+# max_num_seqs=32 (much lower than other groups — intentional per original config).
+# extra_args: async-scheduling, kv-cache-dtype=fp8, block-size=1, compilation-config
+# The compilation-config JSON is passed as a single quoted string in serve_args.
+# No ACCURACY group for this model in vllm_upstream.yaml.
+name: deepseek-r1-mxfp4-upstream-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: amd/DeepSeek-R1-MXFP4-Preview
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --dtype auto
+    --kv-cache-dtype fp8
+    --max-num-batched-tokens 131072
+    --max-num-seqs 32
+    --gpu-memory-utilization 0.95
+    --max-model-len 10240
+    --block-size 1
+    --async-scheduling
+#    --compilation-config {"pass_config":{"enable_attn_fusion":true,"enable_noop":true,"enable_fusion":true},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"],"splitting_ops":[]}
+   
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc4
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc8
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 8
+    - name: isl1024-osl1024-conc16
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 16
+    - name: isl1024-osl1024-conc32
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 32
+    - name: isl1024-osl1024-conc64
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl8192-osl1024-conc4
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc8
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 8
+    - name: isl8192-osl1024-conc16
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 16
+    - name: isl8192-osl1024-conc32
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 32
+    - name: isl8192-osl1024-conc64
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
