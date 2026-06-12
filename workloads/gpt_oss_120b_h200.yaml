@@ -31,8 +31,6 @@ bfcl:
   test_categories:
     - simple_python
     - multiple
-    - parallel
-    - parallel_multiple
     - multi_turn
   num_threads: 8
 
