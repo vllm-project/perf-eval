@@ -1,4 +1,4 @@
-"""Run a single BFCL test category against a running vLLM server.
+"""Run a single BFCL test group/category against a running vLLM server.
 
 Usage:
     python3 lib/run_bfcl.py <model> <base_url> <category> \
@@ -7,6 +7,12 @@ Usage:
 Registers the model in BFCL's config, runs generate + evaluate, then
 writes an lm_eval-compatible results JSON so the existing ingest.py
 and dashboard auto-discover the scores without any adapter.
+
+BFCL test groups (e.g. multi_turn, live, agentic) expand to multiple
+sub-categories at runtime. For those groups we write the overall score
+plus one result per sub-category. A manifest at
+  <results_dir>/.bfcl_ingest/<category>.txt
+lists every task run.sh should ingest.
 """
 
 import csv
@@ -230,9 +236,65 @@ def parse_score_from_csv(work_dir: Path, model: str, category: str) -> dict | No
     return _find_score_json(work_dir, category)
 
 
-def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
+def _test_collection_subcategories(category: str) -> list[str]:
+    from bfcl_eval.constants.category_mapping import TEST_COLLECTION_MAPPING
+
+    return list(TEST_COLLECTION_MAPPING.get(category, []))
+
+
+def _parse_overall_score(
+    work_dir: Path,
+    model: str,
+    category: str,
+    subcategories: list[str],
+) -> dict | None:
+    if category in AGGREGATE_CATEGORY_SCORES:
+        if score := _parse_aggregate_score(work_dir, model, category):
+            return score
+    return _parse_subcategory_json_average(work_dir, subcategories)
+
+
+def collect_scores(
+    work_dir: Path, model: str, category: str
+) -> dict[str, dict] | None:
+    """Collect overall and sub-category scores for dashboard ingest."""
+    subcategories = _test_collection_subcategories(category)
+    if not subcategories:
+        if score := parse_score_from_csv(work_dir, model, category):
+            return {category: score}
+        return None
+
+    sub_scores: dict[str, dict] = {}
+    for subcat in subcategories:
+        if sub_score := parse_score_from_csv(work_dir, model, subcat):
+            sub_scores[subcat] = sub_score
+
+    missing = [subcat for subcat in subcategories if subcat not in sub_scores]
+    if missing:
+        print(
+            f"[bfcl] warning: missing sub-category scores: {', '.join(missing)}",
+            flush=True,
+        )
+
+    overall = _parse_overall_score(work_dir, model, category, subcategories)
+    if not overall and sub_scores:
+        accuracies = [s["accuracy"] for s in sub_scores.values()]
+        overall = {"accuracy": sum(accuracies) / len(accuracies)}
+
+    if not overall and not sub_scores:
+        return None
+
+    scores = {category: overall} if overall else {}
+    scores.update(sub_scores)
+    return scores
+
+
+def to_lm_eval_format(
+    model: str, category: str, score: dict, *, group_average: bool = False
+) -> dict:
     """Transform BFCL aggregate score into lm_eval-compatible results JSON."""
     task_name = f"bfcl_{category}"
+    alias = f"{task_name} (overall)" if group_average else task_name
     accuracy = score.get("accuracy", 0.0)
 
     return {
@@ -240,7 +302,7 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
             task_name: {
                 "acc,none": accuracy,
                 "acc_stderr,none": 0.0,
-                "alias": task_name,
+                "alias": alias,
             }
         },
         "configs": {
@@ -253,6 +315,46 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
             "model_args": f"model={model}",
         },
     }
+
+
+def write_results(
+    results_dir: Path,
+    model: str,
+    scores: dict[str, dict],
+    ts: str,
+    run_category: str,
+) -> list[str]:
+    is_group = bool(_test_collection_subcategories(run_category))
+    written = []
+    for cat, score in scores.items():
+        out_dir = results_dir / f"bfcl-{cat}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"results_{ts}.json"
+        with open(out_path, "w") as f:
+            json.dump(
+                to_lm_eval_format(
+                    model,
+                    cat,
+                    score,
+                    group_average=is_group and cat == run_category,
+                ),
+                f,
+                indent=2,
+            )
+        print(f"[bfcl] {cat}: accuracy={score.get('accuracy', '?')}", flush=True)
+        print(f"[bfcl] results written to {out_path}", flush=True)
+        written.append(cat)
+    return written
+
+
+def write_ingest_manifest(
+    results_dir: Path, run_category: str, categories: list[str]
+) -> Path:
+    manifest_dir = results_dir / ".bfcl_ingest"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / f"{run_category}.txt"
+    manifest_path.write_text("\n".join(categories) + "\n")
+    return manifest_path
 
 
 def main():
@@ -287,25 +389,14 @@ def main():
     print(f"[bfcl] evaluate: model={model} category={category}", flush=True)
     run_evaluate(model, category)
 
-    score = parse_score_from_csv(work_dir, model, category)
-    if not score:
+    scores = collect_scores(work_dir, model, category)
+    if not scores:
         sys.exit(f"[bfcl] no score found for {category}")
 
-    print(
-        f"[bfcl] {category}: accuracy={score.get('accuracy', '?')}",
-        flush=True,
-    )
-
-    out_dir = results_dir / f"bfcl-{category}"
-    out_dir.mkdir(parents=True, exist_ok=True)
     ts = time.strftime("%Y-%m-%dT%H-%M-%S")
-    out_path = out_dir / f"results_{ts}.json"
-
-    lm_eval_results = to_lm_eval_format(model, category, score)
-    with open(out_path, "w") as f:
-        json.dump(lm_eval_results, f, indent=2)
-
-    print(f"[bfcl] results written to {out_path}", flush=True)
+    written = write_results(results_dir, model, scores, ts, category)
+    manifest = write_ingest_manifest(results_dir, category, written)
+    print(f"[bfcl] ingest manifest written to {manifest}", flush=True)
 
 
 if __name__ == "__main__":
