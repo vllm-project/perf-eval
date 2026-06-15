@@ -5,13 +5,14 @@
 # same server instance handles both eval types.
 name: upstream-deepseek-r1-0528-MI355X
 gpu: MI355X
-num_gpus: 8
+num_gpus: 1 #8
 nightly: false
 
+#tp should be 8
 vllm:
   model: deepseek-ai/DeepSeek-R1-0528
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 1
     --dtype auto
     --max-num-batched-tokens 131072
     --max-num-seqs 1024
@@ -20,7 +21,7 @@ vllm:
     --block-size 1
     --async-scheduling
   env:
-    VLLM_USE_V1: 1
+#    VLLM_USE_V1: 1
     VLLM_ROCM_USE_AITER: 1
     HSA_NO_SCRATCH_RECLAIM: 1
     NCCL_MIN_NCHANNELS: 112
