@@ -81,9 +81,21 @@ while IFS=$'\t' read -r category num_threads temperature; do
   python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
     "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
 
-  python3 "$DIR/ingest.py" \
-    --results-dir "${RESULTS_DIR}/bfcl-${category}" \
-    --workload "$WORKLOAD_NAME" \
-    --task "bfcl_${category}" \
-    --no-samples || true
+  manifest="${RESULTS_DIR}/.bfcl_ingest/${category}.txt"
+  if [[ -f "$manifest" ]]; then
+    while IFS= read -r ingest_category; do
+      [[ -z "$ingest_category" ]] && continue
+      python3 "$DIR/ingest.py" \
+        --results-dir "${RESULTS_DIR}/bfcl-${ingest_category}" \
+        --workload "$WORKLOAD_NAME" \
+        --task "bfcl_${ingest_category}" \
+        --no-samples || true
+    done < "$manifest"
+  else
+    python3 "$DIR/ingest.py" \
+      --results-dir "${RESULTS_DIR}/bfcl-${category}" \
+      --workload "$WORKLOAD_NAME" \
+      --task "bfcl_${category}" \
+      --no-samples || true
+  fi
 done <<< "$WORKLOAD_BFCL_TSV"
