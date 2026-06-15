@@ -45,8 +45,9 @@ vllm:                    # how the server is brought up
   env:                                  # optional; merged over the GPU profile's env
     SOME_VAR: value
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
-    -dp 8 --enable-expert-parallel
-    --trust-remote-code
+    -dp 8 --enable-expert-parallel       # NOTE: word-split is unquoted, so do NOT wrap
+    --trust-remote-code                  # values in quotes and keep each token space-free.
+    --speculative-config {"method":"eagle3","num_speculative_tokens":3}  # JSON args: no quotes, no spaces
 
 lm_eval:                 # accuracy tasks (optional)
   model_args:            # workload-level defaults, merged into every task

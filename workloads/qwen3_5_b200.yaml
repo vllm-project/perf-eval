@@ -1,0 +1,46 @@
+# Qwen3.5-397B-A17B NVFP4 on B200 (TP=8)
+# Recipe: https://recipes.vllm.ai/nvidia/Qwen3.5-397B-A17B-NVFP4
+name: qwen3_5-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/Qwen3.5-397B-A17B-NVFP4
+  serve_args: >-
+    --trust-remote-code
+    --kv-cache-dtype fp8
+    --tensor-parallel-size 8
+    --enable-auto-tool-choice
+    --tool-call-parser qwen3_coder
+    --reasoning-parser qwen3
+    --mm-encoder-tp-mode data
+  env:
+    VLLM_DEEP_GEMM_WARMUP: skip
+    VLLM_USE_DEEP_GEMM: "0"
+    VLLM_FLASHINFER_MOE_BACKEND: latency
+    VLLM_USE_FLASHINFER_MOE_FP4: "1"
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

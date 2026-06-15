@@ -1,0 +1,44 @@
+# GLM-5.1 NVFP4 on B200 (TP=8)
+# Recipe: https://recipes.vllm.ai/nvidia/GLM-5.1-NVFP4
+name: glm_5_1-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/GLM-5.1-NVFP4
+  serve_args: >-
+    --trust-remote-code
+    --chat-template-content-format=string
+    --kv-cache-dtype fp8
+    --tensor-parallel-size 8
+    --tool-call-parser glm47
+    --enable-auto-tool-choice
+    --reasoning-parser glm45
+  env:
+    VLLM_USE_FLASHINFER_MOE_FP4: "1"
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

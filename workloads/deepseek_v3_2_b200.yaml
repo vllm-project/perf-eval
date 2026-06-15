@@ -1,0 +1,45 @@
+# DeepSeek-V3.2 NVFP4 on B200 (TP=8; sparse attention, auto MLA backend)
+# Recipe: https://recipes.vllm.ai/nvidia/DeepSeek-V3.2-NVFP4
+name: deepseek_v3_2-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/DeepSeek-V3.2-NVFP4
+  serve_args: >-
+    --trust-remote-code
+    --kernel-config.enable_flashinfer_autotune=False
+    --kv-cache-dtype fp8
+    --tensor-parallel-size 8
+    --tokenizer-mode deepseek_v32
+    --tool-call-parser deepseek_v32
+    --enable-auto-tool-choice
+    --reasoning-parser deepseek_v3
+  env:
+    VLLM_USE_FLASHINFER_MOE_FP4: "1"
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 4096
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
