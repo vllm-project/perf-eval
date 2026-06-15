@@ -19,7 +19,6 @@ vllm:
     --block-size 64
     --async-scheduling
   env:
-#    VLLM_USE_V1: 1
     VLLM_ROCM_USE_AITER: 1
     VLLM_ROCM_USE_AITER_UNIFIED_ATTENTION: 1
     VLLM_ROCM_USE_AITER_MHA: 0
