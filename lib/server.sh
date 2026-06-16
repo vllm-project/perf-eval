@@ -107,6 +107,8 @@ stop_server() {
     wait "$VLLM_LOGS_PID" 2>/dev/null || true
   fi
   if [[ -n "${VLLM_SERVER_PID:-}" ]]; then
+    kill -SIGINT "$VLLM_SERVER_PID" 2>/dev/null || true
+    wait "$VLLM_SERVER_PID" 2>/dev/null || true
     kill "$VLLM_SERVER_PID" 2>/dev/null || true
     wait "$VLLM_SERVER_PID" 2>/dev/null || true
   fi
@@ -118,9 +120,11 @@ stop_server() {
 # memory still held by the dying container's ROCm context.
 # rocm-smi --showmeminfo vram emits lines like:
 #   GPU[0] : VRAM Total Used Memory (B): 12345678
+# timeout default: 120sec, threshold_gib default: 0
 drain_gpu() {
-  local timeout=${1:-120} threshold_gib=${2:-1}
+  local timeout=${1:-120} threshold_gib=${2:-0}
   local threshold_bytes=$(( threshold_gib * 1024 * 1024 * 1024 ))
+  local current_used=0
   echo "--- :hourglass: waiting for GPU VRAM to drain (threshold ${threshold_gib} GiB, timeout ${timeout}s)"
   local deadline
   deadline=$(( $(date +%s) + timeout ))
@@ -129,19 +133,55 @@ drain_gpu() {
     return 0
   fi
   while (( $(date +%s) < deadline )); do
-    local max_used
-    max_used=$(rocm-smi --showmeminfo vram --noheader 2>/dev/null \
+    current_used=$(rocm-smi --showmeminfo vram --noheader 2>/dev/null \
                  | awk '/VRAM Total Used Memory/{if($NF+0>m)m=$NF+0} END{print m+0}') || true
-    if [[ -z "$max_used" ]]; then
+    if [[ -z "$current_used" ]]; then
       echo "rocm-smi returned no data; skipping GPU drain check" >&2
       return 0
     fi
-    if (( max_used < threshold_bytes )); then
-      echo "GPU VRAM drained (max used: $(( max_used / 1024 / 1024 )) MiB)"
+    if (( current_used <= threshold_bytes )); then
+      echo "GPU VRAM drained (max used: $(( current_used / 1024 / 1024 )) MiB)"
       return 0
     fi
-    echo "GPU still holds $(( max_used / 1024 / 1024 )) MiB VRAM; waiting..."
+    echo "GPU still holds $(( current_used / 1024 / 1024 )) MiB VRAM; waiting..."
     sleep 5
   done
-  echo "WARNING: GPU VRAM did not drain within ${timeout}s (max used: $(( max_used / 1024 / 1024 )) MiB); proceeding anyway" >&2
+  echo "WARNING: **************************************************************************************************************" >&2
+  echo "WARNING: GPU(s)  DID NOT DRAIN COMPLETELY                                                                              " >&2
+  echo "WARNING: GPU VRAM did not drain within ${timeout}s (max used: $(( current_used / 1024 / 1024 )) MiB); proceeding anyway" >&2
+  echo "WARNING: **************************************************************************************************************" >&2
+}
+
+# Wait until all GPUs have dropped to 0% utilization, or until timeout.
+# Call this after stop_server to confirm the GPU is truly idle before
+# starting the next server (complements drain_gpu which checks VRAM).
+# rocm-smi --showuse emits lines like:
+#   GPU[0]          : GPU use (%): 12
+# timeout default: 60s
+wait_gpu_idle() {
+  local timeout=${1:-60}
+  echo "--- :hourglass: waiting for GPU utilization to reach 0% (timeout ${timeout}s)"
+  local deadline
+  local max_util=0
+  deadline=$(( $(date +%s) + timeout ))
+  if ! command -v rocm-smi >/dev/null 2>&1; then
+    echo "rocm-smi unavailable; skipping GPU idle check" >&2
+    return 0
+  fi
+  while (( $(date +%s) < deadline )); do
+    
+    max_util=$(rocm-smi --showuse --noheader 2>/dev/null \
+                 | awk '/GPU use \(%\)/{if($NF+0>m)m=$NF+0} END{print m+0}') || true
+    if [[ -z "$max_util" ]]; then
+      echo "rocm-smi returned no data; skipping GPU idle check" >&2
+      return 0
+    fi
+    if (( max_util == 0 )); then
+      echo "GPU utilization is 0% on all devices"
+      return 0
+    fi
+    echo "GPU still at ${max_util}% utilization; waiting..."
+    sleep 5
+  done
+  echo "WARNING: GPU utilization did not reach 0% within ${timeout}s (max: ${max_util}%); proceeding anyway" >&2
 }
