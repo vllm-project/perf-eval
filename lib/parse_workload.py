@@ -24,6 +24,7 @@ VLLM_FIELDS = {
     "model", "image", "serve_args", "env", "attention_backends",
 }
 KNOWN_ATTENTION_BACKENDS = {
+    "default",
     "FLASH_ATTN", "FLASHINFER", "XFORMERS", "TRITON_ATTN",
     "TRITON_MLA", "ROCM_FLASH", "PAGED_ATTENTION", "ROCM_AITER_FA",
     "ROCM_AITER_UNIFIED_ATTN", "ROCM_ATTN", "ROCM_AITER_MLA",

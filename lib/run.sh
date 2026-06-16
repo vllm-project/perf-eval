@@ -60,6 +60,22 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
                "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
   wait_healthy "$PORT"
 
+#figuring out what the default attention backend is
+  if [[ "$ATTN_BACKEND" == "default" ]]; then
+    echo "--- :mag: attention backend selected by vLLM:"
+    if [[ "${WORKLOAD_SERVER_RUNTIME:-docker}" == "native" ]]; then
+      grep -E "(Using|Overriding with|Incompatible).*(backend|Backend)" \
+        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null \
+        | grep "Worker_TP0\|Worker pid" \
+        | sed 's/^/  /' || echo "  (backend selection lines not found in log)"
+    else
+      docker logs "$CONTAINER" 2>&1 \
+        | grep -E "(Using|Overriding with|Incompatible).*(backend|Backend)" \
+        | grep "Worker_TP0\|Worker pid" \
+        | sed 's/^/  /' || echo "  (backend selection lines not found in log)"
+    fi
+  fi
+
   # vllm bench serve runs first so we can validate perf flow without waiting
   # on a full lm_eval pass. Each config's raw json lands in
   # $RESULTS_DIR/bench-<name>.json and is then transformed and POSTed to the
@@ -79,6 +95,9 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
       --model "$WORKLOAD_MODEL" \
       --image "$WORKLOAD_IMAGE" \
       --isl "$isl" --osl "$osl" --conc "$conc" || true
+
+    echo "Giving GPU time to settle between tests"
+    wait_gpu_idle
   done <<< "$WORKLOAD_VLLM_BENCH_TSV"
 
   if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
