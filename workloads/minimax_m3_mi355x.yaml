@@ -8,6 +8,12 @@
 # ships no calibrated KV scales, so --kv-cache-dtype fp8 silently falls back to
 # scale 1.0 and corrupts output (see vllm-project/vllm#45562); do not enable it
 # here without a calibrated checkpoint or a self-calibrating dtype.
+#
+# --block-size 128 is required: with EAGLE3 spec decode on this backend the
+# default KV-manager block size (16) has no compatible attention-kernel block
+# size, so bring-up dies in select_common_block_size with
+# "No common block size for 16." Forcing 128 gives a block size every kernel
+# in the spec-decode path supports.
 name: minimax_m3-mi355x
 gpu: MI355X
 num_gpus: 8
@@ -19,6 +25,7 @@ vllm:
     VLLM_USE_BREAKABLE_CUDAGRAPH: 0
   serve_args: >-
     --tensor-parallel-size 8
+    --block-size 128
     --tool-call-parser minimax_m3
     --reasoning-parser minimax_m3
     --enable-auto-tool-choice
