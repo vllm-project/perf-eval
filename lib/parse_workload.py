@@ -26,7 +26,8 @@ BENCH_FIELDS = {
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
-BFCL_FIELDS = {"test_categories", "num_threads", "temperature"}
+BFCL_FIELDS = {"test_categories", "num_threads", "temperature", "maximum_step_limit"}
+BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
     "multiple", "parallel", "parallel_multiple", "irrelevance",
@@ -213,13 +214,20 @@ def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
     if "--tool-call-parser" not in serve_args:
         print(f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
               "some models may need it for function-calling", file=sys.stderr)
+    limit = bfcl.get("maximum_step_limit")
+    if limit is not None and (not isinstance(limit, int) or limit < 1):
+        sys.exit(f"{path}: bfcl.maximum_step_limit must be a positive integer")
 
 
 def bfcl_tsv(bfcl: dict) -> str:
     cats = bfcl.get("test_categories") or []
     num_threads = bfcl.get("num_threads", 8)
     temperature = bfcl.get("temperature", 0.001)
-    return "\n".join(f"{cat}\t{num_threads}\t{temperature}" for cat in cats)
+    limit = bfcl.get("maximum_step_limit")
+    limit_str = "" if limit is None else str(limit)
+    return "\n".join(
+        f"{cat}\t{num_threads}\t{temperature}\t{limit_str}" for cat in cats
+    )
 
 
 def main(path: str) -> None:

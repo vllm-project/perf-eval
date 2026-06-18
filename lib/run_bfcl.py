@@ -2,7 +2,10 @@
 
 Usage:
     python3 lib/run_bfcl.py <model> <base_url> <category> \
-        <num_threads> <temperature> <results_dir>
+        <num_threads> <temperature> <results_dir> [maximum_step_limit]
+
+maximum_step_limit comes from the workload YAML when set; BFCL_MAXIMUM_STEP_LIMIT
+env overrides YAML; otherwise the perf-eval default (10) applies.
 
 Registers the model in BFCL's config, runs generate + evaluate, then
 writes an lm_eval-compatible results JSON so the existing ingest.py
@@ -16,6 +19,53 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+
+BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
+BFCL_MAXIMUM_STEP_LIMIT_ENV = "BFCL_MAXIMUM_STEP_LIMIT"
+
+
+def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
+    """Return (limit, source) with env overriding workload YAML."""
+    env_value = os.environ.get(BFCL_MAXIMUM_STEP_LIMIT_ENV, "").strip()
+    if env_value:
+        try:
+            limit = int(env_value)
+        except ValueError:
+            sys.exit(
+                f"[bfcl] {BFCL_MAXIMUM_STEP_LIMIT_ENV} must be a positive integer, "
+                f"got {env_value!r}"
+            )
+        if limit < 1:
+            sys.exit(
+                f"[bfcl] {BFCL_MAXIMUM_STEP_LIMIT_ENV} must be a positive integer, "
+                f"got {limit}"
+            )
+        return limit, f"env:{BFCL_MAXIMUM_STEP_LIMIT_ENV}"
+
+    workload_value = workload_limit.strip()
+    if workload_value:
+        try:
+            limit = int(workload_value)
+        except ValueError:
+            sys.exit(
+                f"[bfcl] workload maximum_step_limit must be a positive integer, "
+                f"got {workload_value!r}"
+            )
+        if limit < 1:
+            sys.exit(
+                f"[bfcl] workload maximum_step_limit must be a positive integer, "
+                f"got {limit}"
+            )
+        return limit, "workload"
+
+    return BFCL_DEFAULT_MAXIMUM_STEP_LIMIT, "default"
+
+
+def apply_maximum_step_limit(limit: int) -> None:
+    """Patch BFCL before base_handler is imported."""
+    import bfcl_eval.constants.default_prompts as bfcl_prompts
+
+    bfcl_prompts.MAXIMUM_STEP_LIMIT = limit
 
 
 def get_typer_defaults(func):
@@ -256,15 +306,23 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
 
 
 def main():
-    if len(sys.argv) != 7:
+    if len(sys.argv) not in (7, 8):
         sys.exit(
             "usage: run_bfcl.py <model> <base_url> <category> "
-            "<num_threads> <temperature> <results_dir>"
+            "<num_threads> <temperature> <results_dir> [maximum_step_limit]"
         )
 
     model, base_url, category = sys.argv[1], sys.argv[2], sys.argv[3]
     num_threads, temperature = int(sys.argv[4]), float(sys.argv[5])
     results_dir = Path(sys.argv[6])
+    workload_step_limit = sys.argv[7] if len(sys.argv) == 8 else ""
+
+    step_limit, step_limit_source = resolve_maximum_step_limit(workload_step_limit)
+    apply_maximum_step_limit(step_limit)
+    print(
+        f"[bfcl] maximum_step_limit={step_limit} (from {step_limit_source})",
+        flush=True,
+    )
 
     work_dir = (results_dir / ".bfcl_work").resolve()
     work_dir.mkdir(parents=True, exist_ok=True)

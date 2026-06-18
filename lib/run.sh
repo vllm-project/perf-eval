@@ -75,11 +75,12 @@ while IFS=$'\t' read -r task fewshot model_args; do
 done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
 
 # bfcl function-calling eval
-while IFS=$'\t' read -r category num_threads temperature; do
+while IFS=$'\t' read -r category num_threads temperature maximum_step_limit; do
   [[ -z "$category" ]] && continue
   echo "--- :phone: bfcl ${category}"
   python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
-    "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
+    "$category" "$num_threads" "$temperature" "$RESULTS_DIR" \
+    "$maximum_step_limit"
 
   python3 "$DIR/ingest.py" \
     --results-dir "${RESULTS_DIR}/bfcl-${category}" \
