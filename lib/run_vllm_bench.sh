@@ -87,6 +87,9 @@ run_vllm_bench() {
   echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts})"
   mkdir -p "$outdir"
 
+  local attn_backend="${ATTN_BACKEND:-default}"
+  local summary_file="${outdir}/bench-${name}-summary.txt"
+
   local cmd=(vllm bench serve)
   [[ "$runtime" != "native" ]] && cmd=(docker exec "$container" "${cmd[@]}")
 
@@ -138,9 +141,37 @@ run_vllm_bench() {
     cmd+=(--save-result --result-filename "$in_container_json")
   fi
 
-  "${cmd[@]}"
+  "${cmd[@]}" | tee "$summary_file"
 
   [[ "$runtime" != "native" ]] && docker cp "${container}:${in_container_json}" "$host_json"
+
+  # Resolve the actual attention backend selected by vLLM from the live server
+  # log (server is still running at this point). Named backends are already
+  # exact; only "default" needs resolution.
+  if [[ "$attn_backend" == "default" ]]; then
+    local _resolved
+    if [[ "$runtime" == "native" ]]; then
+      _resolved=$(grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
+        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null \
+        | grep -m1 "rocm\.py" \
+        | grep -oE "Using [A-Z_]+ backend" | awk '{print $2}') || true
+    else
+      _resolved=$(docker logs "$container" 2>&1 \
+        | grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
+        | grep -m1 "rocm\.py" \
+        | grep -oE "Using [A-Z_]+ backend" | awk '{print $2}') || true
+    fi
+    [[ -n "$_resolved" ]] && attn_backend="$_resolved"
+  fi
+
+  # Prepend context header to the summary file
+  local _tmp="${summary_file}.tmp"
+  {
+    echo "attention_backend: ${attn_backend}"
+    echo "isl: ${input_len}  osl: ${output_len}  conc: ${max_concurrency}  n: ${num_prompts}"
+    echo ""
+    cat "$summary_file"
+  } > "$_tmp" && mv "$_tmp" "$summary_file"
 
   python3 - "$host_json" "$num_prompts" <<'PY'
 import json, sys

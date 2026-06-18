@@ -160,16 +160,15 @@ drain_gpu() {
 # timeout default: 60s
 wait_gpu_idle() {
   local timeout=${1:-60}
+  local max_util=0
   echo "--- :hourglass: waiting for GPU utilization to reach 0% (timeout ${timeout}s)"
   local deadline
-  local max_util=0
   deadline=$(( $(date +%s) + timeout ))
   if ! command -v rocm-smi >/dev/null 2>&1; then
     echo "rocm-smi unavailable; skipping GPU idle check" >&2
     return 0
   fi
   while (( $(date +%s) < deadline )); do
-    
     max_util=$(rocm-smi --showuse --noheader 2>/dev/null \
                  | awk '/GPU use \(%\)/{if($NF+0>m)m=$NF+0} END{print m+0}') || true
     if [[ -z "$max_util" ]]; then
