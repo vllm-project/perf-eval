@@ -12,12 +12,6 @@ Override env vars are propagated to each step:
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
   BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
 
-A GPU profile may declare ``image_env: <VAR>`` (e.g. B200 → VLLM_IMAGE_CU13).
-When that var is set it takes precedence over VLLM_IMAGE / VLLM_COMMIT for that
-profile's steps only, so a CUDA 13 image can be routed to Blackwell while other
-GPUs keep the default VLLM_IMAGE. The var is also propagated to the step env so
-the in-job parser records the image/commit that actually ran.
-
 Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
 without forcing the whole build to skip lm_eval.
 
@@ -82,13 +76,8 @@ def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
 
 
-def resolved_image(data, profile):
+def resolved_image(data):
     vllm = data.get("vllm") or {}
-    image_env = (profile or {}).get("image_env")
-    if image_env:
-        profile_image = (os.environ.get(image_env) or "").strip()
-        if profile_image:
-            return profile_image
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     if override_image:
         return override_image
@@ -202,11 +191,12 @@ def make_step(path, data, profiles):
         "artifact_paths": ["results/**/*"],
     }
     if profile.get("server_runtime") == "native":
-        step["plugins"] = [b200_k8s_plugin(ecr_pull_through(resolved_image(data, profile)), data.get("num_gpus", 1))]
-    env_keys = ["VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY"]
-    if profile.get("image_env"):
-        env_keys.append(profile["image_env"])
-    step_env = {k: os.environ[k] for k in env_keys if os.environ.get(k)}
+        step["plugins"] = [b200_k8s_plugin(ecr_pull_through(resolved_image(data)), data.get("num_gpus", 1))]
+    step_env = {
+        k: os.environ[k]
+        for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
+        if os.environ.get(k)
+    }
     if bench_only and "BENCH_ONLY" not in step_env:
         step_env["BENCH_ONLY"] = "1"
     if step_env:

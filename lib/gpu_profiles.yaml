@@ -10,10 +10,6 @@ B200:
   queue: b200-k8s
   hf_home: /mnt/shared/hf_cache
   server_runtime: native
-  # Blackwell needs a CUDA 13 image; the default VLLM_IMAGE is an x86_64
-  # CUDA 12.9 build. When VLLM_IMAGE_CU13 is set it takes precedence over
-  # VLLM_IMAGE / VLLM_COMMIT for B200 steps only (other GPUs keep VLLM_IMAGE).
-  image_env: VLLM_IMAGE_CU13
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0

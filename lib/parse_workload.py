@@ -7,8 +7,7 @@ projects it into shell variables: top-level metadata, server config
 (image, model, serve_args, env, runtime), the lm_eval task list, the
 vllm_bench config list, and bench ingest metadata (device/tp/precision).
 
-Image precedence: a GPU profile's `image_env` var (e.g. B200 →
-VLLM_IMAGE_CU13) > VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
+Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 `vllm/vllm-openai:latest`. When BENCH_ONLY is truthy, lm_eval task names
 are not validated against the registry (because they will not run).
 """
@@ -90,16 +89,8 @@ def load_profile(gpu: str, workload_path: str) -> dict:
     return profiles[gpu]
 
 
-def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
-    """Pick the image and commit using the profile's image_env (e.g.
-    VLLM_IMAGE_CU13) / VLLM_IMAGE / VLLM_COMMIT / workload."""
-    image_env = (profile or {}).get("image_env")
-    if image_env:
-        profile_image = (os.environ.get(image_env) or "").strip()
-        if profile_image:
-            # Commit comes from the profile image's tag, not VLLM_COMMIT,
-            # so the recorded commit matches the image that actually ran.
-            return profile_image, commit_from_image(profile_image)
+def resolve_image(vllm: dict) -> tuple[str, str]:
+    """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload."""
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     if override_image:
@@ -250,7 +241,7 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
-    image, vllm_commit = resolve_image(vllm, profile)
+    image, vllm_commit = resolve_image(vllm)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]

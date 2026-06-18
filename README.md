@@ -81,7 +81,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 
 A few things worth knowing:
 
-- **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars. A profile may also set `image_env: <VAR>` to route a different image override to that GPU — B200 uses `image_env: VLLM_IMAGE_CU13` so Blackwell pulls a CUDA 13 image while everything else stays on the default `VLLM_IMAGE`.
+- **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
@@ -103,7 +103,6 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 **Optional env vars:**
 
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
-- `VLLM_IMAGE_CU13` — full Docker image URI for a CUDA 13 build. B200 (Blackwell) steps use it in preference to `VLLM_IMAGE` / `VLLM_COMMIT`, because the default `VLLM_IMAGE` is an x86_64 CUDA 12.9 build; other GPUs ignore it and keep using `VLLM_IMAGE`. This is wired through the B200 profile's `image_env` key in `lib/gpu_profiles.yaml` (see below) — any profile can opt in to its own image-override var the same way.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
 **Example — trigger a build from the Buildkite UI:**
