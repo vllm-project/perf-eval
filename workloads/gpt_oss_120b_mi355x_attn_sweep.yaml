@@ -14,30 +14,59 @@ vllm:
     --trust-remote-code
     --kv-cache-dtype=fp8
   attention_backends:
+    - default
     - ROCM_AITER_UNIFIED_ATTN
     - ROCM_AITER_FA
+    - TRITON_ATTN
 
-lm_eval:
-  model_args:
-    tokenized_requests: false
-    tokenizer_backend: null
-    timeout: 6000
-  tasks:
-    - name: gsm8k
-      num_fewshot: 5
-      model_args:
-        num_concurrent: 64
-        max_length: 32768
-        max_gen_toks: 8192
+# lm_eval:
+#   model_args:
+#     tokenized_requests: false
+#     tokenizer_backend: null
+#     timeout: 6000
+#   tasks:
+#     - name: gsm8k
+#       num_fewshot: 5
+#       model_args:
+#         num_concurrent: 64
+#         max_length: 32768
+#         max_gen_toks: 8192
 
 vllm_bench:
   configs:
-    - name: 8k-in-1k-out-conc-128
-      backend: openai-chat
-      dataset: speed_bench
+    - name: isl1024-osl1024-conc4
+      dataset: random
       input_len: 1024
       output_len: 1024
-      num_prompts: 5
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc64
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl1024-osl1024-conc128
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
       max_concurrency: 128
-      speed_bench_dataset_subset: throughput_8k
-      speed_bench_category: low_entropy
+    - name: isl8192-osl1024-conc4
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc64
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl8192-osl1024-conc128
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 128

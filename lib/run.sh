@@ -60,19 +60,22 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
                "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
   wait_healthy "$PORT"
 
-#figuring out what the default attention backend is
   if [[ "$ATTN_BACKEND" == "default" ]]; then
     echo "--- :mag: attention backend selected by vLLM:"
+    _backend_lines=""
     if [[ "${WORKLOAD_SERVER_RUNTIME:-docker}" == "native" ]]; then
-      grep -E "(Using|Overriding with|Incompatible).*(backend|Backend)" \
+      _backend_lines=$(grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
         "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null \
-        | grep "Worker_TP0\|Worker pid" \
-        | sed 's/^/  /' || echo "  (backend selection lines not found in log)"
+        | grep "rocm\.py") || true
     else
-      docker logs "$CONTAINER" 2>&1 \
-        | grep -E "(Using|Overriding with|Incompatible).*(backend|Backend)" \
-        | grep "Worker_TP0\|Worker pid" \
-        | sed 's/^/  /' || echo "  (backend selection lines not found in log)"
+      _backend_lines=$(docker logs "$CONTAINER" 2>&1 \
+        | grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
+        | grep "rocm\.py") || true
+    fi
+    if [[ -n "$_backend_lines" ]]; then
+      echo "$_backend_lines" | sed 's/^/  /'
+    else
+      echo "  (backend selection lines not found in log)"
     fi
   fi
 
@@ -95,9 +98,6 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
       --model "$WORKLOAD_MODEL" \
       --image "$WORKLOAD_IMAGE" \
       --isl "$isl" --osl "$osl" --conc "$conc" || true
-
-    echo "Giving GPU time to settle between tests"
-    wait_gpu_idle
   done <<< "$WORKLOAD_VLLM_BENCH_TSV"
 
   if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
