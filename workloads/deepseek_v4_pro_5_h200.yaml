@@ -48,6 +48,8 @@ bfcl:
     - parallel_multiple
     - multi_turn
   num_threads: 16
+  max_test_cases:
+    multi_turn: 300
 
 vllm_bench:
   configs:

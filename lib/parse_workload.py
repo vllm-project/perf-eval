@@ -26,7 +26,10 @@ BENCH_FIELDS = {
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
-BFCL_FIELDS = {"test_categories", "num_threads", "temperature", "maximum_step_limit"}
+BFCL_FIELDS = {
+    "test_categories", "num_threads", "temperature",
+    "maximum_step_limit", "max_test_cases",
+}
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
@@ -217,6 +220,32 @@ def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
     limit = bfcl.get("maximum_step_limit")
     if limit is not None and (not isinstance(limit, int) or limit < 1):
         sys.exit(f"{path}: bfcl.maximum_step_limit must be a positive integer")
+    cases = bfcl.get("max_test_cases")
+    if cases is not None:
+        if isinstance(cases, int):
+            if cases < 1:
+                sys.exit(f"{path}: bfcl.max_test_cases must be a positive integer")
+        elif isinstance(cases, dict):
+            for cat, count in cases.items():
+                if cat not in BFCL_KNOWN_CATEGORIES:
+                    sys.exit(f"{path}: unknown bfcl max_test_cases category {cat!r}")
+                if not isinstance(count, int) or count < 1:
+                    sys.exit(
+                        f"{path}: bfcl.max_test_cases[{cat!r}] must be a positive integer"
+                    )
+        else:
+            sys.exit(
+                f"{path}: bfcl.max_test_cases must be a positive integer or category map"
+            )
+
+
+def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
+    cases = bfcl.get("max_test_cases")
+    if cases is None:
+        return None
+    if isinstance(cases, int):
+        return cases
+    return cases.get(category)
 
 
 def bfcl_tsv(bfcl: dict) -> str:
@@ -225,9 +254,12 @@ def bfcl_tsv(bfcl: dict) -> str:
     temperature = bfcl.get("temperature", 0.001)
     limit = bfcl.get("maximum_step_limit")
     limit_str = "" if limit is None else str(limit)
-    return "\n".join(
-        f"{cat}\t{num_threads}\t{temperature}\t{limit_str}" for cat in cats
-    )
+    lines = []
+    for cat in cats:
+        cases = max_test_cases_for_category(bfcl, cat)
+        cases_str = "" if cases is None else str(cases)
+        lines.append(f"{cat}\t{num_threads}\t{temperature}\t{limit_str}\t{cases_str}")
+    return "\n".join(lines)
 
 
 def main(path: str) -> None:

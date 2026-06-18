@@ -2,10 +2,14 @@
 
 Usage:
     python3 lib/run_bfcl.py <model> <base_url> <category> \
-        <num_threads> <temperature> <results_dir> [maximum_step_limit]
+        <num_threads> <temperature> <results_dir> [maximum_step_limit] [max_test_cases]
 
 maximum_step_limit comes from the workload YAML when set; BFCL_MAXIMUM_STEP_LIMIT
 env overrides YAML; otherwise the perf-eval default (10) applies.
+
+max_test_cases subsamples each category to the first N cases (by BFCL id order).
+Set per category in YAML or globally via BFCL_MAX_TEST_CASES env (env wins).
+Uses BFCL's test_case_ids_to_generate.json + --partial-eval.
 
 Registers the model in BFCL's config, runs generate + evaluate, then
 writes an lm_eval-compatible results JSON so the existing ingest.py
@@ -22,6 +26,7 @@ from urllib.parse import urlparse
 
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
 BFCL_MAXIMUM_STEP_LIMIT_ENV = "BFCL_MAXIMUM_STEP_LIMIT"
+BFCL_MAX_TEST_CASES_ENV = "BFCL_MAX_TEST_CASES"
 
 
 def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
@@ -59,6 +64,68 @@ def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
         return limit, "workload"
 
     return BFCL_DEFAULT_MAXIMUM_STEP_LIMIT, "default"
+
+
+def resolve_max_test_cases(workload_limit: str) -> tuple[int | None, str | None]:
+    """Return (limit, source). None limit means run the full category."""
+    env_value = os.environ.get(BFCL_MAX_TEST_CASES_ENV, "").strip()
+    if env_value:
+        try:
+            limit = int(env_value)
+        except ValueError:
+            sys.exit(
+                f"[bfcl] {BFCL_MAX_TEST_CASES_ENV} must be a positive integer, "
+                f"got {env_value!r}"
+            )
+        if limit < 1:
+            sys.exit(
+                f"[bfcl] {BFCL_MAX_TEST_CASES_ENV} must be a positive integer, "
+                f"got {limit}"
+            )
+        return limit, f"env:{BFCL_MAX_TEST_CASES_ENV}"
+
+    workload_value = workload_limit.strip()
+    if not workload_value:
+        return None, None
+
+    try:
+        limit = int(workload_value)
+    except ValueError:
+        sys.exit(
+            f"[bfcl] workload max_test_cases must be a positive integer, "
+            f"got {workload_value!r}"
+        )
+    if limit < 1:
+        sys.exit(
+            f"[bfcl] workload max_test_cases must be a positive integer, "
+            f"got {limit}"
+        )
+    return limit, "workload"
+
+
+def write_test_case_ids(work_dir: Path, category: str, max_cases: int) -> int:
+    """Write BFCL's id file and return how many cases were selected."""
+    from bfcl_eval.utils import load_dataset_entry, parse_test_category_argument, sort_key
+
+    leaf_categories = parse_test_category_argument([category])
+    entries: list[tuple[str, dict]] = []
+    for leaf in leaf_categories:
+        for entry in load_dataset_entry(leaf):
+            entries.append((leaf, entry))
+
+    entries.sort(key=lambda item: sort_key(item[1]))
+    selected = entries[:max_cases]
+    if not selected:
+        sys.exit(f"[bfcl] max_test_cases={max_cases} but no cases found for {category}")
+
+    ids_by_category: dict[str, list[str]] = {}
+    for leaf, entry in selected:
+        ids_by_category.setdefault(leaf, []).append(entry["id"])
+
+    path = work_dir / "test_case_ids_to_generate.json"
+    with open(path, "w") as f:
+        json.dump(ids_by_category, f, indent=2)
+    return len(selected)
 
 
 def apply_maximum_step_limit(limit: int) -> None:
@@ -106,7 +173,9 @@ def register_model(model: str, base_url: str):
     }
 
 
-def run_generate(model, category, num_threads, temperature):
+def run_generate(
+    model, category, num_threads, temperature, *, use_test_subset: bool
+):
     from bfcl_eval.__main__ import generate
 
     kwargs = get_typer_defaults(generate)
@@ -115,15 +184,20 @@ def run_generate(model, category, num_threads, temperature):
     kwargs["skip_server_setup"] = True
     kwargs["num_threads"] = num_threads
     kwargs["temperature"] = temperature
+    if use_test_subset:
+        kwargs["run_ids"] = True
+        kwargs["allow_overwrite"] = True
     generate(**kwargs)
 
 
-def run_evaluate(model, category):
+def run_evaluate(model, category, *, partial: bool):
     from bfcl_eval.__main__ import evaluate
 
     kwargs = get_typer_defaults(evaluate)
     kwargs["model"] = [model]
     kwargs["test_category"] = category
+    if partial:
+        kwargs["partial_eval"] = True
     evaluate(**kwargs)
 
 
@@ -306,16 +380,18 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
 
 
 def main():
-    if len(sys.argv) not in (7, 8):
+    if len(sys.argv) not in (7, 8, 9):
         sys.exit(
             "usage: run_bfcl.py <model> <base_url> <category> "
-            "<num_threads> <temperature> <results_dir> [maximum_step_limit]"
+            "<num_threads> <temperature> <results_dir> "
+            "[maximum_step_limit] [max_test_cases]"
         )
 
     model, base_url, category = sys.argv[1], sys.argv[2], sys.argv[3]
     num_threads, temperature = int(sys.argv[4]), float(sys.argv[5])
     results_dir = Path(sys.argv[6])
-    workload_step_limit = sys.argv[7] if len(sys.argv) == 8 else ""
+    workload_step_limit = sys.argv[7] if len(sys.argv) >= 8 else ""
+    workload_max_test_cases = sys.argv[8] if len(sys.argv) == 9 else ""
 
     step_limit, step_limit_source = resolve_maximum_step_limit(workload_step_limit)
     apply_maximum_step_limit(step_limit)
@@ -323,6 +399,8 @@ def main():
         f"[bfcl] maximum_step_limit={step_limit} (from {step_limit_source})",
         flush=True,
     )
+
+    max_test_cases, max_test_cases_source = resolve_max_test_cases(workload_max_test_cases)
 
     work_dir = (results_dir / ".bfcl_work").resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -337,13 +415,24 @@ def main():
     os.environ["LOCAL_SERVER_ENDPOINT"] = f"http://{host}"
     os.environ["LOCAL_SERVER_PORT"] = str(port)
 
+    use_test_subset = max_test_cases is not None
+    if use_test_subset:
+        selected = write_test_case_ids(work_dir, category, max_test_cases)
+        print(
+            f"[bfcl] max_test_cases={selected} for {category} "
+            f"(from {max_test_cases_source})",
+            flush=True,
+        )
+
     register_model(model, base_url)
 
     print(f"[bfcl] generate: model={model} category={category}", flush=True)
-    run_generate(model, category, num_threads, temperature)
+    run_generate(
+        model, category, num_threads, temperature, use_test_subset=use_test_subset
+    )
 
     print(f"[bfcl] evaluate: model={model} category={category}", flush=True)
-    run_evaluate(model, category)
+    run_evaluate(model, category, partial=use_test_subset)
 
     score = parse_score_from_csv(work_dir, model, category)
     if not score:
