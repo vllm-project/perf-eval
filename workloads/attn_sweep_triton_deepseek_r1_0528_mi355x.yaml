@@ -27,7 +27,7 @@ vllm:
     USE_FASTSAFETENSOR: 1
     SAFETENSORS_FAST_GPU: 1
   attention_backends:
-    - default
+    #- default
     - TRITON_MLA
 
 # lm_eval:
