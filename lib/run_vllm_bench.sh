@@ -150,15 +150,23 @@ run_vllm_bench() {
   # exact; only "default" needs resolution.
   if [[ "$attn_backend" == "default" ]]; then
     local _resolved
+    local _log_lines
     if [[ "$runtime" == "native" ]]; then
-      _resolved=$(grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
-        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null \
-        | grep -m1 "rocm\.py" \
-        | grep -oE "Using [A-Z_]+ backend" | awk '{print $2}') || true
+      _log_lines=$(grep -E "(Overriding with|Using [A-Z_]+ backend)" \
+        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null) || true
     else
-      _resolved=$(docker logs "$container" 2>&1 \
-        | grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
-        | grep -m1 "rocm\.py" \
+      _log_lines=$(docker logs "$container" 2>&1 \
+        | grep -E "(Overriding with|Using [A-Z_]+ backend)") || true
+    fi
+    # Prefer "Overriding with X" — this is the definitive selection line when
+    # vLLM discards incompatible backends and picks the actual one used.
+    _resolved=$(echo "$_log_lines" \
+      | grep "Overriding with" | head -1 \
+      | grep -oE "Overriding with [A-Z_]+" | awk '{print $3}') || true
+    # Fall back to "Using X backend" if no override line present
+    if [[ -z "$_resolved" ]]; then
+      _resolved=$(echo "$_log_lines" \
+        | grep -m1 "Using [A-Z_]+ backend" \
         | grep -oE "Using [A-Z_]+ backend" | awk '{print $2}') || true
     fi
     [[ -n "$_resolved" ]] && attn_backend="$_resolved"
