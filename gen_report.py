@@ -54,30 +54,38 @@ def parse_txt(path: Path) -> dict | None:
 
 # ── Directory scan ────────────────────────────────────────────────────────────
 
-def collect_model_dir(model_dir: Path) -> dict:
-    """Return {backend -> {(isl,osl,conc) -> metrics_dict}}"""
-    data = defaultdict(dict)
+def collect_model_dir(model_dir: Path) -> tuple[dict, str | None]:
+    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name)
 
-    def ingest(txt_path: Path, backend_override: str | None = None):
+    The default backend is the one whose results live at the top level of the
+    model directory (not inside an attn-* subdirectory).
+    """
+    data = defaultdict(dict)
+    default_backend: str | None = None
+
+    def ingest(txt_path: Path, backend_override: str | None = None) -> str | None:
         rec = parse_txt(txt_path)
         if rec is None:
-            return
+            return None
         backend = backend_override or rec["backend"]
         key = (rec["isl"], rec["osl"], rec["conc"])
         data[backend][key] = rec["metrics"]
+        return backend
 
-    # top-level summary files (backend comes from file content)
+    # top-level summary files — these are the default backend runs
     for txt in sorted(model_dir.glob("*-summary.txt")):
-        ingest(txt)
+        name = ingest(txt)
+        if name and default_backend is None:
+            default_backend = name
 
-    # attn-BACKEND subdirs
+    # attn-BACKEND subdirs — non-default backends
     for sub in sorted(model_dir.iterdir()):
         if sub.is_dir() and sub.name.startswith("attn-"):
             backend_name = sub.name[len("attn-"):]
             for txt in sorted(sub.glob("*-summary.txt")):
                 ingest(txt, backend_override=backend_name)
 
-    return dict(data)
+    return dict(data), default_backend
 
 
 # ── HTML generation ───────────────────────────────────────────────────────────
@@ -334,14 +342,12 @@ function switchTab(el) {{
 """
 
 
-def build_html(model_name: str, backend_data: dict) -> str:
-    # Determine backends — pick a stable default order:
-    # prefer ROCM_AITER_UNIFIED_ATTN as default; otherwise alphabetical first
+def build_html(model_name: str, backend_data: dict, default_backend: str | None) -> str:
+    # Put the default backend first; sort the rest alphabetically
     all_backends = sorted(backend_data.keys())
-    preferred_default = "ROCM_AITER_UNIFIED_ATTN"
-    if preferred_default in all_backends:
-        all_backends.remove(preferred_default)
-        all_backends = [preferred_default] + all_backends
+    if default_backend and default_backend in all_backends:
+        all_backends.remove(default_backend)
+        all_backends = [default_backend] + all_backends
 
     # Collect all (isl,osl,conc) test points
     all_keys: set[tuple] = set()
@@ -437,13 +443,13 @@ def main():
         sys.exit("No subdirectories found in results/")
 
     for model_dir in model_dirs:
-        backend_data = collect_model_dir(model_dir)
+        backend_data, default_backend = collect_model_dir(model_dir)
         if not backend_data:
             print(f"  skip {model_dir.name} — no parseable summary files")
             continue
 
         model_name = model_name_from_dir(model_dir.name)
-        html = build_html(model_name, backend_data)
+        html = build_html(model_name, backend_data, default_backend)
 
         out_path = OUT_DIR / f"benchmark-{model_dir.name}.html"
         out_path.write_text(html)
