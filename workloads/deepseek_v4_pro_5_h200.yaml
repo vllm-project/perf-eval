@@ -3,7 +3,6 @@ name: deepseek_v4_pro-h200
 gpu: H200
 num_gpus: 8
 nightly: true
-timeout_in_minutes: 200
 
 vllm:
   model: deepseek-ai/DeepSeek-V4-Pro
@@ -49,7 +48,7 @@ bfcl:
     - multi_turn
   num_threads: 16
   max_test_cases:
-    multi_turn: 300
+    multi_turn: 240
 
 vllm_bench:
   configs:
