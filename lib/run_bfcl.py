@@ -120,19 +120,37 @@ def write_test_case_ids(work_dir: Path, category: str, max_cases: int) -> int:
     from bfcl_eval.utils import load_dataset_entry, parse_test_category_argument, sort_key
 
     leaf_categories = parse_test_category_argument([category])
-    entries: list[tuple[str, dict]] = []
+    by_leaf: dict[str, list[dict]] = {}
     for leaf in leaf_categories:
-        for entry in load_dataset_entry(leaf):
-            entries.append((leaf, entry))
+        by_leaf[leaf] = sorted(load_dataset_entry(leaf), key=sort_key)
 
-    entries.sort(key=lambda item: sort_key(item[1]))
-    selected = entries[:max_cases]
+    if not any(by_leaf.values()):
+        sys.exit(f"[bfcl] max_test_cases={max_cases} but no cases found for {category}")
+
+    selected: list[tuple[str, dict]] = []
+    if len(leaf_categories) == 1:
+        leaf = leaf_categories[0]
+        selected = [(leaf, entry) for entry in by_leaf[leaf][:max_cases]]
+    else:
+        base_quota = max_cases // len(leaf_categories)
+        remainder = max_cases % len(leaf_categories)
+        for i, leaf in enumerate(leaf_categories):
+            quota = base_quota + (1 if i < remainder else 0)
+            for entry in by_leaf[leaf][:quota]:
+                selected.append((leaf, entry))
+
     if not selected:
         sys.exit(f"[bfcl] max_test_cases={max_cases} but no cases found for {category}")
 
     ids_by_category: dict[str, list[str]] = {}
     for leaf, entry in selected:
         ids_by_category.setdefault(leaf, []).append(entry["id"])
+
+    if len(leaf_categories) > 1:
+        counts = ", ".join(
+            f"{leaf}={len(ids_by_category.get(leaf, []))}" for leaf in leaf_categories
+        )
+        print(f"[bfcl] subsample per subcategory: {counts}", flush=True)
 
     path = work_dir / "test_case_ids_to_generate.json"
     with open(path, "w") as f:
