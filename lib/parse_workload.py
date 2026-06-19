@@ -248,17 +248,23 @@ def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
     return cases.get(category)
 
 
+def bfcl_opt(value: object) -> str:
+    """Placeholder for optional BFCL TSV columns (bash read drops empty fields)."""
+    return "-" if value in (None, "") else str(value)
+
+
 def bfcl_tsv(bfcl: dict) -> str:
     cats = bfcl.get("test_categories") or []
     num_threads = bfcl.get("num_threads", 8)
     temperature = bfcl.get("temperature", 0.001)
     limit = bfcl.get("maximum_step_limit")
-    limit_str = "" if limit is None else str(limit)
     lines = []
     for cat in cats:
         cases = max_test_cases_for_category(bfcl, cat)
-        cases_str = "" if cases is None else str(cases)
-        lines.append(f"{cat}\t{num_threads}\t{temperature}\t{limit_str}\t{cases_str}")
+        lines.append("\t".join([
+            cat, str(num_threads), str(temperature),
+            bfcl_opt(limit), bfcl_opt(cases),
+        ]))
     return "\n".join(lines)
 
 

@@ -33,6 +33,12 @@ from urllib.parse import urlparse
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
 BFCL_MAXIMUM_STEP_LIMIT_ENV = "BFCL_MAXIMUM_STEP_LIMIT"
 BFCL_MAX_TEST_CASES_ENV = "BFCL_MAX_TEST_CASES"
+BFCL_TSV_UNSET = "-"
+
+
+def unset_tsv_field(raw: str) -> str:
+    value = raw.strip()
+    return "" if value in ("", BFCL_TSV_UNSET) else value
 
 
 def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
@@ -53,7 +59,7 @@ def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
             )
         return limit, f"env:{BFCL_MAXIMUM_STEP_LIMIT_ENV}"
 
-    workload_value = workload_limit.strip()
+    workload_value = unset_tsv_field(workload_limit)
     if workload_value:
         try:
             limit = int(workload_value)
@@ -90,7 +96,7 @@ def resolve_max_test_cases(workload_limit: str) -> tuple[int | None, str | None]
             )
         return limit, f"env:{BFCL_MAX_TEST_CASES_ENV}"
 
-    workload_value = workload_limit.strip()
+    workload_value = unset_tsv_field(workload_limit)
     if not workload_value:
         return None, None
 
