@@ -1,5 +1,5 @@
 # GPT-OSS 120B on MI355X
-name: attn_sweep_amd_gpt_oss_120b_w_mxfp4_a_fp8_mi355x
+name: attn-sweep-amd-gpt-oss-120b-w-mxfp4-a-fp8-mi355x
 gpu: MI355X
 num_gpus: 8
 # Opt-in for now: WORKLOADS=gpt_oss_120b_mi355x

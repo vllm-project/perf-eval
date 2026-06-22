@@ -27,7 +27,7 @@ vllm:
     SAFETENSORS_FAST_GPU: 1
   attention_backends:
     - default
-    - ROCM_AITER_MLA #default 2026-06-18
+    #- ROCM_AITER_MLA #default 2026-06-18
     - ROCM_AITER_TRITON_MLA
 
 vllm_bench:

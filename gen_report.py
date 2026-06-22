@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generate one HTML benchmark report per model directory under ./results."""
+"""Generate one HTML benchmark report per model directory under ./results,
+plus a benchmark-index.html wrapper for tabbing between models."""
 
 import os
 import re
@@ -425,11 +426,137 @@ def build_html(model_name: str, backend_data: dict, default_backend: str | None)
     return html
 
 
+# ── Index wrapper ─────────────────────────────────────────────────────────────
+
+INDEX_CSS = """
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body { height: 100%; }
+
+    body {
+      font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+      background: #0f1117;
+      color: #e2e8f0;
+      font-size: 14px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 0.75rem 2rem 0;
+      flex-shrink: 0;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #f8fafc;
+      margin-bottom: 0.6rem;
+      letter-spacing: -0.01em;
+    }
+
+    .model-tab-bar {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    .model-tab {
+      padding: 0.5rem 1.4rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      color: #64748b;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      user-select: none;
+      white-space: nowrap;
+      transition: color 0.15s;
+    }
+    .model-tab:hover { color: #94a3b8; }
+    .model-tab.active { color: #38bdf8; border-bottom-color: #38bdf8; }
+
+    .frame-container {
+      flex: 1;
+      position: relative;
+    }
+
+    iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      display: none;
+    }
+    iframe.active { display: block; }
+"""
+
+INDEX_JS = """
+function switchModel(el) {
+  document.querySelectorAll('.model-tab').forEach(function(t) { t.classList.remove('active'); });
+  document.querySelectorAll('iframe').forEach(function(f) { f.classList.remove('active'); });
+  el.classList.add('active');
+  var frame = document.getElementById(el.dataset.frame);
+  frame.classList.add('active');
+  // lazy-load: only set src when first activated
+  if (!frame.src || frame.src === 'about:blank') {
+    frame.src = frame.dataset.src;
+  }
+}
+
+// activate first tab on load
+(function() {
+  var first = document.querySelector('.model-tab');
+  if (first) switchModel(first);
+})();
+"""
+
+
+def build_index_html(reports: list[tuple[str, str]]) -> str:
+    """Build a single-page wrapper that tabs between per-model report iframes.
+
+    reports: list of (model_label, filename) sorted as desired.
+    """
+    tabs_html = ""
+    frames_html = ""
+    for i, (label, filename) in enumerate(reports):
+        frame_id = f"frame-{i}"
+        tabs_html += f'  <div class="model-tab" data-frame="{frame_id}" onclick="switchModel(this)">{label}</div>\n'
+        frames_html += f'  <iframe id="{frame_id}" data-src="{filename}" src="about:blank"></iframe>\n'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Benchmark Reports</title>
+  <style>
+{INDEX_CSS}
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Attention Backend Benchmarks</h1>
+  <div class="model-tab-bar">
+{tabs_html}  </div>
+</div>
+
+<div class="frame-container">
+{frames_html}</div>
+
+<script>
+{INDEX_JS}
+</script>
+</body>
+</html>
+"""
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def model_name_from_dir(dir_name: str) -> str:
     """Best-effort human label from directory name like attn_sweep_gpt_oss_120b_mi355x."""
-    # strip leading attn_sweep_ or similar prefix
     name = re.sub(r"^attn_sweep_", "", dir_name)
     return name
 
@@ -442,6 +569,8 @@ def main():
     if not model_dirs:
         sys.exit("No subdirectories found in results/")
 
+    reports: list[tuple[str, str]] = []
+
     for model_dir in model_dirs:
         backend_data, default_backend = collect_model_dir(model_dir)
         if not backend_data:
@@ -451,11 +580,26 @@ def main():
         model_name = model_name_from_dir(model_dir.name)
         html = build_html(model_name, backend_data, default_backend)
 
-        out_path = OUT_DIR / f"benchmark-{model_dir.name}.html"
+        out_filename = f"benchmark-{model_dir.name}.html"
+        out_path = OUT_DIR / out_filename
         out_path.write_text(html)
         backends = list(backend_data.keys())
         points = sum(len(v) for v in backend_data.values())
-        print(f"  wrote {out_path.name}  ({len(backends)} backends, {points} test points)")
+        print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
+        reports.append((model_name, out_filename))
+
+    # Also pick up any pre-existing benchmark-*.html files not produced this run
+    # (e.g. from a previous round with different models), so the index is complete.
+    existing = {fname for _, fname in reports}
+    for html_path in sorted(OUT_DIR.glob("benchmark-*.html")):
+        if html_path.name not in existing and html_path.name != "benchmark-index.html":
+            label = model_name_from_dir(html_path.stem.removeprefix("benchmark-"))
+            reports.append((label, html_path.name))
+
+    if reports:
+        index_path = OUT_DIR / "benchmark-index.html"
+        index_path.write_text(build_index_html(reports))
+        print(f"  wrote benchmark-index.html  ({len(reports)} model(s))")
 
 
 if __name__ == "__main__":
