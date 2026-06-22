@@ -195,13 +195,45 @@ def bench_tsv(configs: list, path: str) -> str:
             v = c.get(key)
             return str(v) if v not in (None, "") else "-"
 
-        lines.append("\t".join([
-            c["name"], opt("backend"), str(c.get("dataset", "random")),
-            str(c["input_len"]), str(c["output_len"]),
-            str(c["num_prompts"]), str(c["max_concurrency"]),
-            opt("speed_bench_dataset_subset"), opt("speed_bench_category"),
-        ]))
+        lines.append(
+            "\t".join(
+                [
+                    c["name"],
+                    opt("backend"),
+                    str(c.get("dataset", "random")),
+                    str(c["input_len"]),
+                    str(c["output_len"]),
+                    str(c["num_prompts"]),
+                    str(c["max_concurrency"]),
+                    opt("speed_bench_dataset_subset"),
+                    opt("speed_bench_category"),
+                ]
+            )
+        )
     return "\n".join(lines)
+
+
+def _validate_bfcl_limits(bfcl: dict, path: str) -> None:
+    limit = bfcl.get("maximum_step_limit")
+    if limit is not None and (not isinstance(limit, int) or limit < 1):
+        sys.exit(f"{path}: bfcl.maximum_step_limit must be a positive integer")
+
+    cases = bfcl.get("max_test_cases")
+    if cases is None:
+        return
+    if isinstance(cases, int):
+        if cases < 1:
+            sys.exit(f"{path}: bfcl.max_test_cases must be a positive integer")
+        return
+    if not isinstance(cases, dict):
+        sys.exit(
+            f"{path}: bfcl.max_test_cases must be a positive integer or category map"
+        )
+    for cat, count in cases.items():
+        if cat not in BFCL_KNOWN_CATEGORIES:
+            sys.exit(f"{path}: unknown bfcl max_test_cases category {cat!r}")
+        if not isinstance(count, int) or count < 1:
+            sys.exit(f"{path}: bfcl.max_test_cases[{cat!r}] must be a positive integer")
 
 
 def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
@@ -215,57 +247,45 @@ def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
         if cat not in BFCL_KNOWN_CATEGORIES:
             sys.exit(f"{path}: unknown bfcl test category {cat!r}")
     if "--tool-call-parser" not in serve_args:
-        print(f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
-              "some models may need it for function-calling", file=sys.stderr)
-    limit = bfcl.get("maximum_step_limit")
-    if limit is not None and (not isinstance(limit, int) or limit < 1):
-        sys.exit(f"{path}: bfcl.maximum_step_limit must be a positive integer")
-    cases = bfcl.get("max_test_cases")
-    if cases is not None:
-        if isinstance(cases, int):
-            if cases < 1:
-                sys.exit(f"{path}: bfcl.max_test_cases must be a positive integer")
-        elif isinstance(cases, dict):
-            for cat, count in cases.items():
-                if cat not in BFCL_KNOWN_CATEGORIES:
-                    sys.exit(f"{path}: unknown bfcl max_test_cases category {cat!r}")
-                if not isinstance(count, int) or count < 1:
-                    sys.exit(
-                        f"{path}: bfcl.max_test_cases[{cat!r}] must be a positive integer"
-                    )
-        else:
-            sys.exit(
-                f"{path}: bfcl.max_test_cases must be a positive integer or category map"
-            )
+        print(
+            f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
+            "some models may need it for function-calling",
+            file=sys.stderr,
+        )
+    _validate_bfcl_limits(bfcl, path)
 
 
 def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
     cases = bfcl.get("max_test_cases")
-    if cases is None:
-        return None
     if isinstance(cases, int):
         return cases
-    return cases.get(category)
-
-
-def bfcl_opt(value: object) -> str:
-    """Placeholder for optional BFCL TSV columns (bash read drops empty fields)."""
-    return "-" if value in (None, "") else str(value)
+    if isinstance(cases, dict):
+        return cases.get(category)
+    return None
 
 
 def bfcl_tsv(bfcl: dict) -> str:
+    """Emit per-category rows; use '-' for unset optional columns (bash read drops empties)."""
     cats = bfcl.get("test_categories") or []
     num_threads = bfcl.get("num_threads", 8)
     temperature = bfcl.get("temperature", 0.001)
     limit = bfcl.get("maximum_step_limit")
-    lines = []
-    for cat in cats:
-        cases = max_test_cases_for_category(bfcl, cat)
-        lines.append("\t".join([
-            cat, str(num_threads), str(temperature),
-            bfcl_opt(limit), bfcl_opt(cases),
-        ]))
-    return "\n".join(lines)
+
+    def opt(value: object) -> str:
+        return "-" if value in (None, "") else str(value)
+
+    return "\n".join(
+        "\t".join(
+            [
+                cat,
+                str(num_threads),
+                str(temperature),
+                opt(limit),
+                opt(max_test_cases_for_category(bfcl, cat)),
+            ]
+        )
+        for cat in cats
+    )
 
 
 def main(path: str) -> None:
@@ -285,7 +305,9 @@ def main(path: str) -> None:
     bench_configs = bench.get("configs") or []
 
     if not tasks and not bench_configs and not bfcl:
-        sys.exit(f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl")
+        sys.exit(
+            f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl"
+        )
 
     if tasks:
         validate_tasks(tasks, path)
@@ -316,7 +338,10 @@ def main(path: str) -> None:
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
-    emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
+    emit(
+        "BENCH_PRECISION",
+        metadata.get("precision") or precision_from_model(vllm.get("model") or ""),
+    )
 
 
 if __name__ == "__main__":
