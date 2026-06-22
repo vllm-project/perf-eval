@@ -56,21 +56,32 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
 
   trap 'stop_server "$CONTAINER"' EXIT
 
-  start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
-               "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
-  wait_healthy "$PORT"
+  if ! start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
+                    "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"; then
+    echo "^^^ +++ ERROR: start_server failed for backend ${ATTN_BACKEND}; skipping" >&2
+    stop_server "$CONTAINER"
+    trap - EXIT
+    drain_gpu
+    continue
+  fi
+
+  if ! wait_healthy "$PORT"; then
+    echo "^^^ +++ ERROR: vLLM never became healthy for backend ${ATTN_BACKEND}; skipping" >&2
+    stop_server "$CONTAINER"
+    trap - EXIT
+    drain_gpu
+    continue
+  fi
 
   if [[ "$ATTN_BACKEND" == "default" ]]; then
     echo "--- :mag: attention backend selected by vLLM:"
     _backend_lines=""
     if [[ "${WORKLOAD_SERVER_RUNTIME:-docker}" == "native" ]]; then
-      _backend_lines=$(grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
-        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null \
-        | grep "rocm\.py") || true
+      _backend_lines=$(grep -E "(Overriding with|Using [A-Z_]+ backend)" \
+        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null) || true
     else
       _backend_lines=$(docker logs "$CONTAINER" 2>&1 \
-        | grep -E "\[(rocm|selector)\.py:[0-9]+\].*Using [A-Z_]+ backend" \
-        | grep "rocm\.py") || true
+        | grep -E "(Overriding with|Using [A-Z_]+ backend)") || true
     fi
     if [[ -n "$_backend_lines" ]]; then
       echo "$_backend_lines" | sed 's/^/  /'
@@ -85,10 +96,13 @@ for ATTN_BACKEND in "${ATTN_BACKENDS[@]}"; do
   # perf dashboard ingest endpoint.
   while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset speed_category; do
     [[ -z "$bname" ]] && continue
-    run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
-                   "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
-                   "$conc" "$speed_subset" "$speed_category" \
-                   "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
+    if ! run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
+                        "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
+                        "$conc" "$speed_subset" "$speed_category" \
+                        "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"; then
+      echo "^^^ +++ ERROR: run_vllm_bench failed for ${bname} (backend ${ATTN_BACKEND}); skipping run" >&2
+      continue
+    fi
 
     python3 "$DIR/ingest_perf.py" \
       --raw-result "${RESULTS_DIR}/bench-${bname}.json" \

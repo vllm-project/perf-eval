@@ -10,6 +10,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 workloads/        one YAML per (model, hardware) recipe
 lib/              orchestrator (run.sh), helpers, GPU profiles
 .buildkite/       pipeline bootstrap and step generator
+gen_report.py     generate HTML benchmark reports from results/
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
 
@@ -84,7 +85,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 
 A few things worth knowing:
 
-- **`vllm.attention_backends`** is an optional list of vLLM attention backend names (`FLASH_ATTN`, `FLASHINFER`, `XFORMERS`, `TRITON_ATTN`, `TRITON_MLA`, `ROCM_FLASH`, `PAGED_ATTENTION`,`ROCM_AITER_FA`,`ROCM_AITER_UNIFIED_ATTN`, `ROCM_ATTN`,`ROCM_AITER_MLA`,`ROCM_AITER_MLA_SPARSE`, `ROCM_AITER_TRITON_MLA`). When set, the orchestrator starts the server once per backend — adding `--attention-backend $ATTN_BACKEND` — and runs the complete eval suite (bench, lm_eval, bfcl) for each. Results are stored under `results/<name>/attn-<BACKEND>/` so every backend gets its own isolated output directory. Without this field, the server starts once with whatever attention backend vLLM selects by default and results go to `results/<name>/` as usual. See `workloads/gpt_oss_120b_mi355x_attn_sweep.yaml` for an example.
+- **`vllm.attention_backends`** is an optional list of vLLM attention backend names (`FLASH_ATTN`, `FLASHINFER`, `XFORMERS`, `TRITON_ATTN`, `TRITON_MLA`, `ROCM_FLASH`, `PAGED_ATTENTION`,`ROCM_AITER_FA`,`ROCM_AITER_UNIFIED_ATTN`, `ROCM_ATTN`,`ROCM_AITER_MLA`,`ROCM_AITER_MLA_SPARSE`, `ROCM_AITER_TRITON_MLA`). When set, the orchestrator starts the server once per backend — adding `--attention-backend $ATTN_BACKEND` — and runs the complete eval suite (bench, lm_eval, bfcl) for each. Results are stored under `results/<name>/attn-<BACKEND>/` so every backend gets its own isolated output directory. Without this field, the server starts once with whatever attention backend vLLM selects by default and results go to `results/<name>/` as usual. See `workloads/attn-sweep-gpt-oss-120b-mi355x.yaml` for an example.
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
@@ -134,6 +135,20 @@ A real run needs a GPU host with Docker, vLLM, and lm-eval available:
 ```
 
 Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for the parser stub and shell-syntax checks.
+
+## Benchmark reports
+
+After a run completes, generate interactive HTML reports from the `results/` directory:
+
+```bash
+python3 gen_report.py
+```
+
+This writes one `benchmark-<model>.html` per model directory found under `results/`, plus a `benchmark-index.html` wrapper. Open `benchmark-index.html` in a browser to tab between all models in one page — each model's report loads on demand when its tab is clicked.
+
+If reports from previous rounds are already present in the directory, `benchmark-index.html` will include them alongside any newly generated ones, so the index always covers every available model regardless of which models were in the current run.
+
+Each per-model report shows attention backend results side by side, with tabs for each input sequence length, color-coded best/worst values per metric, and percentage deltas relative to the default backend.
 
 ## Agents
 
