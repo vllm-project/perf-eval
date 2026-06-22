@@ -19,6 +19,7 @@ vllm:
     --max-model-len 10240
     --block-size 1
     --async-scheduling
+    --compilation-config {"pass_config":{"eliminate_noops":false},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"],"splitting_ops":[]}
   env:
     VLLM_ROCM_USE_AITER: 1
     HSA_NO_SCRATCH_RECLAIM: 1
