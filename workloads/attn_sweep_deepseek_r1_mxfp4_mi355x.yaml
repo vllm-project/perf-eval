@@ -27,6 +27,7 @@ vllm:
     - default
     - ROCM_AITER_TRITON_MLA
     - ROCM_AITER_MLA
+    #- ROCM_AITER_MLA_SPARSE #not supported Reason: ['non-sparse not supported']
     
 
 vllm_bench:
