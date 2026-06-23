@@ -69,6 +69,9 @@ start_server() {
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true
 
+  # Install pytest to avoid cupy.testing import failure during torch.compile
+  docker exec "$container" pip install -q pytest 2>/dev/null || true
+
   echo "--- :memo: streaming vllm logs"
   ( docker logs -f "$container" 2>&1 | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
   VLLM_LOGS_PID=$!

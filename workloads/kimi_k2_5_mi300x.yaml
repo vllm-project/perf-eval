@@ -2,8 +2,7 @@
 name: kimi_k2_5-mi300x
 gpu: MI300X
 num_gpus: 8
-# Opt-in for now: WORKLOADS=kimi_k2_5_mi300x
-nightly: false
+nightly: true
 
 vllm:
   model: moonshotai/Kimi-K2.5
@@ -29,8 +28,8 @@ lm_eval:
 vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128
-      backend: openai-chat
-      dataset: speed_bench
+      backend: openai
+      dataset: random
       input_len: 8192
       output_len: 1024
       num_prompts: 512

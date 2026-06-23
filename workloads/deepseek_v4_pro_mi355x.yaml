@@ -2,8 +2,7 @@
 name: deepseek_v4_pro-mi355x
 gpu: MI355X
 num_gpus: 8
-# Opt-in for now: WORKLOADS=deepseek_v4_pro_mi355x
-nightly: false
+nightly: true
 
 vllm:
   model: deepseek-ai/DeepSeek-V4-Pro
@@ -32,8 +31,8 @@ lm_eval:
 vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128
-      backend: openai-chat
-      dataset: speed_bench
+      backend: openai
+      dataset: random
       input_len: 8192
       output_len: 1024
       num_prompts: 512

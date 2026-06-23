@@ -96,7 +96,8 @@ def resolved_image(data, profile):
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or DEFAULT_IMAGE_REPO
-    if override_image and (not custom_repo or repo in override_image):
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
+    if override_image and (not custom_repo or "rocm" in override_image.lower()):
         return override_image
     commit = override_commit or commit_from_image(override_image)
     if commit:
@@ -165,12 +166,13 @@ def amd_k8s_plugin(image, num_gpus, profile=None):
     hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
     return {
         "kubernetes": {
-            "podSpec": {
+            "podSpecPatch": {
                 "imagePullSecrets": [
                     {"name": "docker-config"},
                 ],
                 "containers": [
                     {
+                        "name": "container-0",
                         "image": image,
                         "resources": {"limits": {"amd.com/gpu": num_gpus}},
                         "securityContext": {
@@ -189,7 +191,7 @@ def amd_k8s_plugin(image, num_gpus, profile=None):
                                 "valueFrom": {
                                     "secretKeyRef": {
                                         "name": "hf-token",
-                                        "key": "token",
+                                        "key": "TOKEN",
                                     },
                                 },
                             },

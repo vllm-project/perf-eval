@@ -1,12 +1,26 @@
-"""Run a single BFCL test category against a running vLLM server.
+"""Run a single BFCL test group/category against a running vLLM server.
 
 Usage:
     python3 lib/run_bfcl.py <model> <base_url> <category> \
-        <num_threads> <temperature> <results_dir>
+        <num_threads> <temperature> <results_dir> [maximum_step_limit] [max_test_cases]
+
+maximum_step_limit comes from the workload YAML when set; BFCL_MAXIMUM_STEP_LIMIT
+env overrides YAML; otherwise the perf-eval default (10) applies.
+
+max_test_cases subsamples each category (even split across subcategories for
+aggregate groups like multi_turn). Set per category in YAML or globally via
+BFCL_MAX_TEST_CASES env (env wins).
+Uses BFCL's test_case_ids_to_generate.json + --partial-eval.
 
 Registers the model in BFCL's config, runs generate + evaluate, then
 writes an lm_eval-compatible results JSON so the existing ingest.py
 and dashboard auto-discover the scores without any adapter.
+
+BFCL test groups (e.g. multi_turn, live, agentic) expand to multiple
+sub-categories at runtime. For those groups we write the overall score
+plus one result per sub-category. A manifest at
+  <results_dir>/.bfcl_ingest/<category>.txt
+lists every task run.sh should ingest.
 """
 
 import csv
@@ -16,6 +30,126 @@ import sys
 import time
 from pathlib import Path
 from urllib.parse import urlparse
+
+BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
+BFCL_MAXIMUM_STEP_LIMIT_ENV = "BFCL_MAXIMUM_STEP_LIMIT"
+BFCL_MAX_TEST_CASES_ENV = "BFCL_MAX_TEST_CASES"
+BFCL_TSV_UNSET = "-"
+
+
+def unset_tsv_field(raw: str) -> str:
+    value = raw.strip()
+    return "" if value in ("", BFCL_TSV_UNSET) else value
+
+
+def _parse_positive_int(raw: str, label: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError:
+        sys.exit(f"[bfcl] {label} must be a positive integer, got {raw!r}")
+    if value < 1:
+        sys.exit(f"[bfcl] {label} must be a positive integer, got {value}")
+    return value
+
+
+def _resolve_positive_int(
+    env_var: str,
+    workload_raw: str,
+    workload_label: str,
+    *,
+    default: int | None = None,
+) -> tuple[int | None, str | None]:
+    if env_value := os.environ.get(env_var, "").strip():
+        return _parse_positive_int(env_value, env_var), f"env:{env_var}"
+
+    if workload_value := unset_tsv_field(workload_raw):
+        return _parse_positive_int(workload_value, workload_label), "workload"
+
+    if default is None:
+        return None, None
+    return default, "default"
+
+
+def resolve_maximum_step_limit(workload_limit: str) -> tuple[int, str]:
+    """Return (limit, source) with env overriding workload YAML."""
+    limit, source = _resolve_positive_int(
+        BFCL_MAXIMUM_STEP_LIMIT_ENV,
+        workload_limit,
+        "workload maximum_step_limit",
+        default=BFCL_DEFAULT_MAXIMUM_STEP_LIMIT,
+    )
+    return limit or BFCL_DEFAULT_MAXIMUM_STEP_LIMIT, source or "default"
+
+
+def resolve_max_test_cases(workload_limit: str) -> tuple[int | None, str | None]:
+    """Return (limit, source). None limit means run the full category."""
+    return _resolve_positive_int(
+        BFCL_MAX_TEST_CASES_ENV,
+        workload_limit,
+        "workload max_test_cases",
+    )
+
+
+def _subsample_quotas(max_cases: int, num_leaves: int) -> list[int]:
+    base, extra = divmod(max_cases, num_leaves)
+    return [base + (i < extra) for i in range(num_leaves)]
+
+
+def _select_subsampled_cases(
+    leaf_categories: list[str],
+    by_leaf: dict[str, list[dict]],
+    max_cases: int,
+) -> list[tuple[str, dict]]:
+    if len(leaf_categories) == 1:
+        leaf = leaf_categories[0]
+        return [(leaf, entry) for entry in by_leaf[leaf][:max_cases]]
+
+    selected: list[tuple[str, dict]] = []
+    for leaf, quota in zip(
+        leaf_categories, _subsample_quotas(max_cases, len(leaf_categories)), strict=True
+    ):
+        selected.extend((leaf, entry) for entry in by_leaf[leaf][:quota])
+    return selected
+
+
+def write_test_case_ids(work_dir: Path, category: str, max_cases: int) -> int:
+    """Write BFCL's id file and return how many cases were selected."""
+    from bfcl_eval.utils import (
+        load_dataset_entry,
+        parse_test_category_argument,
+        sort_key,
+    )
+
+    leaf_categories = parse_test_category_argument([category])
+    by_leaf = {
+        leaf: sorted(load_dataset_entry(leaf), key=sort_key) for leaf in leaf_categories
+    }
+
+    selected = _select_subsampled_cases(leaf_categories, by_leaf, max_cases)
+    if not selected:
+        sys.exit(f"[bfcl] max_test_cases={max_cases} but no cases found for {category}")
+
+    ids_by_category: dict[str, list[str]] = {}
+    for leaf, entry in selected:
+        ids_by_category.setdefault(leaf, []).append(entry["id"])
+
+    if len(leaf_categories) > 1:
+        counts = ", ".join(
+            f"{leaf}={len(ids_by_category[leaf])}" for leaf in leaf_categories
+        )
+        print(f"[bfcl] subsample per subcategory: {counts}", flush=True)
+
+    (work_dir / "test_case_ids_to_generate.json").write_text(
+        json.dumps(ids_by_category, indent=2)
+    )
+    return len(selected)
+
+
+def apply_maximum_step_limit(limit: int) -> None:
+    """Patch BFCL before base_handler is imported."""
+    import bfcl_eval.constants.default_prompts as bfcl_prompts
+
+    bfcl_prompts.MAXIMUM_STEP_LIMIT = limit
 
 
 def get_typer_defaults(func):
@@ -56,7 +190,7 @@ def register_model(model: str, base_url: str):
     }
 
 
-def run_generate(model, category, num_threads, temperature):
+def run_generate(model, category, num_threads, temperature, *, use_test_subset: bool):
     from bfcl_eval.__main__ import generate
 
     kwargs = get_typer_defaults(generate)
@@ -65,15 +199,20 @@ def run_generate(model, category, num_threads, temperature):
     kwargs["skip_server_setup"] = True
     kwargs["num_threads"] = num_threads
     kwargs["temperature"] = temperature
+    if use_test_subset:
+        kwargs["run_ids"] = True
+        kwargs["allow_overwrite"] = True
     generate(**kwargs)
 
 
-def run_evaluate(model, category):
+def run_evaluate(model, category, *, partial: bool):
     from bfcl_eval.__main__ import evaluate
 
     kwargs = get_typer_defaults(evaluate)
     kwargs["model"] = [model]
     kwargs["test_category"] = category
+    if partial:
+        kwargs["partial_eval"] = True
     evaluate(**kwargs)
 
 
@@ -187,9 +326,7 @@ def _parse_subcategory_json_average(
     return {"accuracy": sum(accuracies) / len(accuracies)}
 
 
-def _parse_aggregate_score(
-    work_dir: Path, model: str, category: str
-) -> dict | None:
+def _parse_aggregate_score(work_dir: Path, model: str, category: str) -> dict | None:
     csv_name, column = AGGREGATE_CATEGORY_SCORES[category]
     if score := _parse_csv_accuracy(work_dir, model, csv_name, column=column):
         return score
@@ -202,9 +339,7 @@ def _parse_aggregate_score(
     return None
 
 
-def _parse_leaf_csv_score(
-    work_dir: Path, model: str, category: str
-) -> dict | None:
+def _parse_leaf_csv_score(work_dir: Path, model: str, category: str) -> dict | None:
     csv_candidates = []
     if csv_name := CATEGORY_TO_CSV.get(category):
         csv_candidates.append(csv_name)
@@ -230,9 +365,65 @@ def parse_score_from_csv(work_dir: Path, model: str, category: str) -> dict | No
     return _find_score_json(work_dir, category)
 
 
-def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
+def _test_collection_subcategories(category: str) -> list[str]:
+    from bfcl_eval.constants.category_mapping import TEST_COLLECTION_MAPPING
+
+    return list(TEST_COLLECTION_MAPPING.get(category, []))
+
+
+def _parse_overall_score(
+    work_dir: Path,
+    model: str,
+    category: str,
+    subcategories: list[str],
+) -> dict | None:
+    if category in AGGREGATE_CATEGORY_SCORES:
+        if score := _parse_aggregate_score(work_dir, model, category):
+            return score
+    return _parse_subcategory_json_average(work_dir, subcategories)
+
+
+def _mean_accuracy(sub_scores: dict[str, dict]) -> dict:
+    accuracies = [score["accuracy"] for score in sub_scores.values()]
+    return {"accuracy": sum(accuracies) / len(accuracies)}
+
+
+def collect_scores(work_dir: Path, model: str, category: str) -> dict[str, dict] | None:
+    """Collect overall and sub-category scores for dashboard ingest."""
+    subcategories = _test_collection_subcategories(category)
+    if not subcategories:
+        if score := parse_score_from_csv(work_dir, model, category):
+            return {category: score}
+        return None
+
+    sub_scores = {
+        subcat: score
+        for subcat in subcategories
+        if (score := parse_score_from_csv(work_dir, model, subcat))
+    }
+
+    if missing := [subcat for subcat in subcategories if subcat not in sub_scores]:
+        print(
+            f"[bfcl] warning: missing sub-category scores: {', '.join(missing)}",
+            flush=True,
+        )
+
+    overall = _parse_overall_score(work_dir, model, category, subcategories)
+    if not overall and sub_scores:
+        overall = _mean_accuracy(sub_scores)
+
+    if not overall and not sub_scores:
+        return None
+
+    return ({category: overall} if overall else {}) | sub_scores
+
+
+def to_lm_eval_format(
+    model: str, category: str, score: dict, *, group_average: bool = False
+) -> dict:
     """Transform BFCL aggregate score into lm_eval-compatible results JSON."""
     task_name = f"bfcl_{category}"
+    alias = f"{task_name} (overall)" if group_average else task_name
     accuracy = score.get("accuracy", 0.0)
 
     return {
@@ -240,12 +431,10 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
             task_name: {
                 "acc,none": accuracy,
                 "acc_stderr,none": 0.0,
-                "alias": task_name,
+                "alias": alias,
             }
         },
-        "configs": {
-            task_name: {"task": task_name, "num_fewshot": 0}
-        },
+        "configs": {task_name: {"task": task_name, "num_fewshot": 0}},
         "versions": {task_name: 1},
         "n-shot": {task_name: 0},
         "config": {
@@ -255,16 +444,70 @@ def to_lm_eval_format(model: str, category: str, score: dict) -> dict:
     }
 
 
+def write_results(
+    results_dir: Path,
+    model: str,
+    scores: dict[str, dict],
+    ts: str,
+    run_category: str,
+) -> list[str]:
+    is_group = bool(_test_collection_subcategories(run_category))
+    written: list[str] = []
+    for cat, score in scores.items():
+        out_dir = results_dir / f"bfcl-{cat}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"results_{ts}.json"
+        out_path.write_text(
+            json.dumps(
+                to_lm_eval_format(
+                    model,
+                    cat,
+                    score,
+                    group_average=is_group and cat == run_category,
+                ),
+                indent=2,
+            )
+        )
+        print(f"[bfcl] {cat}: accuracy={score.get('accuracy', '?')}", flush=True)
+        print(f"[bfcl] results written to {out_path}", flush=True)
+        written.append(cat)
+    return written
+
+
+def write_ingest_manifest(
+    results_dir: Path, run_category: str, categories: list[str]
+) -> Path:
+    manifest_dir = results_dir / ".bfcl_ingest"
+    manifest_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = manifest_dir / f"{run_category}.txt"
+    manifest_path.write_text("\n".join(categories) + "\n")
+    return manifest_path
+
+
 def main():
-    if len(sys.argv) != 7:
+    if len(sys.argv) not in (7, 8, 9):
         sys.exit(
             "usage: run_bfcl.py <model> <base_url> <category> "
-            "<num_threads> <temperature> <results_dir>"
+            "<num_threads> <temperature> <results_dir> "
+            "[maximum_step_limit] [max_test_cases]"
         )
 
     model, base_url, category = sys.argv[1], sys.argv[2], sys.argv[3]
     num_threads, temperature = int(sys.argv[4]), float(sys.argv[5])
     results_dir = Path(sys.argv[6])
+    workload_step_limit = sys.argv[7] if len(sys.argv) >= 8 else ""
+    workload_max_test_cases = sys.argv[8] if len(sys.argv) == 9 else ""
+
+    step_limit, step_limit_source = resolve_maximum_step_limit(workload_step_limit)
+    apply_maximum_step_limit(step_limit)
+    print(
+        f"[bfcl] maximum_step_limit={step_limit} (from {step_limit_source})",
+        flush=True,
+    )
+
+    max_test_cases, max_test_cases_source = resolve_max_test_cases(
+        workload_max_test_cases
+    )
 
     work_dir = (results_dir / ".bfcl_work").resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -279,33 +522,33 @@ def main():
     os.environ["LOCAL_SERVER_ENDPOINT"] = f"http://{host}"
     os.environ["LOCAL_SERVER_PORT"] = str(port)
 
+    use_test_subset = max_test_cases is not None
+    if use_test_subset:
+        selected = write_test_case_ids(work_dir, category, max_test_cases)
+        print(
+            f"[bfcl] max_test_cases={selected} for {category} "
+            f"(from {max_test_cases_source})",
+            flush=True,
+        )
+
     register_model(model, base_url)
 
     print(f"[bfcl] generate: model={model} category={category}", flush=True)
-    run_generate(model, category, num_threads, temperature)
-
-    print(f"[bfcl] evaluate: model={model} category={category}", flush=True)
-    run_evaluate(model, category)
-
-    score = parse_score_from_csv(work_dir, model, category)
-    if not score:
-        sys.exit(f"[bfcl] no score found for {category}")
-
-    print(
-        f"[bfcl] {category}: accuracy={score.get('accuracy', '?')}",
-        flush=True,
+    run_generate(
+        model, category, num_threads, temperature, use_test_subset=use_test_subset
     )
 
-    out_dir = results_dir / f"bfcl-{category}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[bfcl] evaluate: model={model} category={category}", flush=True)
+    run_evaluate(model, category, partial=use_test_subset)
+
+    scores = collect_scores(work_dir, model, category)
+    if not scores:
+        sys.exit(f"[bfcl] no score found for {category}")
+
     ts = time.strftime("%Y-%m-%dT%H-%M-%S")
-    out_path = out_dir / f"results_{ts}.json"
-
-    lm_eval_results = to_lm_eval_format(model, category, score)
-    with open(out_path, "w") as f:
-        json.dump(lm_eval_results, f, indent=2)
-
-    print(f"[bfcl] results written to {out_path}", flush=True)
+    written = write_results(results_dir, model, scores, ts, category)
+    manifest = write_ingest_manifest(results_dir, category, written)
+    print(f"[bfcl] ingest manifest written to {manifest}", flush=True)
 
 
 if __name__ == "__main__":
