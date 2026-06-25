@@ -79,10 +79,23 @@ def collect_model_dir(model_dir: Path) -> tuple[dict, str | None]:
         if name and default_backend is None:
             default_backend = name
 
-    # attn-BACKEND subdirs — non-default backends
+    # attn-BACKEND subdirs — explicit backend sweep results
     for sub in sorted(model_dir.iterdir()):
         if sub.is_dir() and sub.name.startswith("attn-"):
             backend_name = sub.name[len("attn-"):]
+            if backend_name == "default":
+                attn_file = sub / "attn_backend.txt"
+                if attn_file.exists():
+                    raw = attn_file.read_text()
+                    m = OVERRIDE_PATTERN.search(raw)
+                    if m:
+                        backend_name = m.group(1)
+                    else:
+                        # Fall back to the last non-empty word on the last line
+                        # (covers "Using XYZ backend" style lines).
+                        last = raw.strip().splitlines()[-1].strip()
+                        backend_name = last.split()[0] if last else "default"
+                # backend_name may still be "default" if attn_backend.txt is absent.
             for txt in sorted(sub.glob("*-summary.txt")):
                 ingest(txt, backend_override=backend_name)
 

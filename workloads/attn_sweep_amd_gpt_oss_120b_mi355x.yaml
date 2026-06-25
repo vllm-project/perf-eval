@@ -16,7 +16,7 @@ vllm:
   attention_backends:
     - default
     - TRITON_ATTN
-    #- ROCM_AITER_FA default 2026-06-18
+    #- ROCM_AITER_FA # incompatible in v0.22.0 was default 2026-06-18
     #- ROCM_ATTN  #fails for attention sinks not supported
     - ROCM_AITER_UNIFIED_ATTN 
 
