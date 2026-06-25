@@ -284,7 +284,7 @@ def validate_attention_backends(backends: list, path: str) -> None:
             "some models may need it for function-calling",
             file=sys.stderr,
         )
-    _validate_bfcl_limits(bfcl, path)
+    
 
 
 def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
