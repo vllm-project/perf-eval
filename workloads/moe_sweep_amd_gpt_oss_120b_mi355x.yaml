@@ -1,0 +1,61 @@
+# GPT-OSS 120B on MI355X
+name: moe-sweep-amd-gpt-oss-120b-w-mxfp4-a-fp8-mi355x
+gpu: MI355X
+num_gpus: 8
+# Opt-in for now: WORKLOADS=gpt_oss_120b_mi355x
+nightly: false
+
+vllm:
+  model: amd/gpt-oss-120b-w-mxfp4-a-fp8
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 1
+    --trust-remote-code
+    --kv-cache-dtype=fp8
+  moe_backends:
+    - default
+    - AITER
+    - AITER_MXFP4_BF16
+    #- AITER_MXFP4_FP8 #default 20260626
+    #- AITER_MXFP4_MXFP4
+    - TRITON
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc4
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc64
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl1024-osl1024-conc128
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 128
+    - name: isl8192-osl1024-conc4
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc64
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl8192-osl1024-conc128
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 128

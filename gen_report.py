@@ -34,6 +34,10 @@ HEADER_PATTERN = re.compile(
     r"attention_backend:\s*(\S+).*?isl:\s*(\d+)\s+osl:\s*(\d+)\s+conc:\s*(\d+)",
     re.DOTALL,
 )
+MOE_HEADER_PATTERN = re.compile(
+    r"moe_backend:\s*(\S+).*?isl:\s*(\d+)\s+osl:\s*(\d+)\s+conc:\s*(\d+)",
+    re.DOTALL,
+)
 OVERRIDE_PATTERN = re.compile(r"Overriding with (\S+) out of potential backends")
 
 
@@ -46,6 +50,19 @@ def parse_txt(path: Path) -> dict | None:
     override = OVERRIDE_PATTERN.search(text)
     if override:
         backend = override.group(1)
+    metrics = {}
+    for name, pat in METRIC_PATTERNS.items():
+        hit = re.search(pat, text)
+        metrics[name] = float(hit.group(1)) if hit else None
+    return {"backend": backend, "isl": isl, "osl": osl, "conc": conc, "metrics": metrics}
+
+
+def parse_txt_moe(path: Path) -> dict | None:
+    text = path.read_text(errors="replace")
+    m = MOE_HEADER_PATTERN.search(text)
+    if not m:
+        return None
+    backend, isl, osl, conc = m.group(1), int(m.group(2)), int(m.group(3)), int(m.group(4))
     metrics = {}
     for name, pat in METRIC_PATTERNS.items():
         hit = re.search(pat, text)
@@ -98,6 +115,46 @@ def collect_model_dir(model_dir: Path) -> tuple[dict, str | None]:
                 # backend_name may still be "default" if attn_backend.txt is absent.
             for txt in sorted(sub.glob("*-summary.txt")):
                 ingest(txt, backend_override=backend_name)
+
+    return dict(data), default_backend
+
+
+def collect_model_dir_moe(model_dir: Path) -> tuple[dict, str | None]:
+    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name)
+
+    Looks for moe-* subdirectories instead of attn-* subdirectories.
+    """
+    data = defaultdict(dict)
+    default_backend: str | None = None
+
+    def ingest(txt_path: Path, backend_override: str | None = None) -> str | None:
+        rec = parse_txt_moe(txt_path)
+        if rec is None:
+            return None
+        backend = backend_override or rec["backend"]
+        key = (rec["isl"], rec["osl"], rec["conc"])
+        data[backend][key] = rec["metrics"]
+        return backend
+
+    # moe-BACKEND subdirs — explicit moe backend sweep results
+    for sub in sorted(model_dir.iterdir()):
+        if sub.is_dir() and sub.name.startswith("moe-"):
+            backend_name = sub.name[len("moe-"):]
+            if backend_name == "default":
+                moe_file = sub / "moe_backend.txt"
+                if moe_file.exists():
+                    raw = moe_file.read_text()
+                    # Look for vLLM's moe-specific log line, e.g.:
+                    #   Using AITER Fp8 MoE backend out of potential backends: [...]
+                    m = re.search(r"Using (.+?) MoE backend", raw)
+                    if m:
+                        backend_name = m.group(1)
+
+                # backend_name stays "default" if the moe backend line is absent.
+            for txt in sorted(sub.glob("*-summary.txt")):
+                name = ingest(txt, backend_override=backend_name)
+                if name and default_backend is None:
+                    default_backend = name
 
     return dict(data), default_backend
 
@@ -566,11 +623,134 @@ def build_index_html(reports: list[tuple[str, str]]) -> str:
 """
 
 
+def build_html_moe(model_name: str, backend_data: dict, default_backend: str | None) -> str:
+    """Build a per-model MoE backend benchmark HTML page."""
+    all_backends = sorted(backend_data.keys())
+    if default_backend and default_backend in all_backends:
+        all_backends.remove(default_backend)
+        all_backends = [default_backend] + all_backends
+
+    all_keys: set[tuple] = set()
+    for bdata in backend_data.values():
+        all_keys.update(bdata.keys())
+
+    data_dict = {}
+    for (isl, osl, conc) in sorted(all_keys):
+        dk = f"isl{isl}-conc{conc}"
+        row: dict[str, list] = {}
+        for mname in METRIC_PATTERNS:
+            vals = []
+            for b in all_backends:
+                bdata = backend_data.get(b, {})
+                point = bdata.get((isl, osl, conc), {})
+                vals.append(point.get(mname) if point else None)
+            row[mname] = vals
+        data_dict[dk] = row
+
+    isl_values = sorted({k[0] for k in all_keys})
+    osl_values = sorted({k[1] for k in all_keys})
+    osl_label = "/".join(str(o) for o in osl_values)
+
+    backends_js = json.dumps([
+        {"key": b.lower().replace("_", ""), "label": b, "isDefault": i == 0}
+        for i, b in enumerate(all_backends)
+    ], indent=2)
+
+    data_js = json.dumps(data_dict, indent=2)
+
+    tabs_html = ""
+    tab_divs = ""
+    for i, isl in enumerate(isl_values):
+        tab_id = f"isl{isl}"
+        active = " active" if i == 0 else ""
+        tabs_html += f'  <div class="tab{active}" data-tab="{tab_id}" onclick="switchTab(this)">ISL {isl} / OSL {osl_label}</div>\n'
+        tab_divs += f'<div id="{tab_id}" class="tab-content{active}"></div>\n'
+
+    subtitle = f"Model: {model_name}"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoE Benchmark — {model_name}</title>
+  <style>
+{CSS}
+  </style>
+</head>
+<body>
+
+<h1>MoE Backend Benchmark</h1>
+<p class="subtitle">{subtitle}</p>
+
+<div class="legend">
+  <div class="legend-item"><div class="swatch green"></div> Best in row</div>
+  <div class="legend-item"><div class="swatch red"></div> Worst in row</div>
+  <span style="color:#334155">· deltas relative to default (first) MoE backend</span>
+</div>
+
+<div class="tab-bar">
+{tabs_html}</div>
+
+{tab_divs}
+<script>
+{JS_TEMPLATE.format(backends_json=backends_js, data_json=data_js)}
+</script>
+</body>
+</html>
+"""
+    return html
+
+
+def build_index_html_moe(reports: list[tuple[str, str]]) -> str:
+    """Build a single-page wrapper that tabs between per-model MoE report iframes."""
+    tabs_html = ""
+    frames_html = ""
+    for i, (label, filename) in enumerate(reports):
+        frame_id = f"frame-{i}"
+        tabs_html += f'  <div class="model-tab" data-frame="{frame_id}" onclick="switchModel(this)">{label}</div>\n'
+        frames_html += f'  <iframe id="{frame_id}" data-src="{filename}" src="about:blank"></iframe>\n'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MoE Backend Benchmark Reports</title>
+  <style>
+{INDEX_CSS}
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>MoE Backend Benchmarks</h1>
+  <div class="model-tab-bar">
+{tabs_html}  </div>
+</div>
+
+<div class="frame-container">
+{frames_html}</div>
+
+<script>
+{INDEX_JS}
+</script>
+</body>
+</html>
+"""
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def model_name_from_dir(dir_name: str) -> str:
     """Best-effort human label from directory name like attn_sweep_gpt_oss_120b_mi355x."""
     name = re.sub(r"^attn_sweep_", "", dir_name)
+    return name
+
+
+def model_name_from_dir_moe(dir_name: str) -> str:
+    """Best-effort human label from directory name like moe_sweep_deepseek_r1_0528_mi355x."""
+    name = re.sub(r"^moe_sweep_", "", dir_name)
     return name
 
 
@@ -613,6 +793,46 @@ def main():
         index_path = OUT_DIR / "benchmark-index.html"
         index_path.write_text(build_index_html(reports))
         print(f"  wrote benchmark-index.html  ({len(reports)} model(s))")
+
+    # ── MoE backend sweep reports ─────────────────────────────────────────────
+    moe_reports: list[tuple[str, str]] = []
+
+    for model_dir in model_dirs:
+        # Only process directories that contain at least one moe-* subdir
+        has_moe = any(
+            sub.is_dir() and sub.name.startswith("moe-")
+            for sub in model_dir.iterdir()
+        )
+        if not has_moe:
+            continue
+
+        backend_data, default_backend = collect_model_dir_moe(model_dir)
+        if not backend_data:
+            print(f"  skip {model_dir.name} (moe) — no parseable summary files")
+            continue
+
+        model_name = model_name_from_dir_moe(model_dir.name)
+        html = build_html_moe(model_name, backend_data, default_backend)
+
+        out_filename = f"moe-benchmark-{model_dir.name}.html"
+        out_path = OUT_DIR / out_filename
+        out_path.write_text(html)
+        backends = list(backend_data.keys())
+        points = sum(len(v) for v in backend_data.values())
+        print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
+        moe_reports.append((model_name, out_filename))
+
+    # Pick up any pre-existing moe-benchmark-*.html files not produced this run.
+    existing_moe = {fname for _, fname in moe_reports}
+    for html_path in sorted(OUT_DIR.glob("moe-benchmark-*.html")):
+        if html_path.name not in existing_moe and html_path.name != "moe-benchmark-index.html":
+            label = model_name_from_dir_moe(html_path.stem.removeprefix("moe-benchmark-"))
+            moe_reports.append((label, html_path.name))
+
+    if moe_reports:
+        index_path = OUT_DIR / "moe-benchmark-index.html"
+        index_path.write_text(build_index_html_moe(moe_reports))
+        print(f"  wrote moe-benchmark-index.html  ({len(moe_reports)} model(s))")
 
 
 if __name__ == "__main__":

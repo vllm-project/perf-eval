@@ -21,7 +21,7 @@ import yaml
 
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 VLLM_FIELDS = {
-    "model", "image", "serve_args", "env", "attention_backends",
+    "model", "image", "serve_args", "env", "attention_backends", "moe_backends",
 }
 KNOWN_ATTENTION_BACKENDS = {
     "default",
@@ -30,6 +30,13 @@ KNOWN_ATTENTION_BACKENDS = {
     "ROCM_AITER_UNIFIED_ATTN", "ROCM_ATTN", "ROCM_AITER_MLA",
     "ROCM_AITER_MLA_SPARSE", "ROCM_AITER_TRITON_MLA"
 }
+KNOWN_MOE_BACKENDS = {
+    "default",
+    "AITER", "TRITON", "FUSED_MOE",
+    "AITER_MXFP4_BF16", "AITER_MXFP4_FP8", "TRITON_UNFUSED",
+    "AITER_MXFP4_MXFP4"
+}
+
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency",
@@ -287,6 +294,19 @@ def validate_attention_backends(backends: list, path: str) -> None:
     
 
 
+def validate_moe_backends(backends: list, path: str) -> None:
+    if not backends:
+        sys.exit(f"{path}: vllm.moe_backends must not be empty if specified")
+    for b in backends:
+        if b not in KNOWN_MOE_BACKENDS:
+            sys.exit(
+                f"{path}: unknown moe backend {b!r}; "
+                f"known: {', '.join(sorted(KNOWN_MOE_BACKENDS))}"
+            )
+    if len(backends) != len(set(backends)):
+        sys.exit(f"{path}: duplicate entries in vllm.moe_backends")
+
+
 def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
     cases = bfcl.get("max_test_cases")
     if isinstance(cases, int):
@@ -352,6 +372,21 @@ def main(path: str) -> None:
     if attention_backends:
         validate_attention_backends(attention_backends, path)
 
+    moe_backends = vllm.get("moe_backends") or []
+    if moe_backends:
+        validate_moe_backends(moe_backends, path)
+        if re.search(r"(^|[\s])--moe-backend(\s|=)", serve_args):
+            sys.exit(
+                f"{path}: vllm.moe_backends and --moe-backend in serve_args are mutually exclusive; "
+                "remove --moe-backend from serve_args when using the moe_backends sweep"
+            )
+
+    if attention_backends and moe_backends:
+        sys.exit(
+            f"{path}: vllm.attention_backends and vllm.moe_backends are mutually exclusive; "
+            "run attention and moe sweeps in separate workloads"
+        )
+
     image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
@@ -376,8 +411,9 @@ def main(path: str) -> None:
     emit("BENCH_TP", tp)
     #emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
     # One backend per line; empty string when not specified (run.sh treats this
-    # as a single "default" pass with no VLLM_ATTENTION_BACKEND override).
+    # as a single "default" pass with no override).
     emit("ATTENTION_BACKENDS", "\n".join(attention_backends))
+    emit("MOE_BACKENDS", "\n".join(moe_backends))
     emit(
         "BENCH_PRECISION",
         metadata.get("precision") or precision_from_model(vllm.get("model") or ""),

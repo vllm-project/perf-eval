@@ -88,6 +88,7 @@ run_vllm_bench() {
   mkdir -p "$outdir"
 
   local attn_backend="${ATTN_BACKEND:-default}"
+  local moe_backend="${MOE_BACKEND:-}"
   local summary_file="${outdir}/bench-${name}-summary.txt"
 
   local cmd=(vllm bench serve)
@@ -177,7 +178,11 @@ run_vllm_bench() {
   # Prepend context header to the summary file
   local _tmp="${summary_file}.tmp"
   {
-    echo "attention_backend: ${attn_backend}"
+    if [[ -n "$moe_backend" ]]; then
+      echo "moe_backend: ${moe_backend}"
+    else
+      echo "attention_backend: ${attn_backend}"
+    fi
     echo "isl: ${input_len}  osl: ${output_len}  conc: ${max_concurrency}  n: ${num_prompts}"
     echo ""
     cat "$summary_file"

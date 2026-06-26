@@ -7,7 +7,6 @@ gpu: MI355X
 num_gpus: 8
 nightly: false
 
-#tp should be 8
 vllm:
   model: deepseek-ai/DeepSeek-R1-0528
   serve_args: >-
@@ -19,7 +18,6 @@ vllm:
     --max-model-len 10240
     --block-size 1
     --async-scheduling
-    --moe-backend AITER
     --compilation-config {"pass_config":{"eliminate_noops":false},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"],"splitting_ops":[]}
   env:
     VLLM_ROCM_USE_AITER: 1
@@ -27,20 +25,20 @@ vllm:
     NCCL_MIN_NCHANNELS: 112
     USE_FASTSAFETENSOR: 1
     SAFETENSORS_FAST_GPU: 1
-  attention_backends:
+  moe_backends:
     - default
-    #- ROCM_AITER_MLA #default 2026-06-18
-    #- ROCM_AITER_TRITON_MLA
-    #- ROCM_AITER_MLA_SPARSE #not supported Reason: ['non-sparse not supported']
+    #- AITER
+    #- TRITON_UNFUSED
+    #- MXFP4_BF16
 
 vllm_bench:
   configs:
-    # - name: isl1024-osl1024-conc4
-    #   dataset: random
-    #   input_len: 1024
-    #   output_len: 1024
-    #   num_prompts: 200
-    #   max_concurrency: 4
+    - name: isl1024-osl1024-conc4
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
     - name: isl1024-osl1024-conc64
       dataset: random
       input_len: 1024

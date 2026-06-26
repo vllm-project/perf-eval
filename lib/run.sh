@@ -33,6 +33,11 @@ if [[ -n "${WORKLOAD_ATTENTION_BACKENDS:-}" ]]; then
   exec "$DIR/run_attn_sweep.sh" "$WORKLOAD"
 fi
 
+# When a moe-backend sweep is configured, delegate to its sweep script.
+if [[ -n "${WORKLOAD_MOE_BACKENDS:-}" ]]; then
+  exec "$DIR/run_moe_sweep.sh" "$WORKLOAD"
+fi
+
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
 RESULTS_DIR="results/${WORKLOAD_NAME}"
 mkdir -p "$RESULTS_DIR"
