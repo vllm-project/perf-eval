@@ -15,11 +15,11 @@ vllm:
     --kv-cache-dtype=fp8
   moe_backends:
     - default
-    - AITER
-    - AITER_MXFP4_BF16
+    #- AITER #only one needed to run, so default
+    #- AITER_MXFP4_BF16
     #- AITER_MXFP4_FP8 #default 20260626
     #- AITER_MXFP4_MXFP4
-    - TRITON
+    #- TRITON
 
 vllm_bench:
   configs:
