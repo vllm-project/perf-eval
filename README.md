@@ -159,13 +159,16 @@ The `GB300_SLURM` profile uses `server_runtime: slurm`, which delegates server s
 Useful Slurm env vars:
 
 - `PERF_EVAL_SLURM_ACCOUNT`, `PERF_EVAL_SLURM_PARTITION`, `PERF_EVAL_SLURM_QOS`, `PERF_EVAL_SLURM_RESERVATION`, `PERF_EVAL_SLURM_TIME`
-- `PERF_EVAL_SLURM_CONTAINER_MOUNTS`, `PERF_EVAL_SLURM_EXTRA_SBATCH_ARGS`, `PERF_EVAL_SLURM_EXTRA_SRUN_ARGS`
+- `PERF_EVAL_SLURM_CONTAINER_MOUNTS`, `PERF_EVAL_SLURM_CONTAINER_WORKDIR`, `PERF_EVAL_SLURM_EXTRA_SBATCH_ARGS`, `PERF_EVAL_SLURM_EXTRA_SRUN_ARGS`
 - `PERF_EVAL_SLURM_CONTAINER_RUNTIME=auto|pyxis|none` to choose Pyxis/Enroot container launch or native `srun`; `auto` uses Pyxis only when `srun --help` advertises `--container-image`
 - `PERF_EVAL_SLURM_REQUEST_GPUS=0` for clusters that allocate whole GPU nodes without Slurm GPU GRES, `PERF_EVAL_SLURM_GPUS_PER_NODE=<n>` to override the workload's metadata value for `--gpus-per-node`, or `PERF_EVAL_SLURM_GRES=<gres>` to request GPUs with `--gres` instead
-- `PERF_EVAL_SLURM_SERVER_COMMAND` to replace the default non-Ray `vllm serve` command, for example with an SRT-Slurm or cluster-specific launch wrapper
+- `PERF_EVAL_SLURM_VLLM_DISTRIBUTED_BACKEND=mp|none` to control the default native vLLM multi-node launcher. The default is `mp` when `num_nodes > 1`.
+- `PERF_EVAL_SLURM_SERVER_COMMAND` to replace the default non-Ray `vllm serve` command with a cluster-specific launch wrapper
 - `PERF_EVAL_BENCH_CLIENT_RUNTIME=slurm` to run `vllm bench serve` through Slurm instead of requiring a local `vllm` CLI on the Buildkite submission host; `PERF_EVAL_BENCH_CLIENT_CONTAINER_RUNTIME=auto|pyxis|none` overrides the server container runtime for that client step
 
 The GB300 Slurm profile defaults to Pyxis/Enroot containers for both the server and benchmark client, partition `batch`, `PERF_EVAL_SLURM_GRES=gpu:b300:4`, a 3-hour time limit, `--exclusive`, and `HF_HOME=/local_scratch/hf-models`. The profile starts with the Axis mounts `/home/inf-simon:/nfs_home,/raid/users/inf-simon:/local_scratch`; add a CI model-cache mount only after the durable cache path exists on the rack. If `PERF_EVAL_SLURM_GRES` is unset, the launcher uses the workload's `gpus_per_node` value with `--gpus-per-node`.
+
+For `num_nodes > 1`, the default Slurm launcher uses native vLLM MP serving rather than Ray: it starts one `vllm serve` task per node with `--distributed-executor-backend mp`, sets `--nnodes`, `--master-addr`, and `--node-rank`, and adds `--headless` on follower nodes. Pyxis server and benchmark-client steps set `--container-workdir` automatically when the current host checkout is under one of the configured `host:container` mounts; set `PERF_EVAL_SLURM_CONTAINER_WORKDIR` explicitly if the checkout path is not inferable. SRT-Slurm remains a possible future wrapper, but it needs an SRT/Dynamo-capable image and checkout and should not block this substrate path.
 
 **From an agent:** see `CLAUDE.md` for the Buildkite MCP workflow (don't shell out to `curl` or `bk`).
 

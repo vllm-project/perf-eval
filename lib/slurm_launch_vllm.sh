@@ -4,7 +4,7 @@
 # Inputs are supplied by lib/server.sh through PERF_EVAL_* environment vars.
 # The default path launches non-Ray `vllm serve` through Slurm. If Pyxis is
 # available it can run in a Slurm container; clusters with their own launch
-# wrapper can use PERF_EVAL_SLURM_SERVER_COMMAND for SRT-Slurm bootstrapping.
+# wrapper can use PERF_EVAL_SLURM_SERVER_COMMAND.
 set -euo pipefail
 
 require() {
@@ -37,6 +37,38 @@ resolve_container_runtime() {
   fi
 }
 
+resolve_container_workdir() {
+  if [[ -n "${PERF_EVAL_SLURM_CONTAINER_WORKDIR:-}" ]]; then
+    printf '%s\n' "$PERF_EVAL_SLURM_CONTAINER_WORKDIR"
+    return
+  fi
+  [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]] || return
+
+  local pwd_real
+  pwd_real="$(pwd -P)"
+  local mount host_path container_path rest
+  IFS=',' read -ra mounts <<< "$PERF_EVAL_SLURM_CONTAINER_MOUNTS"
+  for mount in "${mounts[@]}"; do
+    host_path="${mount%%:*}"
+    rest="${mount#*:}"
+    [[ "$rest" != "$mount" ]] || continue
+    container_path="${rest%%:*}"
+    [[ -n "$host_path" && -n "$container_path" ]] || continue
+    if [[ "$pwd_real" == "$host_path" ]]; then
+      printf '%s\n' "$container_path"
+      return
+    fi
+    if [[ "$pwd_real" == "$host_path"/* ]]; then
+      printf '%s%s\n' "$container_path" "${pwd_real#"$host_path"}"
+      return
+    fi
+  done
+}
+
+is_integer() {
+  [[ "$1" =~ ^[0-9]+$ ]]
+}
+
 require PERF_EVAL_CONTAINER_NAME
 require PERF_EVAL_PORT
 require PERF_EVAL_MODEL
@@ -55,6 +87,11 @@ job_name="${PERF_EVAL_SLURM_JOB_NAME:-$PERF_EVAL_CONTAINER_NAME}"
 container_runtime="$(resolve_container_runtime)"
 request_gpus="${PERF_EVAL_SLURM_REQUEST_GPUS:-1}"
 slurm_gres="${PERF_EVAL_SLURM_GRES:-}"
+container_workdir="$(resolve_container_workdir)"
+vllm_distributed_backend="${PERF_EVAL_SLURM_VLLM_DISTRIBUTED_BACKEND:-}"
+if [[ -z "$vllm_distributed_backend" ]] && is_integer "$nodes" && (( nodes > 1 )); then
+  vllm_distributed_backend=mp
+fi
 
 serve_cmd="vllm serve $(shell_quote "$PERF_EVAL_MODEL") --host 0.0.0.0 --port $(shell_quote "$PERF_EVAL_PORT")"
 if [[ -n "${PERF_EVAL_SERVE_ARGS:-}" ]]; then
@@ -62,24 +99,28 @@ if [[ -n "${PERF_EVAL_SERVE_ARGS:-}" ]]; then
 fi
 
 server_command="${PERF_EVAL_SLURM_SERVER_COMMAND:-}"
+server_command_block=""
 if [[ -z "$server_command" ]]; then
-  srun_args=(--ntasks=1)
+  srun_common_args=()
   if is_truthy "$request_gpus"; then
     if [[ -n "$slurm_gres" ]]; then
-      srun_args+=(--gres "$slurm_gres")
+      srun_common_args+=(--gres "$slurm_gres")
     elif [[ -n "$slurm_gpus_per_node" ]]; then
-      srun_args+=(--gpus-per-node "$slurm_gpus_per_node")
+      srun_common_args+=(--gpus-per-node "$slurm_gpus_per_node")
     fi
   fi
   case "$container_runtime" in
     pyxis|container)
       require PERF_EVAL_IMAGE
-      srun_args+=(--container-image "$PERF_EVAL_IMAGE")
+      srun_common_args+=(--container-image "$PERF_EVAL_IMAGE")
       if [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]]; then
-        srun_args+=(--container-mounts "$PERF_EVAL_SLURM_CONTAINER_MOUNTS")
+        srun_common_args+=(--container-mounts "$PERF_EVAL_SLURM_CONTAINER_MOUNTS")
+      fi
+      if [[ -n "$container_workdir" ]]; then
+        srun_common_args+=(--container-workdir "$container_workdir")
       fi
       if [[ "${PERF_EVAL_SLURM_NO_CONTAINER_REMAP_ROOT:-1}" == "1" ]]; then
-        srun_args+=(--no-container-remap-root)
+        srun_common_args+=(--no-container-remap-root)
       fi
       ;;
     none|native)
@@ -90,19 +131,58 @@ if [[ -z "$server_command" ]]; then
       ;;
   esac
   if [[ -n "${PERF_EVAL_SLURM_MPI:-pmix}" ]]; then
-    srun_args+=(--mpi "${PERF_EVAL_SLURM_MPI:-pmix}")
+    srun_common_args+=(--mpi "${PERF_EVAL_SLURM_MPI:-pmix}")
   fi
   if [[ -n "${PERF_EVAL_SLURM_EXTRA_SRUN_ARGS:-}" ]]; then
     # shellcheck disable=SC2206  # Buildkite env intentionally supplies words.
     extra_srun_args=($PERF_EVAL_SLURM_EXTRA_SRUN_ARGS)
-    srun_args+=("${extra_srun_args[@]}")
+    srun_common_args+=("${extra_srun_args[@]}")
   fi
 
-  server_command="srun"
-  for arg in "${srun_args[@]}"; do
-    server_command+=" $(shell_quote "$arg")"
+  srun_common=""
+  for arg in "${srun_common_args[@]}"; do
+    srun_common+=" $(shell_quote "$arg")"
   done
-  server_command+=" bash -lc $(shell_quote "$serve_cmd")"
+
+  if [[ "$vllm_distributed_backend" == "mp" ]] && is_integer "$nodes" && (( nodes > 1 )); then
+    server_command_block=$(cat <<BLOCK
+server_pids=()
+cleanup_servers() {
+  for pid in "\${server_pids[@]:-}"; do
+    kill "\$pid" >/dev/null 2>&1 || true
+  done
+}
+trap cleanup_servers EXIT INT TERM
+
+if ((\${#perf_eval_slurm_hosts[@]} < $(shell_quote "$nodes"))); then
+  echo "expected $(shell_quote "$nodes") Slurm hosts, got \${#perf_eval_slurm_hosts[@]}" >&2
+  exit 2
+fi
+master_addr="\${perf_eval_slurm_hosts[0]}"
+base_serve_cmd=$(shell_quote "$serve_cmd")
+for rank in \$(seq 0 $((nodes - 1))); do
+  node="\${perf_eval_slurm_hosts[\$rank]}"
+  rank_cmd="\$base_serve_cmd --distributed-executor-backend mp --nnodes $(shell_quote "$nodes") --master-addr \$master_addr --node-rank \$rank"
+  if ((rank > 0)); then
+    rank_cmd+=" --headless"
+  fi
+  srun --nodes=1 --ntasks=1 --nodelist "\$node"$srun_common bash -lc "\$rank_cmd" &
+  server_pids+=("\$!")
+done
+
+wait -n "\${server_pids[@]}"
+status=\$?
+cleanup_servers
+wait "\${server_pids[@]}" >/dev/null 2>&1 || true
+exit "\$status"
+BLOCK
+)
+  else
+    server_command="srun"
+    server_command+=" --ntasks=1"
+    server_command+="$srun_common"
+    server_command+=" bash -lc $(shell_quote "$serve_cmd")"
+  fi
 fi
 
 cat > "$script" <<SCRIPT
@@ -117,7 +197,11 @@ if [[ -n "\$env_file" && -f "\$env_file" ]]; then
   done < "\$env_file"
 fi
 
+mapfile -t perf_eval_slurm_hosts < <(scontrol show hostnames "\${SLURM_JOB_NODELIST:-}" 2>/dev/null || true)
 host=\$(hostname -f 2>/dev/null || hostname)
+if [[ "$(shell_quote "$vllm_distributed_backend")" == "mp" && "${nodes}" != "1" && "\${#perf_eval_slurm_hosts[@]}" -gt 0 ]]; then
+  host="\${perf_eval_slurm_hosts[0]}"
+fi
 log_path=$(shell_quote "$log_file")
 if [[ -n "\${SLURM_JOB_ID:-}" ]]; then
   log_path="\${log_path//%j/\$SLURM_JOB_ID}"
@@ -131,7 +215,7 @@ tmp="$(shell_quote "$PERF_EVAL_ENDPOINT_FILE").tmp"
 } > "\$tmp"
 mv "\$tmp" "$(shell_quote "$PERF_EVAL_ENDPOINT_FILE")"
 
-exec $server_command
+${server_command_block:-exec $server_command}
 SCRIPT
 chmod +x "$script"
 

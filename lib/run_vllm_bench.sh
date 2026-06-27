@@ -37,6 +37,34 @@ resolve_slurm_container_runtime() {
   fi
 }
 
+resolve_slurm_container_workdir() {
+  if [[ -n "${PERF_EVAL_SLURM_CONTAINER_WORKDIR:-}" ]]; then
+    printf '%s\n' "$PERF_EVAL_SLURM_CONTAINER_WORKDIR"
+    return
+  fi
+  [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]] || return
+
+  local pwd_real
+  pwd_real="$(pwd -P)"
+  local mount host_path container_path rest
+  IFS=',' read -ra mounts <<< "$PERF_EVAL_SLURM_CONTAINER_MOUNTS"
+  for mount in "${mounts[@]}"; do
+    host_path="${mount%%:*}"
+    rest="${mount#*:}"
+    [[ "$rest" != "$mount" ]] || continue
+    container_path="${rest%%:*}"
+    [[ -n "$host_path" && -n "$container_path" ]] || continue
+    if [[ "$pwd_real" == "$host_path" ]]; then
+      printf '%s\n' "$container_path"
+      return
+    fi
+    if [[ "$pwd_real" == "$host_path"/* ]]; then
+      printf '%s%s\n' "$container_path" "${pwd_real#"$host_path"}"
+      return
+    fi
+  done
+}
+
 prepare_speed_bench_dataset() {
   local container=$1 runtime=$2 subset=$3 category=$4 data_dir=$5
 
@@ -90,12 +118,17 @@ run_bench_command() {
   if [[ "$runtime" == slurm* && "${PERF_EVAL_BENCH_CLIENT_RUNTIME:-local}" == "slurm" ]]; then
     local container_runtime
     container_runtime="$(resolve_slurm_container_runtime)"
+    local container_workdir
+    container_workdir="$(resolve_slurm_container_workdir)"
     local srun_args=(--ntasks=1)
     case "$container_runtime" in
       pyxis|container)
         srun_args+=(--container-image "$WORKLOAD_IMAGE")
         if [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]]; then
           srun_args+=(--container-mounts "$PERF_EVAL_SLURM_CONTAINER_MOUNTS")
+        fi
+        if [[ -n "$container_workdir" ]]; then
+          srun_args+=(--container-workdir "$container_workdir")
         fi
         if [[ "${PERF_EVAL_SLURM_NO_CONTAINER_REMAP_ROOT:-1}" == "1" ]]; then
           srun_args+=(--no-container-remap-root)
