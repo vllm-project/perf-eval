@@ -10,6 +10,10 @@ vllm_bench config list, and bench ingest metadata (device/tp/precision).
 Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 `vllm/vllm-openai:latest`. When BENCH_ONLY is truthy, lm_eval task names
 are not validated against the registry (because they will not run).
+
+Multi-node workloads can set top-level `num_nodes` and `gpus_per_node`
+fields, plus `vllm_bench.metadata` values that control dashboard labels
+and the throughput denominator used for per-GPU metrics.
 """
 
 import os
@@ -141,6 +145,28 @@ def parse_tp(serve_args: str) -> int:
     return tp * dp
 
 
+def parse_int_arg(serve_args: str, *names: str) -> int | None:
+    toks = serve_args.split()
+    for i, t in enumerate(toks):
+        if "=" in t:
+            key, _, val = t.partition("=")
+            if key in names:
+                try:
+                    return int(val)
+                except ValueError:
+                    return None
+        elif t in names and i + 1 < len(toks):
+            try:
+                return int(toks[i + 1])
+            except ValueError:
+                return None
+    return None
+
+
+def bool_text(value: object) -> str:
+    return "true" if str(value).lower() in {"1", "true", "yes"} else "false"
+
+
 def precision_from_model(model: str) -> str:
     name = model.lower()
     for marker in ("fp4", "fp8", "int4", "int8", "bf16", "fp16"):
@@ -149,10 +175,10 @@ def precision_from_model(model: str) -> str:
     return "bf16"
 
 
-def validate_tasks(tasks: list, path: str) -> None:
+def validate_tasks(tasks: list, path: str, bench_only: bool = False) -> None:
     if not tasks:
         sys.exit(f"{path}: missing or empty `lm_eval.tasks`")
-    skip_registry = env_truthy("BENCH_ONLY")
+    skip_registry = bench_only or env_truthy("BENCH_ONLY")
     known = set() if skip_registry else known_task_names()
     for t in tasks:
         extra = set(t) - TASK_FIELDS
@@ -303,6 +329,7 @@ def main(path: str) -> None:
     tasks = lm_eval.get("tasks") or []
     bfcl = data.get("bfcl") or {}
     bench_configs = bench.get("configs") or []
+    bench_only = bool_text(data.get("bench_only", False))
 
     if not tasks and not bench_configs and not bfcl:
         sys.exit(
@@ -310,7 +337,7 @@ def main(path: str) -> None:
         )
 
     if tasks:
-        validate_tasks(tasks, path)
+        validate_tasks(tasks, path, bench_only == "true")
 
     serve_args = vllm.get("serve_args") or ""
     if bfcl:
@@ -326,22 +353,59 @@ def main(path: str) -> None:
     if tp is None:
         tp = parse_tp(serve_args)
 
+    num_nodes = data.get("num_nodes") or metadata.get("num_nodes") or 1
+    gpus_per_node = data.get("gpus_per_node") or metadata.get("gpus_per_node")
+    num_gpus = data.get("num_gpus") or metadata.get("num_gpus")
+    if gpus_per_node is None and num_gpus and num_nodes:
+        try:
+            if int(num_gpus) % int(num_nodes) == 0:
+                gpus_per_node = int(num_gpus) // int(num_nodes)
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    if num_gpus is None and gpus_per_node:
+        try:
+            num_gpus = int(num_nodes) * int(gpus_per_node)
+        except (TypeError, ValueError):
+            pass
+
+    is_multinode = metadata.get("is_multinode")
+    if is_multinode is None:
+        try:
+            is_multinode = int(num_nodes) > 1
+        except (TypeError, ValueError):
+            is_multinode = False
+
+    gpu_count = (
+        metadata.get("gpu_count")
+        or metadata.get("per_gpu_denominator")
+        or num_gpus
+        or tp
+    )
+
     emit("NAME", data.get("name", ""))
     emit("IMAGE", image)
     emit("VLLM_COMMIT", vllm_commit)
     emit("MODEL", vllm.get("model", ""))
     emit("SERVE_ARGS", serve_args)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
+    emit("NUM_NODES", num_nodes)
+    emit("GPUS_PER_NODE", gpus_per_node or "")
+    emit("NUM_GPUS", num_gpus or "")
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
+    emit("BENCH_ONLY", bench_only)
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
-    emit(
-        "BENCH_PRECISION",
-        metadata.get("precision") or precision_from_model(vllm.get("model") or ""),
-    )
+    emit("BENCH_DP", metadata.get("dp") or parse_int_arg(serve_args, "--data-parallel-size", "-dp", "--dp") or "")
+    emit("BENCH_EP", metadata.get("ep") or ("1" if "--enable-expert-parallel" in serve_args else ""))
+    emit("BENCH_GPU_COUNT", gpu_count)
+    emit("BENCH_IS_MULTINODE", bool_text(is_multinode))
+    emit("BENCH_DP_ATTENTION", bool_text(metadata.get("dp_attention", False)))
+    emit("BENCH_DISAGG", bool_text(metadata.get("disagg", False)))
+    emit("BENCH_SPEC_DECODING", bool_text(metadata.get("spec_decoding", False)))
+    emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
 
 
 if __name__ == "__main__":

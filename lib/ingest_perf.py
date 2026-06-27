@@ -8,8 +8,8 @@ here. Schema modeled after vllm-project/perf-dashboard/benchmark/process_result.
 
 Latencies in the raw result are in milliseconds (e.g., `mean_ttft_ms`).
 The dashboard expects seconds, so the transform drops the `_ms` suffix and
-divides by 1000. Aggregate throughput is divided by `tp` to match the
-dashboard's per-GPU columns (`tput_per_gpu`, `output_tput_per_gpu`,
+divides by 1000. Aggregate throughput is divided by `gpu_count` to populate
+the dashboard's per-GPU columns (`tput_per_gpu`, `output_tput_per_gpu`,
 `input_tput_per_gpu`).
 
 Failures are logged but never fatal: ingestion is best-effort and must not
@@ -41,9 +41,14 @@ def post(endpoint: str, payload: dict) -> None:
             raise RuntimeError(f"HTTP {resp.status}")
 
 
+def bool_text(value: object) -> str:
+    return "true" if str(value).lower() in {"1", "true", "yes"} else "false"
+
+
 def transform(raw: dict, args: argparse.Namespace) -> dict:
     """Map the raw `vllm bench serve` JSON to the dashboard's row shape."""
     tp = max(args.tp, 1)
+    gpu_count = max(args.gpu_count or tp, 1)
     total_token_throughput = float(raw.get("total_token_throughput", 0) or 0)
     output_throughput = float(raw.get("output_throughput", 0) or 0)
     input_throughput = total_token_throughput - output_throughput
@@ -56,18 +61,25 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
         "model": raw.get("model_id") or args.model,
         "framework": "vllm",
         "precision": args.precision,
-        "spec_decoding": "false",
-        "disagg": "false",
         "isl": int(args.isl),
         "osl": int(args.osl),
-        "is_multinode": "false",
+        "is_multinode": bool_text(args.is_multinode),
         "tp": tp,
-        "ep": 1,
-        "dp_attention": "false",
-        "tput_per_gpu": total_token_throughput / tp,
-        "output_tput_per_gpu": output_throughput / tp,
-        "input_tput_per_gpu": input_throughput / tp,
+        "ep": args.ep or 1,
+        "dp_attention": bool_text(args.dp_attention),
+        "disagg": bool_text(args.disagg),
+        "spec_decoding": bool_text(args.spec_decoding),
+        "tput_per_gpu": total_token_throughput / gpu_count,
+        "output_tput_per_gpu": output_throughput / gpu_count,
+        "input_tput_per_gpu": input_throughput / gpu_count,
     }
+    if args.dp is not None:
+        data["dp"] = args.dp
+    if args.num_nodes is not None:
+        data["num_nodes"] = args.num_nodes
+    if args.gpus_per_node is not None:
+        data["gpus_per_node"] = args.gpus_per_node
+    data["gpu_count"] = gpu_count
 
     if os.environ.get("NIGHTLY") == "1":
         data["nightly"] = True
@@ -89,11 +101,26 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
     return data
 
 
+def optional_int(value: str) -> int | None:
+    if value in ("", "None", "none", "null"):
+        return None
+    return int(value)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--raw-result", required=True, help="Raw JSON from `vllm bench serve --save-result`")
     p.add_argument("--device", required=True, help="Device tag (e.g. h200)")
     p.add_argument("--tp", type=int, required=True, help="Effective parallel-degree (TP * DP)")
+    p.add_argument("--dp", type=optional_int, default=None, help="Data parallel degree, when known")
+    p.add_argument("--ep", type=optional_int, default=None, help="Expert parallel degree, when known")
+    p.add_argument("--gpu-count", type=optional_int, default=None, help="Denominator for per-GPU throughput")
+    p.add_argument("--is-multinode", default="false", help="Whether this row came from a multi-node run")
+    p.add_argument("--num-nodes", type=optional_int, default=None, help="Node count for multi-node runs")
+    p.add_argument("--gpus-per-node", type=optional_int, default=None, help="GPUs per node for multi-node runs")
+    p.add_argument("--dp-attention", default="false", help="Dashboard flag for DP attention")
+    p.add_argument("--disagg", default="false", help="Dashboard flag for disaggregated serving")
+    p.add_argument("--spec-decoding", default="false", help="Dashboard flag for speculative decoding")
     p.add_argument("--precision", required=True, help="Precision tag (e.g. fp8, bf16)")
     p.add_argument("--model", required=True, help="HF model identifier (fallback if raw json lacks model_id)")
     p.add_argument("--image", required=True, help="Docker image used for the run")

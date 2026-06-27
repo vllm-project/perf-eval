@@ -57,6 +57,7 @@ DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
+    "GB300_SLURM": ":gb300:",
     "A100": ":a100:",
     "MI355X": ":amd:",
     "MI300X": ":amd:",

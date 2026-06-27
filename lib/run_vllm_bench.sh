@@ -2,7 +2,7 @@
 # Source this from run.sh.
 #
 # Usage:
-#   run_vllm_bench <container> <port> <model> <name> <backend> <dataset> \
+#   run_vllm_bench <container> <base_url> <model> <name> <backend> <dataset> \
 #                  <input_len> <output_len> <num_prompts> <max_concurrency> \
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
 #                  <trust_remote_code> <output_dir>
@@ -22,6 +22,47 @@ pip_install_quiet() {
   else
     PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet "$@"
   fi
+}
+
+resolve_slurm_container_runtime() {
+  local runtime=${PERF_EVAL_BENCH_CLIENT_CONTAINER_RUNTIME:-${PERF_EVAL_SLURM_CONTAINER_RUNTIME:-auto}}
+  if [[ "$runtime" != "auto" ]]; then
+    printf '%s\n' "$runtime"
+    return
+  fi
+  if srun --help 2>&1 | grep -q -- "--container-image"; then
+    printf 'pyxis\n'
+  else
+    printf 'none\n'
+  fi
+}
+
+resolve_slurm_container_workdir() {
+  if [[ -n "${PERF_EVAL_SLURM_CONTAINER_WORKDIR:-}" ]]; then
+    printf '%s\n' "$PERF_EVAL_SLURM_CONTAINER_WORKDIR"
+    return
+  fi
+  [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]] || return
+
+  local pwd_real
+  pwd_real="$(pwd -P)"
+  local mount host_path container_path rest
+  IFS=',' read -ra mounts <<< "$PERF_EVAL_SLURM_CONTAINER_MOUNTS"
+  for mount in "${mounts[@]}"; do
+    host_path="${mount%%:*}"
+    rest="${mount#*:}"
+    [[ "$rest" != "$mount" ]] || continue
+    container_path="${rest%%:*}"
+    [[ -n "$host_path" && -n "$container_path" ]] || continue
+    if [[ "$pwd_real" == "$host_path" ]]; then
+      printf '%s\n' "$container_path"
+      return
+    fi
+    if [[ "$pwd_real" == "$host_path"/* ]]; then
+      printf '%s%s\n' "$container_path" "${pwd_real#"$host_path"}"
+      return
+    fi
+  done
 }
 
 prepare_speed_bench_dataset() {
@@ -59,7 +100,7 @@ PY
 
   # Docker runtime: ship the data into the container and make sure pandas is
   # available there (vLLM's SpeedBench loads the JSONL via pandas).
-  if [[ "$runtime" != "native" ]]; then
+  if [[ "$runtime" != "native" && "$runtime" != slurm* ]]; then
     docker exec "$container" mkdir -p "$data_dir"
     docker cp "${data_dir}/." "${container}:${data_dir}/"
     if ! docker exec "$container" python3 -c 'import pandas' 2>/dev/null; then
@@ -71,8 +112,55 @@ PY
   fi
 }
 
+run_bench_command() {
+  local runtime=$1
+  shift
+  if [[ "$runtime" == slurm* && "${PERF_EVAL_BENCH_CLIENT_RUNTIME:-local}" == "slurm" ]]; then
+    local container_runtime
+    container_runtime="$(resolve_slurm_container_runtime)"
+    local container_workdir
+    container_workdir="$(resolve_slurm_container_workdir)"
+    local srun_args=(--ntasks=1)
+    case "$container_runtime" in
+      pyxis|container)
+        srun_args+=(--container-image "$WORKLOAD_IMAGE")
+        if [[ -n "${PERF_EVAL_SLURM_CONTAINER_MOUNTS:-}" ]]; then
+          srun_args+=(--container-mounts "$PERF_EVAL_SLURM_CONTAINER_MOUNTS")
+        fi
+        if [[ -n "$container_workdir" ]]; then
+          srun_args+=(--container-workdir "$container_workdir")
+        fi
+        if [[ "${PERF_EVAL_SLURM_NO_CONTAINER_REMAP_ROOT:-1}" == "1" ]]; then
+          srun_args+=(--no-container-remap-root)
+        fi
+        ;;
+      none|native)
+        ;;
+      *)
+        echo "unsupported PERF_EVAL_BENCH_CLIENT_CONTAINER_RUNTIME=$container_runtime" >&2
+        return 2
+        ;;
+    esac
+    if [[ -n "${PERF_EVAL_SLURM_MPI:-pmix}" ]]; then
+      srun_args+=(--mpi "${PERF_EVAL_SLURM_MPI:-pmix}")
+    fi
+    if [[ -n "${PERF_EVAL_BENCH_CLIENT_EXTRA_SRUN_ARGS:-}" ]]; then
+      # shellcheck disable=SC2206  # Buildkite env intentionally supplies words.
+      extra_srun_args=($PERF_EVAL_BENCH_CLIENT_EXTRA_SRUN_ARGS)
+      srun_args+=("${extra_srun_args[@]}")
+    fi
+    local cmd=""
+    for arg in "$@"; do
+      cmd+=" $(printf "%q" "$arg")"
+    done
+    srun "${srun_args[@]}" bash -lc "$cmd"
+    return
+  fi
+  "$@"
+}
+
 run_vllm_bench() {
-  local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
+  local container=$1 base_url=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
   local speed_bench_dataset_subset=${11} speed_bench_category=${12}
   local trust_remote_code=${13} outdir=${14}
@@ -88,13 +176,18 @@ run_vllm_bench() {
   mkdir -p "$outdir"
 
   local cmd=(vllm bench serve)
-  [[ "$runtime" != "native" ]] && cmd=(docker exec "$container" "${cmd[@]}")
+  if [[ "$runtime" != "native" && "$runtime" != slurm* ]]; then
+    cmd=(docker exec "$container" "${cmd[@]}")
+  fi
 
   if [[ -n "$backend" ]]; then
-    cmd+=(--backend "$backend" --base-url "http://127.0.0.1:${port}")
+    cmd+=(--backend "$backend" --base-url "$base_url")
     [[ "$backend" == "openai-chat" ]] && cmd+=(--endpoint /v1/chat/completions)
   else
-    cmd+=(--host 127.0.0.1 --port "$port")
+    local host_port="${base_url#http://}"
+    host_port="${host_port#https://}"
+    host_port="${host_port%%/*}"
+    cmd+=(--host "${host_port%:*}" --port "${host_port##*:}")
   fi
 
   cmd+=(
@@ -134,15 +227,17 @@ run_vllm_bench() {
       ;;
   esac
 
-  if [[ "$runtime" == "native" ]]; then
+  if [[ "$runtime" == "native" || "$runtime" == slurm* ]]; then
     cmd+=(--save-result --result-filename "$host_json")
   else
     cmd+=(--save-result --result-filename "$in_container_json")
   fi
 
-  "${cmd[@]}"
+  run_bench_command "$runtime" "${cmd[@]}"
 
-  [[ "$runtime" != "native" ]] && docker cp "${container}:${in_container_json}" "$host_json"
+  if [[ "$runtime" != "native" && "$runtime" != slurm* ]]; then
+    docker cp "${container}:${in_container_json}" "$host_json"
+  fi
 
   python3 - "$host_json" "$num_prompts" <<'PY'
 import json, sys
