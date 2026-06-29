@@ -1,0 +1,102 @@
+# Ported from AFO-LLM configs/mi355_ut.yaml
+# GPT-OSS 120B (FP16 weights, A16W4 fused MoE) on MI355X
+# SERVING: TP=1, in=[1024,8192] x out=[1024,8192] x conc=[1,32,64,128]
+# ACCURACY: gsm8k 5-shot
+# block-size=64 and async-scheduling per mi355_ut extra_args
+name: mi355-ut-gpt-oss-120b-mi355x
+gpu: MI355X
+num_gpus: 1
+nightly: false
+
+vllm:
+  model: openai/gpt-oss-120b
+  serve_args: >-
+    --tensor-parallel-size 1
+    --dtype auto
+    --max-num-batched-tokens 8192
+    --max-num-seqs 128
+    --gpu-memory-utilization 0.95
+    --max-model-len 10368
+    --block-size 64
+    --async-scheduling
+    --trust-remote-code
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_ROCM_USE_AITER_UNIFIED_ATTENTION: 1
+    TRITON_HIP_PRESHUFFLE_SCALES: 1
+    HSA_NO_SCRATCH_RECLAIM: 1
+    NCCL_MIN_NCHANNELS: 112
+    USE_FASTSAFETENSOR: 1
+    SAFETENSORS_FAST_GPU: 1
+    VLLM_ROCM_USE_AITER_FUSED_MOE_A16W4: 1
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 10368
+        max_gen_toks: 8192
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc1
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 1
+    - name: isl1024-osl1024-conc32
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 32
+    - name: isl1024-osl1024-conc64
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 320
+      max_concurrency: 64
+    - name: isl1024-osl1024-conc128
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 640
+      max_concurrency: 128
+    - name: isl1024-osl8192-conc1
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 8192
+      num_prompts: 200
+      max_concurrency: 1
+    - name: isl1024-osl8192-conc32
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 8192
+      num_prompts: 200
+      max_concurrency: 32
+    - name: isl1024-osl8192-conc64
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 8192
+      num_prompts: 320
+      max_concurrency: 64
+    - name: isl1024-osl8192-conc128
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 8192
+      num_prompts: 640
+      max_concurrency: 128
