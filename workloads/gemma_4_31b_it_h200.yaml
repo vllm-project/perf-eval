@@ -1,23 +1,17 @@
-# Nemotron-3-Super-120B-A12B (FP8) on H200
-# Hybrid Mamba-2 + LatentMoE architecture (120B total, 12B active).
-# TP=8 + EP on 8xH200; MTP speculative decoding enabled.
-name: nemotron_3_super-h200
+# Gemma4 31B (FP8) on H200 (8xH200, TP=1)
+name: gemma_4_31b_it_h200
 gpu: H200
 num_gpus: 8
 nightly: true
 
 vllm:
-  model: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+  model: RedHatAI/gemma-4-31B-it-FP8-dynamic
   serve_args: >-
-    --tensor-parallel-size 8
-    --enable-expert-parallel
-    --max-model-len 32768
-    --speculative-config.method mtp
-    --speculative-config.num_speculative_tokens 5
-    --trust-remote-code
+    --tensor-parallel-size 1
+    --kv-cache-dtype fp8
+    --tool-call-parser gemma4
+    --reasoning-parser gemma4
     --enable-auto-tool-choice
-    --tool-call-parser qwen3_coder
-    --reasoning-parser nemotron_v3
 
 lm_eval:
   model_args:
@@ -40,8 +34,6 @@ bfcl:
     - parallel_multiple
     - multi_turn
   num_threads: 16
-  max_test_cases:
-    multi_turn: 240
 
 vllm_bench:
   configs:
