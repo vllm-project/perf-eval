@@ -1,0 +1,63 @@
+# MiniMax-M3 on MI355X (CDNA4) with EAGLE3 speculative decode
+#
+# MXFP8 checkpoint runs natively on CDNA4 (OCP fp8 + MX matrix cores).
+# EAGLE3 drafter: Inferact/MiniMax-M3-EAGLE3 (LlamaForCausalLMEagle3 head,
+# hidden_size 6144 / vocab 200064 matching the M3 target), drafting 3 tokens.
+#
+# KV cache is intentionally left at the model default (bf16). MiniMax-M3-MXFP8
+# ships no calibrated KV scales, so --kv-cache-dtype fp8 silently falls back to
+# scale 1.0 and corrupts output (see vllm-project/vllm#45562); do not enable it
+# here without a calibrated checkpoint or a self-calibrating dtype.
+#
+# --block-size 128 is required: with EAGLE3 spec decode on this backend the
+# default KV-manager block size (16) has no compatible attention-kernel block
+# size, so bring-up dies in select_common_block_size with
+# "No common block size for 16." Forcing 128 gives a block size every kernel
+# in the spec-decode path supports.
+name: minimax_m3-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: MiniMaxAI/MiniMax-M3-MXFP8
+  env:
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 0
+  serve_args: >-
+    --tensor-parallel-size 8
+    --block-size 128
+    --tool-call-parser minimax_m3
+    --reasoning-parser minimax_m3
+    --enable-auto-tool-choice
+    --trust-remote-code
+    --speculative-config.method eagle3
+    --speculative-config.model Inferact/MiniMax-M3-EAGLE3
+    --speculative-config.num_speculative_tokens 3
+
+lm_eval:
+  # gsm8k here is a correctness gate: speculative decoding is output-equivalent
+  # to non-spec greedy, so the score must match the no-spec MiniMax-M3 baseline.
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  # random + openai backend (no speed_bench): speed_bench needs
+  # --skip-tokenizer-init, which caps every request at 1 output token so
+  # throughput reads ~0. See https://github.com/vllm-project/perf-eval/pull/20
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
