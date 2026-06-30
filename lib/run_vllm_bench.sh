@@ -87,6 +87,10 @@ run_vllm_bench() {
   echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts})"
   mkdir -p "$outdir"
 
+  local attn_backend="${ATTN_BACKEND:-default}"
+  local moe_backend="${MOE_BACKEND:-}"
+  local summary_file="${outdir}/bench-${name}-summary.txt"
+
   local cmd=(vllm bench serve)
   [[ "$runtime" != "native" ]] && cmd=(docker exec "$container" "${cmd[@]}")
 
@@ -140,9 +144,49 @@ run_vllm_bench() {
     cmd+=(--save-result --result-filename "$in_container_json")
   fi
 
-  "${cmd[@]}"
+  "${cmd[@]}" | tee "$summary_file"
 
   [[ "$runtime" != "native" ]] && docker cp "${container}:${in_container_json}" "$host_json"
+
+  # Resolve the actual attention backend selected by vLLM from the live server
+  # log (server is still running at this point). Named backends are already
+  # exact; only "default" needs resolution.
+  if [[ "$attn_backend" == "default" ]]; then
+    local _resolved
+    local _log_lines
+    if [[ "$runtime" == "native" ]]; then
+      _log_lines=$(grep -E "(Overriding with|Using [A-Z_]+ backend)" \
+        "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null) || true
+    else
+      _log_lines=$(docker logs "$container" 2>&1 \
+        | grep -E "(Overriding with|Using [A-Z_]+ backend)") || true
+    fi
+    # Prefer "Overriding with X" — this is the definitive selection line when
+    # vLLM discards incompatible backends and picks the actual one used.
+    _resolved=$(echo "$_log_lines" \
+      | grep "Overriding with" | head -1 \
+      | grep -oE "Overriding with [A-Z_]+" | awk '{print $3}') || true
+    # Fall back to "Using X backend" if no override line present
+    if [[ -z "$_resolved" ]]; then
+      _resolved=$(echo "$_log_lines" \
+        | grep -m1 "Using [A-Z_]+ backend" \
+        | grep -oE "Using [A-Z_]+ backend" | awk '{print $2}') || true
+    fi
+    [[ -n "$_resolved" ]] && attn_backend="$_resolved"
+  fi
+
+  # Prepend context header to the summary file
+  local _tmp="${summary_file}.tmp"
+  {
+    if [[ -n "$moe_backend" ]]; then
+      echo "moe_backend: ${moe_backend}"
+    else
+      echo "attention_backend: ${attn_backend}"
+    fi
+    echo "isl: ${input_len}  osl: ${output_len}  conc: ${max_concurrency}  n: ${num_prompts}"
+    echo ""
+    cat "$summary_file"
+  } > "$_tmp" && mv "$_tmp" "$summary_file"
 
   python3 - "$host_json" "$num_prompts" <<'PY'
 import json, sys

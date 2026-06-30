@@ -20,14 +20,26 @@ eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
 
 PORT=8000
-CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
-RESULTS_DIR="results/${WORKLOAD_NAME}"
 BASE_URL="http://localhost:${PORT}"
 BENCH_TRUST_REMOTE_CODE=false
 if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$) ]] ||
    [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code=(true|True|1|yes|Yes)([[:space:]]|$) ]]; then
   BENCH_TRUST_REMOTE_CODE=true
 fi
+
+# When an attention-backend sweep is configured, delegate entirely to the
+# sweep script and exit.  Everything below is the single-backend path.
+if [[ -n "${WORKLOAD_ATTENTION_BACKENDS:-}" ]]; then
+  exec "$DIR/run_attn_sweep.sh" "$WORKLOAD"
+fi
+
+# When a moe-backend sweep is configured, delegate to its sweep script.
+if [[ -n "${WORKLOAD_MOE_BACKENDS:-}" ]]; then
+  exec "$DIR/run_moe_sweep.sh" "$WORKLOAD"
+fi
+
+CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
+RESULTS_DIR="results/${WORKLOAD_NAME}"
 mkdir -p "$RESULTS_DIR"
 
 trap 'stop_server "$CONTAINER"' EXIT
@@ -75,28 +87,15 @@ while IFS=$'\t' read -r task fewshot model_args; do
 done <<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
 
 # bfcl function-calling eval
-while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_test_cases; do
+while IFS=$'\t' read -r category num_threads temperature; do
   [[ -z "$category" ]] && continue
   echo "--- :phone: bfcl ${category}"
   python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
-    "$category" "$num_threads" "$temperature" "$RESULTS_DIR" \
-    "$maximum_step_limit" "$max_test_cases"
+    "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
 
-  manifest="${RESULTS_DIR}/.bfcl_ingest/${category}.txt"
-  if [[ -f "$manifest" ]]; then
-    while IFS= read -r ingest_category; do
-      [[ -z "$ingest_category" ]] && continue
-      python3 "$DIR/ingest.py" \
-        --results-dir "${RESULTS_DIR}/bfcl-${ingest_category}" \
-        --workload "$WORKLOAD_NAME" \
-        --task "bfcl_${ingest_category}" \
-        --no-samples || true
-    done < "$manifest"
-  else
-    python3 "$DIR/ingest.py" \
-      --results-dir "${RESULTS_DIR}/bfcl-${category}" \
-      --workload "$WORKLOAD_NAME" \
-      --task "bfcl_${category}" \
-      --no-samples || true
-  fi
+  python3 "$DIR/ingest.py" \
+    --results-dir "${RESULTS_DIR}/bfcl-${category}" \
+    --workload "$WORKLOAD_NAME" \
+    --task "bfcl_${category}" \
+    --no-samples || true
 done <<< "$WORKLOAD_BFCL_TSV"

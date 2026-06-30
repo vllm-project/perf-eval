@@ -1,0 +1,74 @@
+# GPT-OSS 120B on MI355X
+name: attn-sweep-gpt-oss-120b-mi355x
+gpu: MI355X
+num_gpus: 8
+# Opt-in for now: WORKLOADS=gpt_oss_120b_mi355x
+nightly: false
+
+vllm:
+  model: openai/gpt-oss-120b
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 1
+    --trust-remote-code
+    --kv-cache-dtype=fp8
+  attention_backends:
+    - default
+    #- ROCM_ATTN #attention sinks not supported
+    - TRITON_ATTN
+    #- ROCM_AITER_UNIFIED_ATTN this one is the default
+    #- ROCM_AITER_FA #fails "attention sinks not supported"
+
+
+# lm_eval:
+#   model_args:
+#     tokenized_requests: false
+#     tokenizer_backend: null
+#     timeout: 6000
+#   tasks:
+#     - name: gsm8k
+#       num_fewshot: 5
+#       model_args:
+#         num_concurrent: 64
+#         max_length: 32768
+#         max_gen_toks: 8192
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc4
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc64
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl1024-osl1024-conc128
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 128
+    - name: isl8192-osl1024-conc4
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc64
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl8192-osl1024-conc128
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 128
