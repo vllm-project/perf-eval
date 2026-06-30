@@ -3,13 +3,13 @@
 # SERVING only: TP=8, in=1024 x out=1024 x conc=[1,32,64]
 # max_num_seqs=32, max_model_len=70000, kv-cache-dtype=fp8, compilation-config per original
 # block-size=1 required for MLA; async-scheduling per mi355_ut extra_args
-name: mi355-ut-deepseek-r1-0528-mxfp4-asq-mi355x
+name: mi355-ut-deepseek-r1-0528-mxfp4-mi355x
 gpu: MI355X
 num_gpus: 8
 nightly: false
 
 vllm:
-  model: amd/DeepSeek-R1-0528-MXFP4-ASQ
+  model: amd/DeepSeek-R1-MXFP4-Preview #amd/DeepSeek-R1-0528-MXFP4-ASQ
   serve_args: >-
     --tensor-parallel-size 8
     --dtype auto
@@ -20,13 +20,12 @@ vllm:
     --max-model-len 70000
     --block-size 1
     --async-scheduling
-    --compilation-config {"pass_config":{"fuse_attn_quant":true,"eliminate_noops":true,"fuse_norm_quant":true},"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"]}
+    --compilation-config {"pass_config":{"fuse_attn_quant":true,"eliminate_noops":true,"fuse_norm_quant":true},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"]}
   env:
     VLLM_DISABLE_COMPILE_CACHE: 1
     AMDGCN_USE_BUFFER_OPS: 1
     VLLM_ROCM_USE_AITER: 1
-    VLLM_ROCM_USE_AITER_MHA: 1
-    VLLM_ROCM_USE_AITER_MLA: 0
+    #VLLM_ROCM_USE_AITER_MLA: 0
 
 vllm_bench:
   configs:
