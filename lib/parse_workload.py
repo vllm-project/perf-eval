@@ -23,7 +23,6 @@ TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency",
-    "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
 BFCL_FIELDS = {
@@ -115,7 +114,7 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
 def parse_tp(serve_args: str) -> int:
     """Effective parallel degree (TP * DP) from serve_args; defaults to 1.
 
-    `vllm bench serve` reports aggregate throughput; we divide by this to get
+    vllm-bench reports aggregate throughput; we divide by this to get
     per-GPU metrics for the dashboard.
     """
     toks = serve_args.split()
@@ -205,8 +204,6 @@ def bench_tsv(configs: list, path: str) -> str:
                     str(c["output_len"]),
                     str(c["num_prompts"]),
                     str(c["max_concurrency"]),
-                    opt("speed_bench_dataset_subset"),
-                    opt("speed_bench_category"),
                 ]
             )
         )

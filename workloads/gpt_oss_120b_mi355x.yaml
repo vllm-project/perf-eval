@@ -35,5 +35,3 @@ vllm_bench:
       output_len: 1024
       num_prompts: 512
       max_concurrency: 128
-      speed_bench_dataset_subset: throughput_8k
-      speed_bench_category: low_entropy
