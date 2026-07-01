@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transform a `vllm bench serve` raw JSON result and POST it to the perf
+"""Transform a vllm-bench raw JSON result and POST it to the perf
 dashboard's ingestion endpoint.
 
 The dashboard at perf.vllm.ai reads from the `vllm_perf_data_ingest`
@@ -42,7 +42,7 @@ def post(endpoint: str, payload: dict) -> None:
 
 
 def transform(raw: dict, args: argparse.Namespace) -> dict:
-    """Map the raw `vllm bench serve` JSON to the dashboard's row shape."""
+    """Map the raw vllm-bench JSON to the dashboard's row shape."""
     tp = max(args.tp, 1)
     total_token_throughput = float(raw.get("total_token_throughput", 0) or 0)
     output_throughput = float(raw.get("output_throughput", 0) or 0)
@@ -91,7 +91,7 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--raw-result", required=True, help="Raw JSON from `vllm bench serve --save-result`")
+    p.add_argument("--raw-result", required=True, help="Raw JSON from `vllm-bench --save-result`")
     p.add_argument("--device", required=True, help="Device tag (e.g. h200)")
     p.add_argument("--tp", type=int, required=True, help="Effective parallel-degree (TP * DP)")
     p.add_argument("--precision", required=True, help="Precision tag (e.g. fp8, bf16)")
