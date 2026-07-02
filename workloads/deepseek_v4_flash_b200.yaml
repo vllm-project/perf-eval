@@ -1,4 +1,4 @@
-# DeepSeek-V4-Flash on B200 (TP=2 × DP=4 + EP, deep_gemm_mega_moe, MTP spec-decode)
+# DeepSeek-V4-Flash on B200 (TP=8 + EP, deep_gemm_mega_moe)
 name: deepseek_v4_flash-b200
 gpu: B200
 num_gpus: 8
@@ -6,22 +6,28 @@ nightly: true
 
 vllm:
   model: deepseek-ai/DeepSeek-V4-Flash
+  env:
+    # The vLLM release image's nvidia-cu13 wheels are minor-skewed (nvcc minor
+    # != cudart-headers minor, both CUDA 13), so the DeepSeek-V4 mHC TileLang
+    # kernel's sm_100a JIT compile trips CCCL's nvcc-vs-headers guard ("CUDA
+    # compiler and CUDA toolkit headers are incompatible"). nvcc honors
+    # NVCC_APPEND_FLAGS and TileLang's compile subprocess inherits the env, so
+    # define CCCL's official opt-out to skip the (same-major) check.
+    # Drop this once the image ships version-aligned cu13 wheels.
+    # See vllm-project/vllm#44305.
+    NVCC_APPEND_FLAGS: "-DCCCL_DISABLE_CTK_COMPATIBILITY_CHECK"
   serve_args: >-
-    --tensor-parallel-size 2
-    --data-parallel-size 4
-    --enable-expert-parallel
-    --max-model-len 32768
+    --trust-remote-code
     --kv-cache-dtype fp8
     --block-size 256
-    --moe-backend deep_gemm_mega_moe
+    --enable-expert-parallel
+    --tensor-parallel-size 8
     --attention_config.use_fp4_indexer_cache=True
+    --moe-backend deep_gemm_mega_moe
     --tokenizer-mode deepseek_v4
     --tool-call-parser deepseek_v4
-    --reasoning-parser deepseek_v4
     --enable-auto-tool-choice
-    --trust-remote-code
-    --speculative_config.method=mtp
-    --speculative_config.num_speculative_tokens=2
+    --reasoning-parser deepseek_v4
 
 bfcl:
   test_categories:
