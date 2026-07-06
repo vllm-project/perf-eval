@@ -15,12 +15,18 @@ Output files are written next to this script:
 
 Model grouping:
     Result directory names are split on the first '-' that separates a known
+<<<<<<< HEAD
     prefix (mi355-ut, vllm-ci, upstream) from the model portion.  Directories
     whose names don't match any known prefix are treated as their own group
     with the full name as the label.
 
     Directories prefixed with attn-sweep- or moe-sweep- are excluded — those
     are handled by gen_report.py.
+=======
+    prefix (mi355-ut, vllm-ci, upstream, attn-sweep, moe-sweep) from the
+    model portion.  Directories whose names don't match any known prefix are
+    treated as their own group with the full name as the label.
+>>>>>>> 79512c283 (more report scripts)
 
     Example:
         mi355-ut-gpt-oss-120b-mi355x  →  group "gpt-oss-120b-mi355x", label "mi355-ut"
@@ -36,12 +42,20 @@ from pathlib import Path
 RESULTS_DIR = Path(__file__).parent / "results"
 OUT_DIR = Path(__file__).parent
 
+<<<<<<< HEAD
 # Directories starting with these prefixes belong to gen_report.py, not here.
 EXCLUDED_PREFIXES = ("attn-sweep-", "moe-sweep-")
 
 # Prefixes stripped to derive the model group key. Order matters: longer
 # prefixes must come before any prefix that is a prefix of them.
 KNOWN_PREFIXES = [
+=======
+# Prefixes stripped to derive the model group key. Order matters: longer
+# prefixes must come before any prefix that is a prefix of them.
+KNOWN_PREFIXES = [
+    "attn-sweep-",
+    "moe-sweep-",
+>>>>>>> 79512c283 (more report scripts)
     "mi355-ut-",
     "vllm-ci-",
     "upstream-",
@@ -102,9 +116,12 @@ def collect_groups(results_dir: Path) -> dict[str, dict[str, dict]]:
     for d in sorted(results_dir.iterdir()):
         if not d.is_dir():
             continue
+<<<<<<< HEAD
         if any(d.name.startswith(p) for p in EXCLUDED_PREFIXES):
             print(f"  skip {d.name} — handled by gen_report.py")
             continue
+=======
+>>>>>>> 79512c283 (more report scripts)
         label, group = split_prefix(d.name)
         points = load_result_dir(d)
         if not points:
