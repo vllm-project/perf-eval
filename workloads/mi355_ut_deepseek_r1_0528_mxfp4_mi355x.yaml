@@ -16,7 +16,7 @@ vllm:
     --kv-cache-dtype fp8
     --max-num-batched-tokens 163840
     --max-num-seqs 32
-    --gpu-memory-utilization 0.95
+    --gpu-memory-utilization 0.92
     --max-model-len 70000
     --block-size 1
     --async-scheduling
@@ -25,7 +25,6 @@ vllm:
     VLLM_DISABLE_COMPILE_CACHE: 1
     AMDGCN_USE_BUFFER_OPS: 1
     VLLM_ROCM_USE_AITER: 1
-    #VLLM_ROCM_USE_AITER_MLA: 0
 
 vllm_bench:
   configs:

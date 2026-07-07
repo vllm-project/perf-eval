@@ -42,61 +42,61 @@ lm_eval:
         max_length: 10368
         max_gen_toks: 8192
 
-vllm_bench:
-  configs:
-    - name: isl1024-osl1024-conc1
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 1024
-      num_prompts: 200
-      max_concurrency: 1
-    - name: isl1024-osl1024-conc32
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 1024
-      num_prompts: 200
-      max_concurrency: 32
-    - name: isl1024-osl1024-conc64
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 1024
-      num_prompts: 320
-      max_concurrency: 64
-    - name: isl1024-osl1024-conc128
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 1024
-      num_prompts: 640
-      max_concurrency: 128
-    - name: isl1024-osl8192-conc1
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 8192
-      num_prompts: 200
-      max_concurrency: 1
-    - name: isl1024-osl8192-conc32
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 8192
-      num_prompts: 200
-      max_concurrency: 32
-    - name: isl1024-osl8192-conc64
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 8192
-      num_prompts: 320
-      max_concurrency: 64
-    - name: isl1024-osl8192-conc128
-      backend: openai
-      dataset: random
-      input_len: 1024
-      output_len: 8192
-      num_prompts: 640
-      max_concurrency: 128
+          #vllm_bench:
+          # configs:
+          #   - name: isl1024-osl1024-conc1
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 1024
+          #     num_prompts: 200
+          #     max_concurrency: 1
+          #   - name: isl1024-osl1024-conc32
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 1024
+          #     num_prompts: 200
+          #     max_concurrency: 32
+          #   - name: isl1024-osl1024-conc64
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 1024
+          #     num_prompts: 320
+          #     max_concurrency: 64
+          #   - name: isl1024-osl1024-conc128
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 1024
+          #     num_prompts: 640
+          #     max_concurrency: 128
+          #   - name: isl1024-osl8192-conc1
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 8192
+          #     num_prompts: 200
+          #     max_concurrency: 1
+          #   - name: isl1024-osl8192-conc32
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 8192
+          #     num_prompts: 200
+          #     max_concurrency: 32
+          #   - name: isl1024-osl8192-conc64
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 8192
+          #     num_prompts: 320
+          #     max_concurrency: 64
+          #   - name: isl1024-osl8192-conc128
+          #     backend: openai
+          #     dataset: random
+          #     input_len: 1024
+          #     output_len: 8192
+          #     num_prompts: 640
+          #     max_concurrency: 128

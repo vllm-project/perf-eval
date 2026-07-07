@@ -15,7 +15,7 @@ vllm:
     --dtype auto
     --max-num-batched-tokens 131072
     --max-num-seqs 1024
-    --gpu-memory-utilization 0.95
+    --gpu-memory-utilization 0.92
     --max-model-len 10240
     --block-size 1
     --async-scheduling
