@@ -37,7 +37,10 @@ Include one or more of `lm_eval:` / `vllm_bench:` / `bfcl:` depending on what yo
 name: qwen3_5-h200       # used in container name and results/<name>/
 gpu: H200                # picks queue/image/HF cache from lib/gpu_profiles.yaml
 num_gpus: 8
+num_nodes: 1             # optional; set >1 for multi-node Slurm workloads
+gpus_per_node: 8         # optional; used for Slurm allocation + metadata
 nightly: true            # include in the nightly schedule (default: false)
+bench_only: false        # optional; true skips lm_eval/BFCL for this workload
 
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
@@ -73,6 +76,12 @@ bfcl:                    # function-calling eval (optional)
     multi_turn: 100      # or set a single int to cap every category
 
 vllm_bench:              # perf runs (optional) — fed to the perf dashboard
+  metadata:              # optional dashboard labels / throughput denominator
+    device: h200
+    precision: fp8
+    is_multinode: false
+    gpu_count: 8
+    tp: 8
   configs:
     - name: 1k-in-1k-out-conc-256
       backend: openai                 # /v1/completions — exact ISL/OSL, no chat template
@@ -86,6 +95,8 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 A few things worth knowing:
 
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
+- **`num_nodes`** and **`gpus_per_node`** describe the allocation shape for multi-node workloads. Existing single-node recipes can omit them.
+- **`bench_only: true`** skips lm-eval and BFCL for one workload, even when the build-wide `BENCH_ONLY` env var is not set. This is useful for new perf-only smoke tests.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
@@ -93,6 +104,8 @@ A few things worth knowing:
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
+- **`vllm_bench.metadata.gpu_count`** is the denominator for per-GPU throughput. Set it explicitly for multi-node runs; otherwise the parser falls back to `num_gpus` or the effective TP/DP parsed from `serve_args`.
+- **`vllm_bench.metadata`** can also set dashboard fields such as `is_multinode`, `num_nodes`, `gpus_per_node`, `tp`, `dp`, `ep`, `dp_attention`, `disagg`, and `spec_decoding`.
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
@@ -125,6 +138,37 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 4. Click **Create Build**.
 
 This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
+
+### Run a GB300 Slurm smoke
+
+`workloads/deepseek_v4_flash_gb300_slurm.yaml` is an opt-in multi-node smoke. It does not run in nightly by default. Trigger it explicitly after the `GB300_SLURM` profile's Buildkite queue and Slurm launcher environment are configured:
+
+```bash
+WORKLOADS=deepseek_v4_flash_gb300_slurm
+BENCH_ONLY=1
+VLLM_COMMIT=<vllm-sha>
+VLLM_IMAGE=/home/inf-simon/containers/vllm-openai-v0.20.0-cu130.sqsh
+```
+
+The `GB300_SLURM` profile uses `server_runtime: slurm`, which delegates server startup to `lib/slurm_launch_vllm.sh` unless `PERF_EVAL_SLURM_LAUNCHER` points at a custom launcher. The launcher contract is:
+
+1. Submit a long-running server job.
+2. Write the endpoint env file named by `PERF_EVAL_ENDPOINT_FILE`.
+3. Print the Slurm job id on stdout so `lib/server.sh` can `scancel` it on exit.
+
+Useful Slurm env vars:
+
+- `PERF_EVAL_SLURM_ACCOUNT`, `PERF_EVAL_SLURM_PARTITION`, `PERF_EVAL_SLURM_QOS`, `PERF_EVAL_SLURM_RESERVATION`, `PERF_EVAL_SLURM_TIME`
+- `PERF_EVAL_SLURM_CONTAINER_MOUNTS`, `PERF_EVAL_SLURM_CONTAINER_WORKDIR`, `PERF_EVAL_SLURM_EXTRA_SBATCH_ARGS`, `PERF_EVAL_SLURM_EXTRA_SRUN_ARGS`
+- `PERF_EVAL_SLURM_CONTAINER_RUNTIME=auto|pyxis|none` to choose Pyxis/Enroot container launch or native `srun`; `auto` uses Pyxis only when `srun --help` advertises `--container-image`
+- `PERF_EVAL_SLURM_REQUEST_GPUS=0` for clusters that allocate whole GPU nodes without Slurm GPU GRES, `PERF_EVAL_SLURM_GPUS_PER_NODE=<n>` to override the workload's metadata value for `--gpus-per-node`, or `PERF_EVAL_SLURM_GRES=<gres>` to request GPUs with `--gres` instead
+- `PERF_EVAL_SLURM_VLLM_DISTRIBUTED_BACKEND=mp|none` to control the default native vLLM multi-node launcher. The default is `mp` when `num_nodes > 1`.
+- `PERF_EVAL_SLURM_SERVER_COMMAND` to replace the default non-Ray `vllm serve` command with a cluster-specific launch wrapper
+- `PERF_EVAL_BENCH_CLIENT_RUNTIME=slurm` to run `vllm bench serve` through Slurm instead of requiring a local `vllm` CLI on the Buildkite submission host; `PERF_EVAL_BENCH_CLIENT_CONTAINER_RUNTIME=auto|pyxis|none` overrides the server container runtime for that client step
+
+The GB300 Slurm profile defaults to Pyxis/Enroot containers for both the server and benchmark client, partition `batch`, `PERF_EVAL_SLURM_GRES=gpu:b300:4`, a 3-hour time limit, `--exclusive`, and `HF_HOME=/local_scratch/hf-models`. The profile starts with the Axis mounts `/home/inf-simon:/nfs_home,/raid/users/inf-simon:/local_scratch`; add a CI model-cache mount only after the durable cache path exists on the rack. If `PERF_EVAL_SLURM_GRES` is unset, the launcher uses the workload's `gpus_per_node` value with `--gpus-per-node`.
+
+For `num_nodes > 1`, the default Slurm launcher uses native vLLM MP serving rather than Ray: it starts one `vllm serve` task per node with `--distributed-executor-backend mp`, sets `--nnodes`, `--master-addr`, and `--node-rank`, and adds `--headless` on follower nodes. Pyxis server and benchmark-client steps set `--container-workdir` automatically when the current host checkout is under one of the configured `host:container` mounts; set `PERF_EVAL_SLURM_CONTAINER_WORKDIR` explicitly if the checkout path is not inferable. SRT-Slurm remains a possible future wrapper, but it needs an SRT/Dynamo-capable image and checkout and should not block this substrate path.
 
 **From an agent:** see `CLAUDE.md` for the Buildkite MCP workflow (don't shell out to `curl` or `bk`).
 

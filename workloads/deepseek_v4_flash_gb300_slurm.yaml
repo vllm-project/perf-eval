@@ -1,0 +1,46 @@
+# Opt-in GB300 Slurm multi-node smoke.
+# Run manually with WORKLOADS=deepseek_v4_flash_gb300_slurm after the
+# GB300 Slurm Buildkite queue and Slurm launcher env are configured.
+name: deepseek_v4_flash-gb300-slurm
+gpu: GB300_SLURM
+num_nodes: 2
+gpus_per_node: 4
+num_gpus: 8
+bench_only: true
+
+vllm:
+  model: deepseek-ai/DeepSeek-V4-Flash
+  serve_args: >-
+    --tensor-parallel-size 2
+    --data-parallel-size 4
+    --enable-expert-parallel
+    --max-model-len 32768
+    --kv-cache-dtype fp8
+    --block-size 256
+    --moe-backend deep_gemm_mega_moe
+    --attention_config.use_fp4_indexer_cache=True
+    --tokenizer-mode deepseek_v4
+    --tool-call-parser deepseek_v4
+    --reasoning-parser deepseek_v4
+    --enable-auto-tool-choice
+    --trust-remote-code
+
+vllm_bench:
+  metadata:
+    device: gb300
+    precision: fp8
+    is_multinode: true
+    num_nodes: 2
+    gpus_per_node: 4
+    gpu_count: 8
+    tp: 2
+    dp: 4
+    ep: 1
+  configs:
+    - name: 1k-in-1k-out-conc-64
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 128
+      max_concurrency: 64

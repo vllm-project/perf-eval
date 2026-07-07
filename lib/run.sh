@@ -18,11 +18,16 @@ source "$DIR/run_vllm_bench.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
+export WORKLOAD_NAME WORKLOAD_NUM_NODES WORKLOAD_GPUS_PER_NODE WORKLOAD_NUM_GPUS
+
+while IFS= read -r kv; do
+  [[ -z "$kv" ]] && continue
+  export "$kv"
+done <<< "$WORKLOAD_ENV"
 
 PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
 RESULTS_DIR="results/${WORKLOAD_NAME}"
-BASE_URL="http://localhost:${PORT}"
 BENCH_TRUST_REMOTE_CODE=false
 if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$) ]] ||
    [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code=(true|True|1|yes|Yes)([[:space:]]|$) ]]; then
@@ -34,7 +39,8 @@ trap 'stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
              "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
-wait_healthy "$PORT"
+BASE_URL="${VLLM_BASE_URL:-http://127.0.0.1:${PORT}}"
+wait_healthy "$BASE_URL"
 
 # vllm bench serve runs first so we can validate perf flow without waiting
 # on a full lm_eval pass. Each config's raw json lands in
@@ -42,7 +48,7 @@ wait_healthy "$PORT"
 # perf dashboard ingest endpoint.
 while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset speed_category; do
   [[ -z "$bname" ]] && continue
-  run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
+  run_vllm_bench "$CONTAINER" "$BASE_URL" "$WORKLOAD_MODEL" \
                  "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
                  "$conc" "$speed_subset" "$speed_category" \
                  "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
@@ -51,13 +57,22 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset
     --raw-result "${RESULTS_DIR}/bench-${bname}.json" \
     --device "$WORKLOAD_BENCH_DEVICE" \
     --tp "$WORKLOAD_BENCH_TP" \
+    --dp "${WORKLOAD_BENCH_DP:-}" \
+    --ep "${WORKLOAD_BENCH_EP:-}" \
+    --gpu-count "$WORKLOAD_BENCH_GPU_COUNT" \
+    --is-multinode "$WORKLOAD_BENCH_IS_MULTINODE" \
+    --num-nodes "${WORKLOAD_NUM_NODES:-}" \
+    --gpus-per-node "${WORKLOAD_GPUS_PER_NODE:-}" \
+    --dp-attention "$WORKLOAD_BENCH_DP_ATTENTION" \
+    --disagg "$WORKLOAD_BENCH_DISAGG" \
+    --spec-decoding "$WORKLOAD_BENCH_SPEC_DECODING" \
     --precision "$WORKLOAD_BENCH_PRECISION" \
     --model "$WORKLOAD_MODEL" \
     --image "$WORKLOAD_IMAGE" \
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
 
-if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
+if [[ "${BENCH_ONLY:-${WORKLOAD_BENCH_ONLY:-}}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
   echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"
   exit 0
 fi

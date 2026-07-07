@@ -15,6 +15,22 @@ B200:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
 
+GB300_SLURM:
+  queue: gb300_slurm
+  hf_home: /local_scratch/hf-models
+  server_runtime: slurm
+  env:
+    VLLM_DEEP_GEMM_WARMUP: skip
+    PERF_EVAL_SLURM_CONTAINER_RUNTIME: pyxis
+    PERF_EVAL_BENCH_CLIENT_RUNTIME: slurm
+    PERF_EVAL_BENCH_CLIENT_CONTAINER_RUNTIME: pyxis
+    PERF_EVAL_SLURM_REQUEST_GPUS: "1"
+    PERF_EVAL_SLURM_PARTITION: batch
+    PERF_EVAL_SLURM_GRES: gpu:b300:4
+    PERF_EVAL_SLURM_TIME: "03:00:00"
+    PERF_EVAL_SLURM_CONTAINER_MOUNTS: /home/inf-simon:/nfs_home,/raid/users/inf-simon:/local_scratch
+    PERF_EVAL_SLURM_EXTRA_SBATCH_ARGS: --exclusive
+
 MI300X:
   queue: mi300_perf_eval
   image_repo: vllm/vllm-openai-rocm
