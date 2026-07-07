@@ -110,6 +110,7 @@ stop_server() {
   local container=$1
   if [[ -n "${VLLM_LOGS_PID:-}" ]]; then
     kill "$VLLM_LOGS_PID" 2>/dev/null || true
+    pkill -P "$VLLM_LOGS_PID" 2>/dev/null || true
     wait "$VLLM_LOGS_PID" 2>/dev/null || true
   fi
   if [[ -n "${VLLM_SERVER_PID:-}" ]]; then
