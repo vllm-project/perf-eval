@@ -3,13 +3,13 @@
 # SERVING: TP=8, in=[1024,8192] x out=1024 x conc=[4,8,16,32,64]
 # ACCURACY: gsm8k 5-shot
 # block-size=1 required for MLA; async-scheduling per vllm_ci extra_args
-name: vllm-ci-deepseek-r1-0528-mi355x
+name: vllm-ci-deepseek-r1-mxfp4-mi355x
 gpu: MI355X
 num_gpus: 8
 nightly: false
 
 vllm:
-  model: deepseek-ai/DeepSeek-R1-0528
+  model: amd/DeepSeek-R1-MXFP4-Preview
   serve_args: >-
     --tensor-parallel-size 8
     --dtype auto
@@ -19,6 +19,7 @@ vllm:
     --max-model-len 10240
     --block-size 1
     --async-scheduling
+    --compilation-config {"pass_config":{"eliminate_noops":false},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"],"splitting_ops":[]}
   env:
     VLLM_ROCM_QUICK_REDUCE_QUANTIZATION: INT4
     VLLM_ROCM_USE_AITER: 1
