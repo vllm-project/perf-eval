@@ -1,0 +1,56 @@
+# MiniMax-M3 NVFP4 on B200
+# Recipe: https://recipes.vllm.ai/MiniMaxAI/MiniMax-M3
+# The recipe's verified Blackwell baseline is single-node TP=8. This workload
+# is text-only and caps context at 32K to leave KV-cache headroom for evals.
+name: minimax_m3-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/MiniMax-M3-NVFP4
+  image: vllm/vllm-openai:minimax-m3
+  env:
+    VLLM_FLOAT32_MATMUL_PRECISION: high
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+    --block-size 128
+    --language-model-only
+    --max-model-len 32768
+    --tool-call-parser minimax_m3
+    --reasoning-parser minimax_m3
+    --enable-auto-tool-choice
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+  num_threads: 8
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai-chat
+      dataset: speed_bench
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
