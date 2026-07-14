@@ -10,6 +10,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 workloads/        one YAML per (model, hardware) recipe
 lib/              orchestrator, server/Slurm launchers, helpers, GPU profiles
 .buildkite/       pipeline bootstrap and step generator
+.agents/skills/   repo-scoped agent workflows, including PD model onboarding
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
 
@@ -152,7 +153,7 @@ Router v0.1.12 has one global `intra_node_data_parallel_size`. Set it to `1` for
 
 Mount `source_env` values make site-specific paths overridable without editing YAML. The Kimi workload accepts `KIMI_K2_5_MODEL_PATH` and `FLASHINFER_CACHE_PATH`. NIXL also requires `/dev/infiniband` inside the container. The checked-in GB300 settings match the `nvidia-b300-login` cluster (`mlx5_4:1` and `enP22p3s0f0np0`); other clusters should override the workload environment rather than copying the GB200 NVL72 settings.
 
-The workload intentionally uses FP8 KV cache for performance bring-up. vLLM 0.18.1 warns when FP8 KV scales are not calibrated, so do not treat its accuracy as authoritative without calibrated scales or changing the cache dtype.
+The Kimi workload uses BF16 KV cache because vLLM v0.25.1 does not load the checkpoint's calibrated FP8 KV scales for MLA models. Revisit FP8 only after the loader remap is fixed and correctness is revalidated.
 
 ### Trigger a Buildkite build
 
@@ -212,3 +213,5 @@ The checkout and results directory must be on storage visible at the same path f
 ## Agents
 
 `CLAUDE.md` has conventions for AI agents working in this repo: smoke-testing changes, launching Buildkite builds for a chosen branch/commit, and the AI-assistance disclosure rule for PRs and commits.
+
+For onboarding another model to the schema-v1 Slurm prefill/decode path, invoke the repository skill with `$vllm-pd-disagg-model-onboarding`. It captures the reusable model-contract, topology, NIXL/Pyxis, router, staged cluster bring-up, correctness, and Buildkite workflow behind `workloads/kimi_k2_5_gb300_pd.yaml`.

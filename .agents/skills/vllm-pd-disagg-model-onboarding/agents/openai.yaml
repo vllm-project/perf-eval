@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM PD Model Onboarding"
+  short_description: "Port and prove model-specific PD serving on Slurm"
+  default_prompt: "Use $vllm-pd-disagg-model-onboarding to add or debug a model-specific prefill/decode-disaggregated perf-eval workload, validate it locally on Slurm, and prepare a scoped Buildkite run."
