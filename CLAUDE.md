@@ -100,8 +100,8 @@ With `bk`, watch the build, inspect its structured summary to identify failed
 job IDs, and then pull only the relevant job log:
 
 ```bash
-bk build watch <build-number> --pipeline vllm/perf-eval
-bk build view <build-number> --pipeline vllm/perf-eval --json
+bk build watch <build-number> --pipeline perf-eval
+bk build view <build-number> --pipeline perf-eval --json
 bk job log <job-id>
 ```
 
