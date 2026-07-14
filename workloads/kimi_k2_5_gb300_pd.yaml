@@ -12,11 +12,9 @@ timeout_in_minutes: 240
 
 vllm:
   model: /model
-  image: vllm/vllm-openai:v0.18.1-cu130
+  image: vllm/vllm-openai:v0.25.1
   env:
-    VLLM_USE_FLASHINFER_MOE_FP4: "1"
     VLLM_ENGINE_READY_TIMEOUT_S: "1800"
-    VLLM_RPC_TIMEOUT: "1800000"
     VLLM_NIXL_SIDE_CHANNEL_PORT: "5600"
     UCX_MEMTYPE_CACHE: "n"
     # This is an allow-list; omitting cuda_ipc excludes it without making UCX
@@ -42,7 +40,8 @@ serving:
     --max-model-len 9216
     --no-enable-prefix-caching
     --attention-backend FLASHINFER_MLA
-    --attention-config '{"use_trtllm_ragged_deepseek_prefill":true}'
+    --attention-config '{"mla_prefill_backend":"TRTLLM_RAGGED"}'
+    --moe-backend flashinfer_trtllm
     --all2all-backend allgather_reducescatter
     --enable-sleep-mode
     --disable-uvicorn-access-log
