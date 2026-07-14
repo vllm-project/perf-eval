@@ -115,14 +115,14 @@ run_vllm_bench() {
       [[ -n "$speed_bench_category" ]] && data_dir="${data_dir}-${speed_bench_category}"
       prepare_speed_bench_dataset "$container" "$runtime" \
         "$speed_bench_dataset_subset" "$speed_bench_category" "$data_dir"
-      # SPEED-Bench needs a tokenizer to load the dataset and count prompt
-      # tokens, but applying a client-side chat template breaks models that do
-      # not define one. Keep tokenizer initialization and skip only templating.
+      # SPEED-Bench applies the client-side chat template at tokenizer init,
+      # which breaks for chat-template-less models — rely on server-side
+      # usage accounting instead.
       cmd+=(
         --dataset-path "$data_dir"
         --speed-bench-output-len "$output_len"
         --speed-bench-dataset-subset "$speed_bench_dataset_subset"
-        --skip-chat-template
+        --skip-tokenizer-init
       )
       [[ -n "$speed_bench_category" ]] && cmd+=(--speed-bench-category "$speed_bench_category")
       ;;
