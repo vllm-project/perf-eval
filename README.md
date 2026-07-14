@@ -17,10 +17,13 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 ### Add a new recipe
 
-1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` is a small, complete example.
+1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` for H200 or `workloads/minimax_m3_b200.yaml` for B200.
 2. Name the file `<model>_<hardware>.yaml`. Keep hardware variants in separate files.
 3. Edit the fields to match your model and tasks. Set `nightly: true` if it should run in the nightly schedule; leave it off for opt-in recipes.
 4. Open a PR. The pipeline auto-discovers `workloads/*.yaml` — no Buildkite YAML edits needed.
+
+B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
+GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
 ### Recipe schema
 
@@ -126,7 +129,8 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
 
-**From an agent:** see `CLAUDE.md` for the Buildkite MCP workflow (don't shell out to `curl` or `bk`).
+**From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
+`bk` workflows. Don't make raw Buildkite API calls with `curl`.
 
 ### Run a recipe end-to-end
 
