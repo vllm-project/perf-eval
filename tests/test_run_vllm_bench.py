@@ -7,9 +7,42 @@ import unittest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+RUN_SH = REPO_ROOT / "lib" / "run.sh"
 
 
 class RunVllmBenchTests(unittest.TestCase):
+    def test_orchestrator_keeps_tsv_rows_off_child_stdin(self):
+        run_script = RUN_SH.read_text()
+        self.assertEqual(run_script.count("<&3; do"), 3)
+        for variable in (
+            "WORKLOAD_VLLM_BENCH_TSV",
+            "WORKLOAD_LM_EVAL_TASKS_TSV",
+            "WORKLOAD_BFCL_TSV",
+        ):
+            self.assertIn(f'done 3<<< "${variable}"', run_script)
+
+        completed = subprocess.run(
+            [
+                "bash",
+                "-c",
+                """
+                set -euo pipefail
+                rows=$'first\\nsecond\\nthird'
+                while IFS= read -r value <&3; do
+                  printf '%s\\n' "$value"
+                  cat >/dev/null
+                done 3<<< "$rows"
+                """,
+            ],
+            input="",
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(completed.stdout.splitlines(), ["first", "second", "third"])
+
     def test_waits_for_delayed_result_file_visibility(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
