@@ -7,10 +7,10 @@
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
 #                  <trust_remote_code> <output_dir>
 #
-# Docker runtime invokes `vllm bench serve` inside the vllm/vllm-openai
-# container via `docker exec`; native runtime invokes it directly. The raw
-# JSON lands in "<output_dir>/bench-<name>.json" so ingest_perf.py can pick
-# it up.
+# Docker runtime invokes `vllm bench serve` via `docker exec`; native runtime
+# invokes it directly. Slurm PD runtime delegates to slurm_pd_launcher.py so
+# the client runs in the serving allocation and Pyxis image. The raw JSON
+# lands in "<output_dir>/bench-<name>.json" so ingest_perf.py can pick it up.
 
 # vLLM's SpeedBench class expects a local <subset>.jsonl file built by
 # NeMo's prepare.py — the bench CLI does not download the dataset itself.
@@ -57,9 +57,14 @@ PY
   fi
   test -s "${data_dir}/${subset}.jsonl"
 
+  if [[ "$runtime" == "slurm" ]]; then
+    echo "SPEED-Bench is not yet supported by the Slurm client executor; use the random dataset" >&2
+    return 2
+  fi
+
   # Docker runtime: ship the data into the container and make sure pandas is
   # available there (vLLM's SpeedBench loads the JSONL via pandas).
-  if [[ "$runtime" != "native" ]]; then
+  if [[ "$runtime" == "docker" ]]; then
     docker exec "$container" mkdir -p "$data_dir"
     docker cp "${data_dir}/." "${container}:${data_dir}/"
     if ! docker exec "$container" python3 -c 'import pandas' 2>/dev/null; then
@@ -78,7 +83,6 @@ run_vllm_bench() {
   local trust_remote_code=${13} outdir=${14}
   local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
   local in_container_json="/tmp/bench-${name}.json"
-  local host_json="${outdir}/bench-${name}.json"
 
   [[ "$backend" == "-" ]] && backend=""
   [[ "$speed_bench_dataset_subset" == "-" ]] && speed_bench_dataset_subset=""
@@ -86,13 +90,41 @@ run_vllm_bench() {
 
   echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts})"
   mkdir -p "$outdir"
+  local host_json
+  host_json="$(cd "$outdir" && pwd)/bench-${name}.json"
 
   local cmd=(vllm bench serve)
-  [[ "$runtime" != "native" ]] && cmd=(docker exec "$container" "${cmd[@]}")
+  case "$runtime" in
+    docker)
+      cmd=(docker exec "$container" "${cmd[@]}")
+      ;;
+    native)
+      ;;
+    slurm)
+      : "${PD_LAUNCHER:?PD_LAUNCHER is required for Slurm serving}"
+      : "${PD_SERVING_STATE_FILE:?PD_SERVING_STATE_FILE is required for Slurm serving}"
+      : "${WORKLOAD_SERVING_JSON:?WORKLOAD_SERVING_JSON is required for Slurm serving}"
+      cmd=(
+        python3 "$PD_LAUNCHER"
+        --config "$WORKLOAD_SERVING_JSON"
+        --state-file "$PD_SERVING_STATE_FILE"
+        exec-client --
+        "${cmd[@]}"
+      )
+      ;;
+    *)
+      echo "unsupported server runtime for vllm bench: $runtime" >&2
+      return 2
+      ;;
+  esac
 
   if [[ -n "$backend" ]]; then
-    cmd+=(--backend "$backend" --base-url "http://127.0.0.1:${port}")
+    local bench_base_url="${WORKLOAD_BENCH_BASE_URL:-http://127.0.0.1:${port}}"
+    cmd+=(--backend "$backend" --base-url "$bench_base_url")
     [[ "$backend" == "openai-chat" ]] && cmd+=(--endpoint /v1/chat/completions)
+  elif [[ "$runtime" == "slurm" ]]; then
+    # exec-client resolves these placeholders from allocation_router_url.
+    cmd+=(--host '{router_host}' --port '{router_port}')
   else
     cmd+=(--host 127.0.0.1 --port "$port")
   fi
@@ -132,7 +164,7 @@ run_vllm_bench() {
       ;;
   esac
 
-  if [[ "$runtime" == "native" ]]; then
+  if [[ "$runtime" == "native" || "$runtime" == "slurm" ]]; then
     cmd+=(--save-result --result-filename "$host_json")
   else
     cmd+=(--save-result --result-filename "$in_container_json")
@@ -140,7 +172,7 @@ run_vllm_bench() {
 
   "${cmd[@]}"
 
-  [[ "$runtime" != "native" ]] && docker cp "${container}:${in_container_json}" "$host_json"
+  [[ "$runtime" == "docker" ]] && docker cp "${container}:${in_container_json}" "$host_json"
 
   python3 - "$host_json" "$num_prompts" <<'PY'
 import json, sys

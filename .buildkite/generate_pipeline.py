@@ -56,6 +56,7 @@ COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
+    "GB300": ":b300:",
     "A100": ":a100:",
 }
 
@@ -190,8 +191,20 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
-    if profile.get("server_runtime") == "native":
+    server_runtime = profile.get("server_runtime")
+    if server_runtime == "native":
         step["plugins"] = [b200_k8s_plugin(ecr_pull_through(resolved_image(data)), data.get("num_gpus", 1))]
+    elif server_runtime == "slurm":
+        # The login-node router and several vLLM control-plane ports are fixed,
+        # so only one Slurm workload may target a queue at a time. Deriving the
+        # group from the resolved queue preserves isolation for queue overrides.
+        step.update(
+            {
+                "concurrency": 1,
+                "concurrency_group": f"perf-eval/{queue}",
+                "concurrency_method": "eager",
+            }
+        )
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
