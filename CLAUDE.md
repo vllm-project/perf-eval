@@ -102,7 +102,7 @@ job IDs, and then pull only the relevant job log:
 ```bash
 bk build watch <build-number> --pipeline perf-eval
 bk build view <build-number> --pipeline perf-eval --json
-bk job log <job-id>
+bk job log <job-id> --pipeline perf-eval --build-number <build-number>
 ```
 
 A typical build takes ~30–90 minutes (the step has a 120-min hard timeout) — it downloads model weights into the workload GPU profile's HF cache, then runs every task in the workload. GPU queues are shared with other vLLM pipelines, so don't trigger duplicate builds for the same commit unless asked.
