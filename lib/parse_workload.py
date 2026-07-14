@@ -12,6 +12,8 @@ Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 are not validated against the registry (because they will not run).
 """
 
+import base64
+import json
 import os
 import re
 import shlex
@@ -22,10 +24,18 @@ import yaml
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
-    "num_prompts", "max_concurrency",
+    "num_prompts", "max_concurrency", "args",
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
+BENCH_RESERVED_ARGS = {
+    "backend", "base-url", "host", "port", "model", "dataset-name",
+    "num-prompts", "max-concurrency", "trust-remote-code",
+    "random-input-len", "random-output-len", "ignore-eos", "dataset-path",
+    "speed-bench-output-len", "speed-bench-dataset-subset",
+    "speed-bench-category", "skip-tokenizer-init", "save-result",
+    "result-filename",
+}
 BFCL_FIELDS = {
     "test_categories", "num_threads", "temperature",
     "maximum_step_limit", "max_test_cases",
@@ -174,6 +184,37 @@ def task_tsv(tasks: list, base_args: dict) -> str:
     return "\n".join(lines)
 
 
+def normalize_bench_arg_name(name: str) -> str:
+    return name.lstrip("-").replace("_", "-")
+
+
+def encode_bench_args(args: object, config_name: str, path: str) -> str:
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        sys.exit(f"{path}: vllm_bench config {config_name!r} args must be a map")
+    normalized = {}
+    for name, value in args.items():
+        if not isinstance(name, str) or not normalize_bench_arg_name(name):
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args keys must be non-empty strings"
+            )
+        normalized_name = normalize_bench_arg_name(name)
+        if normalized_name in BENCH_RESERVED_ARGS:
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args cannot override "
+                f"wrapper-owned option --{normalized_name}"
+            )
+        if normalized_name in normalized:
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args contains duplicate "
+                f"option --{normalized_name} after normalization"
+            )
+        normalized[normalized_name] = value
+    payload = json.dumps(normalized, separators=(",", ":")).encode()
+    return base64.b64encode(payload).decode()
+
+
 def bench_tsv(configs: list, path: str) -> str:
     seen = set()
     lines = []
@@ -207,6 +248,7 @@ def bench_tsv(configs: list, path: str) -> str:
                     str(c["max_concurrency"]),
                     opt("speed_bench_dataset_subset"),
                     opt("speed_bench_category"),
+                    encode_bench_args(c.get("args"), c["name"], path),
                 ]
             )
         )

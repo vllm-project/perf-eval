@@ -5,7 +5,7 @@
 #   run_vllm_bench <container> <port> <model> <name> <backend> <dataset> \
 #                  <input_len> <output_len> <num_prompts> <max_concurrency> \
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
-#                  <trust_remote_code> <output_dir>
+#                  <extra_args_base64> <trust_remote_code> <output_dir>
 #
 # Docker runtime invokes `vllm bench serve` inside the vllm/vllm-openai
 # container via `docker exec`; native runtime invokes it directly. The raw
@@ -22,6 +22,42 @@ pip_install_quiet() {
   else
     PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet "$@"
   fi
+}
+
+append_bench_args() {
+  local encoded=$1
+  local -n command_ref=$2
+  local extra_args=()
+  mapfile -d '' -t extra_args < <(
+    python3 - "$encoded" <<'PY'
+import base64
+import json
+import sys
+
+args = json.loads(base64.b64decode(sys.argv[1]))
+output = sys.stdout.buffer
+
+
+def emit(value):
+    output.write(str(value).encode() + b"\0")
+
+
+for name, value in args.items():
+    flag = f"--{name}"
+    if value is True:
+        emit(flag)
+    elif value is False or value is None:
+        continue
+    elif isinstance(value, list):
+        for item in value:
+            emit(flag)
+            emit(json.dumps(item, separators=(",", ":")) if isinstance(item, (dict, list)) else item)
+    else:
+        emit(flag)
+        emit(json.dumps(value, separators=(",", ":")) if isinstance(value, dict) else value)
+PY
+  )
+  command_ref+=("${extra_args[@]}")
 }
 
 prepare_speed_bench_dataset() {
@@ -75,7 +111,7 @@ run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
   local speed_bench_dataset_subset=${11} speed_bench_category=${12}
-  local trust_remote_code=${13} outdir=${14}
+  local extra_args_base64=${13} trust_remote_code=${14} outdir=${15}
   local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
   local in_container_json="/tmp/bench-${name}.json"
   local host_json="${outdir}/bench-${name}.json"
@@ -133,6 +169,8 @@ run_vllm_bench() {
       return 2
       ;;
   esac
+
+  append_bench_args "$extra_args_base64" cmd
 
   if [[ "$runtime" == "native" ]]; then
     cmd+=(--save-result --result-filename "$host_json")
