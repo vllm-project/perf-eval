@@ -89,6 +89,17 @@ class SlurmPipelineTests(unittest.TestCase):
             command,
         )
 
+    def test_run_command_defers_agent_environment_until_job_runtime(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            step = generate_pipeline.make_step(
+                self.path, self.workload, self.profiles,
+            )
+
+        self.assertIn(
+            'PATH="$(pwd)/.venv/bin:$$HOME/.local/bin:$$PATH"',
+            step["commands"][-1],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,8 +47,10 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
+# Dynamic pipeline uploads interpolate environment variables on the bootstrap
+# agent.  Escape these so HOME and PATH resolve on the GPU agent at job runtime.
 RUN_TEMPLATE = (
-    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$$HOME/.local/bin:$$PATH"'
     " && ./lib/run.sh {path}"
 )
 
