@@ -73,6 +73,22 @@ class SlurmPipelineTests(unittest.TestCase):
             )
         self.assertEqual(selected, [])
 
+    def test_setup_fallback_supports_externally_managed_python(self):
+        command = generate_pipeline.setup_command("pyyaml")
+
+        self.assertIn(
+            "if ! python3 -m pip --version >/dev/null 2>&1; then",
+            command,
+        )
+        self.assertIn(
+            "python3 - --user --break-system-packages",
+            command,
+        )
+        self.assertIn(
+            "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user",
+            command,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -33,8 +33,11 @@ def setup_command(packages):
         f"  python -m pip install --upgrade {packages}\n"
         "else\n"
         "  rm -rf .venv\n"
-        "  (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
-        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user)\n"
+        "  if ! python3 -m pip --version >/dev/null 2>&1; then\n"
+        "    (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
+        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py"
+        " | python3 - --user --break-system-packages)\n"
+        "  fi\n"
         f"  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade {packages}\n"
         "fi"
     )
