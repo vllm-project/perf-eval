@@ -44,7 +44,12 @@ If you actually need real validation (parser hitting lm-eval's task registry rat
 
 ## Launching a Buildkite build
 
-Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline metadata:
+Use either the Buildkite MCP tools or an authenticated `bk` CLI. Prefer MCP
+when it is available because its responses are already structured; `bk` is a
+supported alternative for triggering, watching, and inspecting builds. Never
+make raw Buildkite API calls with `curl`.
+
+Pipeline metadata:
 
 - **org**: `vllm`
 - **pipeline**: `perf-eval`
@@ -55,20 +60,50 @@ Use the Buildkite MCP tools — never shell out to `curl` or `bk`. Pipeline meta
 ### Workflow
 
 1. **Make sure the commit is on the remote.** Buildkite clones from GitHub; unpushed commits will fail to resolve. If the user has local changes you've been working on, ask before pushing; once pushed, capture the SHA from `git rev-parse <branch>`.
-2. **Trigger the build** via `mcp__claude_ai_Buildkite__create_build`:
+2. **Trigger the build** with either MCP or `bk`.
+
+   With `mcp__claude_ai_Buildkite__create_build`:
+
    - `org_slug: "vllm"`
    - `pipeline_slug: "perf-eval"`
    - `commit: "<full SHA>"`
    - `branch: "<branch name>"` (use the actual branch, not `main`, when testing a feature branch)
    - `message: "<short description of what this tests>"` — match the existing convention: short, action-oriented (e.g. "Add gpqa diamond", "Writable HF_HOME for lm_eval datasets cache"). No emoji unless the user asks.
    - `environment`: always pass both `VLLM_COMMIT` (the vLLM SHA being tested) and `VLLM_IMAGE` (the full Docker image URI). Optionally pass `WORKLOADS` for an explicit workload list; omit it to run all `nightly: true` workloads.
-3. **Report the build URL** back to the user immediately so they can follow along; the response includes `web_url`.
+
+   With `bk` (run `bk auth status` first):
+
+   ```bash
+   bk build create \
+     --yes \
+     --pipeline vllm/perf-eval \
+     --commit "<full perf-eval SHA>" \
+     --branch "<branch name>" \
+     --message "<short description of what this tests>" \
+     --env "VLLM_COMMIT=<vLLM SHA>" \
+     --env "VLLM_IMAGE=<full Docker image URI>" \
+     --env "WORKLOADS=<optional workload list>"
+   ```
+
+   Omit the final `WORKLOADS` argument to run every `nightly: true` workload.
+3. **Report the build URL** back to the user immediately so they can follow
+   along. MCP returns it as `web_url`; `bk build create` prints it in the build
+   summary.
 
 ### Watching a running build
 
 - `mcp__claude_ai_Buildkite__get_build` with `job_state: "failed,broken,canceled"` to check for failures without pulling full logs.
 - `mcp__claude_ai_Buildkite__tail_logs` with the `job_id` for the most recent log lines — start here for failure diagnosis, it's far cheaper than `read_logs`.
 - `mcp__claude_ai_Buildkite__search_logs` with patterns like `"error|failed|exception|Traceback"` if `tail_logs` doesn't show the failure.
+
+With `bk`, watch the build, inspect its structured summary to identify failed
+job IDs, and then pull only the relevant job log:
+
+```bash
+bk build watch <build-number> --pipeline vllm/perf-eval
+bk build view <build-number> --pipeline vllm/perf-eval --json
+bk job log <job-id>
+```
 
 A typical build takes ~30–90 minutes (the step has a 120-min hard timeout) — it downloads model weights into the workload GPU profile's HF cache, then runs every task in the workload. GPU queues are shared with other vLLM pipelines, so don't trigger duplicate builds for the same commit unless asked.
 

@@ -122,7 +122,8 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
 
-**From an agent:** see `CLAUDE.md` for the Buildkite MCP workflow (don't shell out to `curl` or `bk`).
+**From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
+`bk` workflows. Don't make raw Buildkite API calls with `curl`.
 
 ### Run a recipe end-to-end
 
