@@ -92,6 +92,9 @@ run_vllm_bench() {
   mkdir -p "$outdir"
   local host_json
   host_json="$(cd "$outdir" && pwd)/bench-${name}.json"
+  # Results can live on a shared filesystem. Never let a delayed writer from
+  # the current run race with a valid-looking result left by an earlier run.
+  rm -f "$host_json"
 
   local cmd=(vllm bench serve)
   case "$runtime" in
@@ -175,10 +178,20 @@ run_vllm_bench() {
   [[ "$runtime" == "docker" ]] && docker cp "${container}:${in_container_json}" "$host_json"
 
   python3 - "$host_json" "$num_prompts" <<'PY'
-import json, sys
+import json, sys, time
 path, expected = sys.argv[1], int(sys.argv[2])
-with open(path) as f:
-    result = json.load(f)
+# The client and validator may be different NFS clients. Allow one typical
+# attribute-cache window for the new file (or its completed contents) to show.
+deadline = time.monotonic() + 60
+while True:
+    try:
+        with open(path) as f:
+            result = json.load(f)
+        break
+    except (FileNotFoundError, json.JSONDecodeError):
+        if time.monotonic() >= deadline:
+            raise
+        time.sleep(1)
 def read_int(*keys, default=None):
     for k in keys:
         v = result.get(k)

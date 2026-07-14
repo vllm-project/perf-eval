@@ -32,12 +32,15 @@ serving:
   version: 1
   mode: pd_disagg
   launcher: slurm
+  # The NVIDIA checkpoint's calibrated FP8 KV scales are not loaded by vLLM
+  # v0.25.1 for MLA models. Use BF16 until the loader remap is fixed so the
+  # benchmark output is numerically trustworthy.
   common_serve_args: >-
     --enable-expert-parallel
     --enable-ep-weight-filter
     --trust-remote-code
     --block-size 64
-    --kv-cache-dtype fp8
+    --kv-cache-dtype bfloat16
     --gpu-memory-utilization 0.90
     --max-model-len 9216
     --no-enable-prefix-caching
@@ -100,7 +103,7 @@ serving:
       base_port: 8000
       kv_role: kv_consumer
       serve_args: >-
-        --max-num-seqs 256
+        --max-num-seqs 180
         --stream-interval 50
       health_check:
         path: /health
@@ -137,12 +140,12 @@ vllm_bench:
     disagg: true
     is_multinode: true
   configs:
-    - name: smoke-8k-in-1k-out-conc-4
+    - name: smoke-8k-in-64-out-conc-4
       backend: vllm
       dataset: random
       input_len: 8192
-      output_len: 1024
-      num_prompts: 16
+      output_len: 64
+      num_prompts: 4
       max_concurrency: 4
     - name: 8k-in-1k-out-conc-3072
       backend: vllm

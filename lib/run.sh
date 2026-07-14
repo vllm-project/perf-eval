@@ -90,9 +90,12 @@ if [[ "$WORKLOAD_SERVING_MODE" == "pd_disagg" ]]; then
     supervise &
   PD_SUPERVISOR_PID=$!
   export PD_SUPERVISOR_PID
+  # Cover Slurm queueing, the longest role health deadline, and the router's
+  # sequential readiness check. First-run kernel tuning can use most of a
+  # workload's health-check budget.
   python3 "$PD_LAUNCHER" \
     --state-file "$PD_SERVING_STATE_FILE" \
-    wait-ready --timeout 3600 --supervisor-pid "$PD_SUPERVISOR_PID"
+    wait-ready --timeout 4800 --supervisor-pid "$PD_SUPERVISOR_PID"
   kill -0 "$PD_SUPERVISOR_PID" 2>/dev/null || {
     echo "PD supervisor exited immediately after readiness" >&2
     wait "$PD_SUPERVISOR_PID" || true
