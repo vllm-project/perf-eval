@@ -1,0 +1,52 @@
+# DeepSeek-V3.2 on MI355X
+name: deepseek_v32-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: deepseek-ai/DeepSeek-V3.2
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --kv-cache-dtype fp8
+    --trust-remote-code
+    --no-enable-prefix-caching
+    --gpu-memory-utilization 0.9
+    --distributed-executor-backend mp
+    --speculative_config {"method":"mtp","num_speculative_tokens":3}
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+vllm_bench:
+  configs:
+    - name: 1k-in-1k-out-conc-32
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 32
+      speed_bench_dataset_subset: throughput_1k
+      speed_bench_category: low_entropy
+    - name: 8k-in-1k-out-conc-256
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 256
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
