@@ -14,7 +14,9 @@ vllm:
   model: /model
   image: vllm/vllm-openai:v0.25.1
   env:
-    VLLM_ENGINE_READY_TIMEOUT_S: "1800"
+    # First startup on GB300 can spend tens of minutes autotuning FlashInfer's
+    # NVFP4 kernels. Keep vLLM's internal wait aligned with role health checks.
+    VLLM_ENGINE_READY_TIMEOUT_S: "3600"
     VLLM_NIXL_SIDE_CHANNEL_PORT: "5600"
     UCX_MEMTYPE_CACHE: "n"
     # This is an allow-list; omitting cuda_ipc excludes it without making UCX
@@ -87,7 +89,7 @@ serving:
         --no-enable-chunked-prefill
       health_check:
         path: /health
-        timeout_s: 1200
+        timeout_s: 3600
         poll_interval_s: 10
     - role: decode
       count: 2
@@ -102,7 +104,7 @@ serving:
         --stream-interval 50
       health_check:
         path: /health
-        timeout_s: 1200
+        timeout_s: 3600
         poll_interval_s: 10
   router:
     repo_path: ${HOME}/Kimi-PD/vllm-router
