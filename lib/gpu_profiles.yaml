@@ -20,11 +20,16 @@ MI300X:
   image_repo: vllm/vllm-openai-rocm
   server_runtime: native
   k8s_plugin: amd
-  hf_home: /mnt/shared/hf-models
+  # HF cache lives in the container default and is backed by an emptyDir volume
+  # (reclaimed when the pod exits). A cluster with fast shared storage can point
+  # this at a PVC/hostPath via the MI300X_HF_CACHE_VOLUME override; do NOT set an
+  # hf_home under /mnt/shared unless that path is a real mount on the node, or the
+  # cache lands on the root disk and is never reclaimed.
 
 MI355X:
   queue: mi355_perf_eval
   image_repo: vllm/vllm-openai-rocm
   server_runtime: native
   k8s_plugin: amd
-  hf_home: /mnt/shared/hf-models
+  # See MI300X — HF cache defaults to an emptyDir-backed container path; override
+  # the volume source per-cluster with MI355X_HF_CACHE_VOLUME.
