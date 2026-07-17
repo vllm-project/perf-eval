@@ -1,0 +1,74 @@
+# Ported from AFO-LLM configs/vllm_ci.yaml
+# GPT-OSS 120B TP=8 on MI355X with upstream vLLM (VLLM_USE_V1=1)
+# SERVING: TP=8, in=[1024,8192] x out=1024 x conc=[4,8,16]
+# (Lower max concurrency for TP=8 per vllm_ci.yaml)
+name: vllm-ci-gpt-oss-120b-tp8-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: openai/gpt-oss-120b
+  serve_args: >-
+    --tensor-parallel-size 8
+    --dtype auto
+    --max-num-batched-tokens 8192
+    --max-num-seqs 1024
+    --gpu-memory-utilization 0.95
+    --max-model-len 10240
+    --block-size 64
+    --async-scheduling
+    --trust-remote-code
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_USE_AITER_UNIFIED_ATTENTION: 1
+    VLLM_ROCM_USE_AITER_MHA: 0
+    HSA_NO_SCRATCH_RECLAIM: 1
+    NCCL_MIN_NCHANNELS: 112
+    USE_FASTSAFETENSOR: 1
+    SAFETENSORS_FAST_GPU: 1
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc4
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc8
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 8
+    - name: isl1024-osl1024-conc16
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 16
+    - name: isl8192-osl1024-conc4
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc8
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 8
+    - name: isl8192-osl1024-conc16
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 16

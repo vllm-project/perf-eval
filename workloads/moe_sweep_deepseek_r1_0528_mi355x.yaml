@@ -1,0 +1,59 @@
+# ACCURACY (TP=8, block_size=1) + SERVING (TP=8, in=[1024,8192] x out=1024 x conc=[4,8,16,32,64])
+# block-size=1 is a DeepSeek MLA requirement; passed via serve_args for both roles.
+# async-scheduling is a SERVING extra_arg in the original; included here since the
+# same server instance handles both eval types.
+name: moe-sweep-deepseek-r1-0528-MI355X
+gpu: MI355X
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: deepseek-ai/DeepSeek-R1-0528
+  serve_args: >-
+    --tensor-parallel-size 8
+    --dtype auto
+    --max-num-batched-tokens 131072
+    --max-num-seqs 1024
+    --gpu-memory-utilization 0.92
+    --max-model-len 10240
+    --block-size 1
+    --async-scheduling
+    --compilation-config {"pass_config":{"eliminate_noops":false},"cudagraph_mode":"FULL","custom_ops":["+rms_norm","+silu_and_mul","+quant_fp8"],"splitting_ops":[]}
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    HSA_NO_SCRATCH_RECLAIM: 1
+    NCCL_MIN_NCHANNELS: 112
+    USE_FASTSAFETENSOR: 1
+    SAFETENSORS_FAST_GPU: 1
+  moe_backends:
+    - default
+    #- AITER
+    #- TRITON_UNFUSED
+    #- MXFP4_BF16
+
+vllm_bench:
+  configs:
+    - name: isl1024-osl1024-conc4
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl1024-osl1024-conc64
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64
+    - name: isl8192-osl1024-conc4
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 4
+    - name: isl8192-osl1024-conc64
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 200
+      max_concurrency: 64

@@ -49,7 +49,7 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
     input_throughput = total_token_throughput - output_throughput
 
     data = {
-        "date": args.date or datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"),
+        "date": args.date or datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S"),
         "device": args.device,
         "conc": int(raw.get("max_concurrency") or args.conc),
         "image": args.image,

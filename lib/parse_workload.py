@@ -22,6 +22,23 @@ import sys
 import yaml
 
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
+VLLM_FIELDS = {
+    "model", "image", "serve_args", "env", "attention_backends", "moe_backends",
+}
+KNOWN_ATTENTION_BACKENDS = {
+    "default",
+    "FLASH_ATTN", "FLASHINFER", "XFORMERS", "TRITON_ATTN",
+    "TRITON_MLA", "ROCM_FLASH", "PAGED_ATTENTION", "ROCM_AITER_FA", "ROCM_AITER_MHA",
+    "ROCM_AITER_UNIFIED_ATTN", "ROCM_ATTN", "ROCM_AITER_MLA",
+    "ROCM_AITER_MLA_SPARSE", "ROCM_AITER_TRITON_MLA"
+}
+KNOWN_MOE_BACKENDS = {
+    "default",
+    "AITER", "TRITON", "FUSED_MOE",
+    "AITER_MXFP4_BF16", "AITER_MXFP4_FP8", "TRITON_UNFUSED",
+    "AITER_MXFP4_MXFP4"
+}
+
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency", "args",
@@ -289,12 +306,47 @@ def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
         if cat not in BFCL_KNOWN_CATEGORIES:
             sys.exit(f"{path}: unknown bfcl test category {cat!r}")
     if "--tool-call-parser" not in serve_args:
+        print(f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
+              "some models may need it for function-calling", file=sys.stderr)
+
+
+#def bfcl_tsv(bfcl: dict) -> str:
+#    cats = bfcl.get("test_categories") or []
+#    num_threads = bfcl.get("num_threads", 8)
+#    temperature = bfcl.get("temperature", 0.001)
+#    return "\n".join(f"{cat}\t{num_threads}\t{temperature}" for cat in cats)
+
+
+def validate_attention_backends(backends: list, path: str) -> None:
+    if not backends:
+        sys.exit(f"{path}: vllm.attention_backends must not be empty if specified")
+    for b in backends:
+        if b not in KNOWN_ATTENTION_BACKENDS:
+            sys.exit(
+                f"{path}: unknown attention backend {b!r}; "
+                f"known: {', '.join(sorted(KNOWN_ATTENTION_BACKENDS))}"
+            )
+    if len(backends) != len(set(backends)):
+        sys.exit(f"{path}: duplicate entries in vllm.attention_backends")
         print(
             f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
             "some models may need it for function-calling",
             file=sys.stderr,
         )
-    _validate_bfcl_limits(bfcl, path)
+    
+
+
+def validate_moe_backends(backends: list, path: str) -> None:
+    if not backends:
+        sys.exit(f"{path}: vllm.moe_backends must not be empty if specified")
+    for b in backends:
+        if b not in KNOWN_MOE_BACKENDS:
+            sys.exit(
+                f"{path}: unknown moe backend {b!r}; "
+                f"known: {', '.join(sorted(KNOWN_MOE_BACKENDS))}"
+            )
+    if len(backends) != len(set(backends)):
+        sys.exit(f"{path}: duplicate entries in vllm.moe_backends")
 
 
 def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
@@ -358,6 +410,25 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
+    attention_backends = vllm.get("attention_backends") or []
+    if attention_backends:
+        validate_attention_backends(attention_backends, path)
+
+    moe_backends = vllm.get("moe_backends") or []
+    if moe_backends:
+        validate_moe_backends(moe_backends, path)
+        if re.search(r"(^|[\s])--moe-backend(\s|=)", serve_args):
+            sys.exit(
+                f"{path}: vllm.moe_backends and --moe-backend in serve_args are mutually exclusive; "
+                "remove --moe-backend from serve_args when using the moe_backends sweep"
+            )
+
+    if attention_backends and moe_backends:
+        sys.exit(
+            f"{path}: vllm.attention_backends and vllm.moe_backends are mutually exclusive; "
+            "run attention and moe sweeps in separate workloads"
+        )
+
     image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
@@ -380,6 +451,11 @@ def main(path: str) -> None:
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
+    #emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
+    # One backend per line; empty string when not specified (run.sh treats this
+    # as a single "default" pass with no override).
+    emit("ATTENTION_BACKENDS", "\n".join(attention_backends))
+    emit("MOE_BACKENDS", "\n".join(moe_backends))
     emit(
         "BENCH_PRECISION",
         metadata.get("precision") or precision_from_model(vllm.get("model") or ""),
