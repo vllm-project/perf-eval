@@ -33,3 +33,13 @@ MI355X:
   k8s_plugin: amd
   # See MI300X — HF cache defaults to an emptyDir-backed container path; override
   # the volume source per-cluster with MI355X_HF_CACHE_VOLUME.
+
+XPU:
+  queue: intel-gpu
+  agent_tags:
+    label: performance
+    gpu: 1+
+    mem: 32+
+  image_repo: vllm/vllm-openai-xpu
+  server_runtime: xpu_docker
+  hf_home: /mnt/data2
