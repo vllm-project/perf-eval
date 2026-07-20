@@ -118,6 +118,9 @@ serving:
     listen_host: 0.0.0.0
     client_host: 127.0.0.1
     port: 31000
+    # The concurrency-3072 benchmark needs several sockets per in-flight
+    # two-stage request; the login-node default (typically 1024) is too low.
+    nofile_limit: 65536
     # v0.1.12 has one global DP expansion setting. Endpoint-level routing lets
     # vLLM balance the prefill node's local DP4 ranks while each TEP4 decoder
     # remains one logical router worker.

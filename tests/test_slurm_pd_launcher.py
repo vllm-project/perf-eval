@@ -107,6 +107,7 @@ def serving_config() -> dict:
             "client_host": "127.0.0.1",
             "port": 31000,
             "metrics_port": 31001,
+            "nofile_limit": 65536,
             "intra_node_data_parallel_size": 1,
             "prefill_endpoints": "all_instances",
             "decode_endpoints": "all_nodes",
@@ -218,6 +219,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(router["cwd"], "/home/inf-kevin/Kimi-PD/vllm-router")
         self.assertEqual(router["local_url"], "http://127.0.0.1:31000")
         self.assertEqual(router["allocation_url"], "http://slogin-01:31000")
+        self.assertEqual(router["nofile_limit"], 65536)
 
     def test_pyxis_is_writable_and_preserves_required_mounts(self):
         self.assertEqual(
@@ -300,6 +302,32 @@ class PlanTests(unittest.TestCase):
 
 
 class ValidationAndLifecycleTests(unittest.TestCase):
+    def test_router_raises_nofile_soft_limit_before_start(self):
+        supervisor = object.__new__(launcher.Supervisor)
+        supervisor.plan = {
+            "router": {
+                "argv": ["vllm-router"],
+                "cwd": "/tmp",
+                "env": {},
+                "nofile_limit": 65536,
+                "prefill_urls": ["http://c02:8000"],
+                "decode_urls": ["http://c03:8000", "http://c04:8000"],
+            }
+        }
+        supervisor.children = []
+        supervisor._write_state = mock.Mock()
+        supervisor.popen = mock.Mock(return_value=mock.Mock())
+
+        with mock.patch.object(
+            launcher.resource, "getrlimit", return_value=(1024, 1048576)
+        ), mock.patch.object(launcher.resource, "setrlimit") as setrlimit:
+            supervisor._start_router()
+
+        setrlimit.assert_called_once_with(
+            launcher.resource.RLIMIT_NOFILE, (65536, 1048576)
+        )
+        supervisor.popen.assert_called_once()
+
     def test_wait_ready_fails_when_supervisor_dies_before_state(self):
         with tempfile.TemporaryDirectory() as directory:
             state_file = str(Path(directory) / "missing.json")

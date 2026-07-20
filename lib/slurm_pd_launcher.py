@@ -25,6 +25,7 @@ from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
+import resource
 import shlex
 import signal
 import socket
@@ -265,6 +266,8 @@ def validate_config(value: object) -> dict:
     if not isinstance(router.get("repo_path"), str) or not router["repo_path"]:
         raise ConfigError("router.repo_path must be a non-empty string")
     _positive_int(router.get("port"), "router.port")
+    if router.get("nofile_limit") is not None:
+        _positive_int(router["nofile_limit"], "router.nofile_limit")
     router_dp_size = _positive_int(
         router.get("intra_node_data_parallel_size"),
         "router.intra_node_data_parallel_size",
@@ -677,6 +680,7 @@ def build_launch_plan(
             "argv": router_argv,
             "cwd": router_cwd,
             "env": router_env,
+            "nofile_limit": router.get("nofile_limit"),
             "prefill_urls": prefill_urls,
             "decode_urls": decode_urls,
             "workers": workers,
@@ -914,6 +918,32 @@ class Supervisor:
         router = self.plan["router"]
         router_env = os.environ.copy()
         router_env.update(router["env"])
+        nofile_limit = router.get("nofile_limit")
+        if nofile_limit is not None:
+            soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+            if (
+                hard_limit != resource.RLIM_INFINITY
+                and nofile_limit > hard_limit
+            ):
+                raise LaunchError(
+                    f"router nofile_limit {nofile_limit} exceeds the process "
+                    f"hard limit {hard_limit}"
+                )
+            if soft_limit < nofile_limit:
+                try:
+                    resource.setrlimit(
+                        resource.RLIMIT_NOFILE,
+                        (nofile_limit, hard_limit),
+                    )
+                except (OSError, ValueError) as exc:
+                    raise LaunchError(
+                        f"cannot raise router nofile limit to {nofile_limit}: {exc}"
+                    ) from exc
+                print(
+                    f"raised router nofile soft limit from {soft_limit} "
+                    f"to {nofile_limit}",
+                    flush=True,
+                )
         print(
             f"starting router with {len(router['prefill_urls'])} prefill and "
             f"{len(router['decode_urls'])} decode endpoints",

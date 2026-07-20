@@ -102,6 +102,7 @@ def pd_workload() -> dict:
                 "client_host": "127.0.0.1",
                 "port": 31000,
                 "metrics_port": 31001,
+                "nofile_limit": 65536,
                 "intra_node_data_parallel_size": 1,
                 "prefill_endpoints": "all_instances",
                 "decode_endpoints": "all_nodes",
@@ -216,6 +217,7 @@ class ServingSchemaTests(unittest.TestCase):
         self.assertEqual(
             normalized["router"]["intra_node_data_parallel_size"], 1,
         )
+        self.assertEqual(normalized["router"]["nofile_limit"], 65536)
 
     def test_pd_exports_compact_json_and_resolved_image(self):
         stdout = self.run_parser(
@@ -328,6 +330,12 @@ class ServingSchemaTests(unittest.TestCase):
                 incompatible_router_dp,
                 "values greater than 1 must equal local_dp_size for every role",
             )
+        )
+
+        invalid_nofile_limit = pd_workload()
+        invalid_nofile_limit["serving"]["router"]["nofile_limit"] = 0
+        cases.append(
+            (invalid_nofile_limit, "nofile_limit must be a positive integer")
         )
 
         for data, expected in cases:

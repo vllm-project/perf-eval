@@ -67,7 +67,7 @@ ROLE_FIELDS = {
 }
 ROUTER_FIELDS = {
     "repo_path", "revision", "command", "policy", "listen_host",
-    "client_host", "port", "metrics_port",
+    "client_host", "port", "metrics_port", "nofile_limit",
     "intra_node_data_parallel_size", "prefill_endpoints",
     "decode_endpoints", "env", "health_check",
 }
@@ -736,6 +736,11 @@ def normalize_router(
         "serving.router.client_host",
     )
     port = port_number(router.get("port", 31000), path, "serving.router.port")
+    nofile_limit = router.get("nofile_limit")
+    if nofile_limit is not None:
+        nofile_limit = positive_int(
+            nofile_limit, path, "serving.router.nofile_limit",
+        )
 
     metrics_port = router.get("metrics_port")
     if metrics_port is not None:
@@ -803,6 +808,8 @@ def normalize_router(
     }
     if metrics_port is not None:
         normalized["metrics_port"] = metrics_port
+    if nofile_limit is not None:
+        normalized["nofile_limit"] = nofile_limit
     return normalized
 
 
