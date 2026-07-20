@@ -1,0 +1,45 @@
+# GPT-OSS 120B on XPU (8xXPU, TP=4)
+# Tracking perf regression: https://github.com/vllm-project/vllm/issues/40838
+name: gpt_oss_120b-xpu
+gpu: XPU
+num_gpus: 4
+nightly: true
+
+vllm:
+  model: openai/gpt-oss-120b
+  serve_args: >-
+    --tensor-parallel-size 4
+    --max-model-len 32768
+    --max-num-seqs 512
+    --tool-call-parser openai
+    --enable-auto-tool-choice
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - multi_turn
+  num_threads: 8
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-32
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 32

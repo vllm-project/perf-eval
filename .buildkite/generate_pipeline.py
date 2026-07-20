@@ -105,7 +105,7 @@ def resolved_image(data, profile):
     return vllm.get("image", f"{repo}:nightly")
 
 
-def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
+def b200_k8s_plugin(image, num_gpus, profile=None):
     return {
         "kubernetes": {
             "podSpec": {
@@ -161,27 +161,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
     }
 
 
-def hf_cache_volume(gpu, profile):
-    """Resolve the Kubernetes volume backing the HF cache for a k8s plugin.
-
-    The source is per-cluster, so it can be overridden by a ``{GPU}_HF_CACHE_VOLUME``
-    env var (JSON, minus the ``name`` key) — the same override idiom as
-    ``{GPU}_QUEUE`` — or set in the profile's ``hf_cache_volume``. It defaults to
-    an ``emptyDir``: the cache is scoped to the pod, so it is reclaimed when the
-    benchmark pod exits and can never accumulate on the node's disk. Clusters that
-    want a warm, cross-run cache point this at their own PVC (or a real hostPath
-    mount) via the override — the pod's ``HF_HOME`` mount path is unchanged either
-    way, so only cross-run persistence differs.
-    """
-    override = (os.environ.get(f"{gpu.upper()}_HF_CACHE_VOLUME") or "").strip()
-    if override:
-        source = yaml.safe_load(override)
-    else:
-        source = profile.get("hf_cache_volume") or {"emptyDir": {}}
-    return {"name": "hf-cache", **source}
-
-
-def amd_k8s_plugin(image, num_gpus, profile=None, gpu=None):
+def amd_k8s_plugin(image, num_gpus, profile=None):
     profile = profile or {}
     hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
     return {
@@ -220,7 +200,10 @@ def amd_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                 ],
                 "volumes": [
                     {"name": "devshm", "emptyDir": {"medium": "Memory"}},
-                    hf_cache_volume(gpu, profile),
+                    {
+                        "name": "hf-cache",
+                        "hostPath": {"path": hf_home, "type": "DirectoryOrCreate"},
+                    },
                 ],
             },
         },
@@ -273,9 +256,10 @@ def make_step(path, data, profiles):
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
     else:
         setup_commands = FULL_SETUP_COMMANDS
+    agents = {"queue": queue, **(profile.get("agent_tags") or {})}
     step = {
         "label": f"{emoji} {name}",
-        "agents": {"queue": queue},
+        "agents": agents,
         "timeout_in_minutes": timeout,
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
@@ -291,7 +275,7 @@ def make_step(path, data, profiles):
         if builder is None:
             sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
         image = ecr_pull_through(resolved_image(data, profile))
-        step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
+        step["plugins"] = [builder(image, data.get("num_gpus", 1), profile)]
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")

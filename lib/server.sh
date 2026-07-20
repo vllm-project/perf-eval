@@ -35,9 +35,33 @@ start_server() {
     return
   fi
 
-  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
-                     -e VLLM_ENGINE_READY_TIMEOUT_S=3600
-                     -p "${port}:${port}")
+  local docker_args=()
+  local container_command=()
+  case "$runtime" in
+    xpu_docker)
+      docker_args=(
+        --device /dev/dri:/dev/dri
+        --net=host
+        --ipc=host
+        --privileged
+        --ulimit nofile=65536:65536
+        -e VLLM_ENGINE_READY_TIMEOUT_S=3600
+      )
+      [[ -d /dev/dri/by-path ]] && docker_args+=(-v /dev/dri/by-path:/dev/dri/by-path)
+      [[ -n "${ZE_AFFINITY_MASK:-}" ]] && docker_args+=(-e "ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK}")
+      [[ -n "${HF_TOKEN:-}" ]] && docker_args+=(-e "HF_TOKEN=${HF_TOKEN}")
+      local bash_serve_cmd
+      printf -v bash_serve_cmd 'source /root/.bashrc >/dev/null 2>&1; exec vllm serve %q --port %q %s' \
+        "$model" "$port" "$serve_args"
+      container_command=(--entrypoint /bin/bash "$image" -ic "$bash_serve_cmd")
+      ;;
+    *)
+      docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
+                   -e VLLM_ENGINE_READY_TIMEOUT_S=3600
+                   -p "${port}:${port}")
+      container_command=("$image" "$model" --port "$port" $serve_args)
+      ;;
+  esac
   local hf_home=""
   while IFS= read -r kv; do
     [[ -z "$kv" ]] && continue
@@ -52,8 +76,7 @@ start_server() {
   # vllm/vllm-openai's entrypoint takes the model as the first positional
   # arg; do not prepend `vllm` or `serve`.
   docker run -d --rm --name "$container" "${docker_args[@]}" \
-    "$image" \
-    "$model" --port "$port" $serve_args
+    "${container_command[@]}"
 
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true
@@ -67,11 +90,13 @@ wait_healthy() {
   local port=$1 timeout=${2:-3600}
   echo "+++ :hourglass: waiting for /health (timeout ${timeout}s)"
   local now start deadline next_status elapsed
+  local no_proxy_hosts="localhost,127.0.0.1"
   start=$(date +%s)
   deadline=$(( start + timeout ))
   next_status=$(( start + 60 ))
   while (( $(date +%s) < deadline )); do
-    if curl -fs "http://localhost:${port}/health" >/dev/null 2>&1; then
+    if NO_PROXY="$no_proxy_hosts" no_proxy="$no_proxy_hosts" \
+      curl -fs "http://localhost:${port}/health" >/dev/null 2>&1; then
       echo "server healthy"
       return 0
     fi
