@@ -156,7 +156,7 @@ serving:
     revision: v0.1.12
     command: [target/release/vllm-router]
     port: 31000
-    nofile_limit: 65536
+    nofile_limit: 8192
     intra_node_data_parallel_size: 1
 ```
 
@@ -166,7 +166,7 @@ The serving state file records the allocation-owning controller PID and `grace_p
 
 Router v0.1.12 has one global `intra_node_data_parallel_size`. Set it to `1` for mixed local DP sizes: the router treats each URL as one endpoint, vLLM internally balances the prefill endpoint across its four local DP ranks, and each TP4 decode replica remains one logical worker. Values above 1 are valid only when every role has the same local DP size, because the router expands both prefill and decode URLs uniformly.
 
-High-concurrency PD routing can require several sockets per in-flight request. Set `router.nofile_limit` high enough for the workload; the launcher raises its soft `RLIMIT_NOFILE` before starting the router and fails clearly if the requested value exceeds the process hard limit. The Kimi concurrency-3072 recipe uses `65536`.
+High-concurrency PD routing can require several sockets per in-flight request. Set `router.nofile_limit` high enough for the workload; the launcher raises its soft `RLIMIT_NOFILE` before starting the router and fails clearly if the requested value exceeds the process hard limit. The Kimi concurrency-3072 recipe uses `8192`, the hard limit available to the Buildkite agent on the GB300 Slurm login node.
 
 Mount `source_env` values make site-specific paths overridable without editing YAML. The Kimi workload accepts `KIMI_K2_5_MODEL_PATH` and `FLASHINFER_CACHE_PATH`. NIXL also requires `/dev/infiniband` inside the container. The checked-in GB300 settings match the `nvidia-b300-login` cluster (`mlx5_4:1` and `enP22p3s0f0np0`); other clusters should override the workload environment rather than copying the GB200 NVL72 settings.
 
