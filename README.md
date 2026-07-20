@@ -9,7 +9,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 ```
 workloads/        one YAML per (model, hardware) recipe
 lib/              orchestrator, server/Slurm launchers, helpers, GPU profiles
-.buildkite/       pipeline bootstrap and step generator
+.buildkite/       pipeline bootstrap, step generator, and its tests
 .agents/skills/   repo-scoped agent workflows, including PD model onboarding
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
@@ -18,10 +18,13 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 ### Add a new recipe
 
-1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` is a small, complete example.
+1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` for H200 or `workloads/minimax_m3_b200.yaml` for B200.
 2. Name the file `<model>_<hardware>.yaml`. Keep hardware variants in separate files.
 3. Edit the fields to match your model and tasks. Set `nightly: true` if it should run in the nightly schedule; leave it off for opt-in recipes.
 4. Open a PR. The pipeline auto-discovers `workloads/*.yaml` — no Buildkite YAML edits needed.
+
+B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
+GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
 ### Recipe schema
 
@@ -70,15 +73,22 @@ bfcl:                    # function-calling eval (optional)
     - parallel
   num_threads: 8         # optional, default 8
   temperature: 0.001     # optional, default 0.001
+  maximum_step_limit: 40 # optional; multi-turn step cap (default 10). Overridden by BFCL_MAXIMUM_STEP_LIMIT env
+  max_test_cases:        # optional; subsample categories (full suite if omitted)
+    multi_turn: 100      # or set a single int to cap every category
 
 vllm_bench:              # perf runs (optional) — fed to the perf dashboard
   configs:
     - name: 1k-in-1k-out-conc-256
-      dataset: random                 # or speed_bench
+      backend: openai                 # /v1/completions — exact ISL/OSL, no chat template
+      dataset: random                 # synthetic fixed-length throughput dataset
       input_len: 1024
       output_len: 1024
       num_prompts: 500
       max_concurrency: 256
+      args:                             # optional vllm bench serve arguments
+        num_warmups: 16                 # becomes --num-warmups 16
+        disable_tqdm: true              # becomes --disable-tqdm
 ```
 
 A few things worth knowing:
@@ -87,7 +97,11 @@ A few things worth knowing:
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
+- **`vllm_bench` uses the `random` dataset with `--ignore-eos`** so every request prefills exactly `input_len` and decodes exactly `output_len` tokens — that's what makes the per-GPU decode throughput meaningful. Pair it with `backend: openai` (the `/v1/completions` endpoint) for exact token control. Avoid `dataset: speed_bench` for throughput numbers: it requires `--skip-tokenizer-init`, which makes `vllm bench serve` cap every request at a single output token, so output throughput reads as ~0.
+- **`vllm_bench.configs[].args` forwards additional options to `vllm bench serve`.** Keys may use underscores, hyphens, or a leading `--`; they are normalized to `--kebab-case`. A `true` value emits a standalone flag, `false` and `null` omit it, scalar values emit a flag/value pair, and lists repeat the flag. Options managed by perf-eval itself, including the model, endpoint, dataset, request counts, lengths, concurrency, and result path, remain top-level config fields and cannot be overridden through `args`.
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
+- **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
+- **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
@@ -155,6 +169,24 @@ Mount `source_env` values make site-specific paths overridable without editing Y
 
 The Kimi workload uses BF16 KV cache because vLLM v0.25.1 does not load the checkpoint's calibrated FP8 KV scales for MLA models. Revisit FP8 only after the loader remap is fixed and correctness is revalidated.
 
+### HF cache volume (Kubernetes profiles)
+
+For profiles that run in-pod on Kubernetes (`server_runtime: native` with a `k8s_plugin`), the HuggingFace cache is a named `hf-cache` volume mounted at the profile's `hf_home`. **By default it is an `emptyDir`** — scoped to the benchmark pod, so the cache is reclaimed when the pod exits and can never accumulate on the node's disk.
+
+A cluster with fast shared storage can keep a warm, cross-run cache by overriding the *volume source* (the mount path is unchanged either way — only cross-run persistence differs):
+
+- **Per-cluster (recommended):** set a `{GPU}_HF_CACHE_VOLUME` env var on the Buildkite agent to a JSON volume source (everything except the `name`). This is per-cluster because storage backends differ per cluster — the same idiom as `{GPU}_QUEUE`. Example:
+
+  ```
+  MI300X_HF_CACHE_VOLUME='{"persistentVolumeClaim":{"claimName":"buildkite-hf-cache"}}'
+  ```
+
+- **Per-profile:** set `hf_cache_volume:` in the profile in `lib/gpu_profiles.yaml` (env override wins over this).
+
+Do **not** set an `hf_home` under a node path like `/mnt/shared` unless that path is a real mount on every node in the queue — with the default `emptyDir` that only changes the in-pod path, but if you also point the volume at a `hostPath`, an unmounted path lands the cache on the node root disk with no reclamation.
+
+Run the generator's tests with `python3 .buildkite/test_generate_pipeline.py` (stdlib + pyyaml only; no GPU needed).
+
 ### Trigger a Buildkite build
 
 The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). With no extra config, a build runs every workload that has `nightly: true`.
@@ -185,7 +217,8 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
 
-**From an agent:** see `CLAUDE.md` for the Buildkite MCP workflow (don't shell out to `curl` or `bk`).
+**From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
+`bk` workflows. Don't make raw Buildkite API calls with `curl`.
 
 ### Run a recipe end-to-end
 

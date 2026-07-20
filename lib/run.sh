@@ -113,11 +113,11 @@ fi
 # perf dashboard ingest endpoint.
 # Keep TSV input off stdin: Slurm/Pyxis clients may consume stdin and would
 # otherwise drain the remaining benchmark rows after the first config.
-while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset speed_category <&3; do
+while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset speed_category extra_args <&3; do
   [[ -z "$bname" ]] && continue
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
                  "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
-                 "$conc" "$speed_subset" "$speed_category" \
+                 "$conc" "$speed_subset" "$speed_category" "$extra_args" \
                  "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
 
   ingest_args=(
@@ -153,15 +153,28 @@ while IFS=$'\t' read -r task fewshot model_args <&3; do
 done 3<<< "$WORKLOAD_LM_EVAL_TASKS_TSV"
 
 # bfcl function-calling eval
-while IFS=$'\t' read -r category num_threads temperature <&3; do
+while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_test_cases <&3; do
   [[ -z "$category" ]] && continue
   echo "--- :phone: bfcl ${category}"
   python3 "$DIR/run_bfcl.py" "$WORKLOAD_MODEL" "$BASE_URL" \
-    "$category" "$num_threads" "$temperature" "$RESULTS_DIR"
+    "$category" "$num_threads" "$temperature" "$RESULTS_DIR" \
+    "$maximum_step_limit" "$max_test_cases"
 
-  python3 "$DIR/ingest.py" \
-    --results-dir "${RESULTS_DIR}/bfcl-${category}" \
-    --workload "$WORKLOAD_NAME" \
-    --task "bfcl_${category}" \
-    --no-samples || true
+  manifest="${RESULTS_DIR}/.bfcl_ingest/${category}.txt"
+  if [[ -f "$manifest" ]]; then
+    while IFS= read -r ingest_category; do
+      [[ -z "$ingest_category" ]] && continue
+      python3 "$DIR/ingest.py" \
+        --results-dir "${RESULTS_DIR}/bfcl-${ingest_category}" \
+        --workload "$WORKLOAD_NAME" \
+        --task "bfcl_${ingest_category}" \
+        --no-samples || true
+    done < "$manifest"
+  else
+    python3 "$DIR/ingest.py" \
+      --results-dir "${RESULTS_DIR}/bfcl-${category}" \
+      --workload "$WORKLOAD_NAME" \
+      --task "bfcl_${category}" \
+      --no-samples || true
+  fi
 done 3<<< "$WORKLOAD_BFCL_TSV"

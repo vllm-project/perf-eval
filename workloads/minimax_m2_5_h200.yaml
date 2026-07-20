@@ -36,16 +36,17 @@ bfcl:
     - multiple
     - parallel
     - parallel_multiple
-  num_threads: 8
+    - multi_turn
+  num_threads: 16
+  max_test_cases:
+    multi_turn: 240
 
 vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128
-      backend: openai-chat
-      dataset: speed_bench
+      backend: openai
+      dataset: random
       input_len: 8192
       output_len: 1024
       num_prompts: 512
       max_concurrency: 128
-      speed_bench_dataset_subset: throughput_8k
-      speed_bench_category: low_entropy

@@ -12,6 +12,7 @@ Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 are not validated against the registry (because they will not run).
 """
 
+import base64
 import json
 import os
 import re
@@ -23,11 +24,23 @@ import yaml
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
-    "num_prompts", "max_concurrency",
+    "num_prompts", "max_concurrency", "args",
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
-BFCL_FIELDS = {"test_categories", "num_threads", "temperature"}
+BENCH_RESERVED_ARGS = {
+    "backend", "base-url", "host", "port", "model", "dataset-name",
+    "num-prompts", "max-concurrency", "trust-remote-code",
+    "random-input-len", "random-output-len", "ignore-eos", "dataset-path",
+    "speed-bench-output-len", "speed-bench-dataset-subset",
+    "speed-bench-category", "skip-tokenizer-init", "save-result",
+    "result-filename",
+}
+BFCL_FIELDS = {
+    "test_categories", "num_threads", "temperature",
+    "maximum_step_limit", "max_test_cases",
+}
+BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
     "multiple", "parallel", "parallel_multiple", "irrelevance",
@@ -39,7 +52,6 @@ BFCL_KNOWN_CATEGORIES = {
     "all", "all_scoring", "single_turn", "multi_turn",
     "live", "non_live", "non_python", "python", "memory", "agentic",
 }
-COMMIT_IMAGE_TEMPLATE = "vllm/vllm-openai:nightly-{commit}"
 
 SERVING_FIELDS = {
     "version", "mode", "launcher", "slurm", "kv_transfer",
@@ -118,15 +130,23 @@ def load_profile(gpu: str, workload_path: str) -> dict:
     return profiles[gpu]
 
 
-def resolve_image(vllm: dict) -> tuple[str, str]:
+def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload."""
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
-    if override_image:
+    # ROCm images are located at vllm/vllm-openai-rocm. The default
+    # images (CUDA) are stored at vllm/vllm-openai
+    custom_repo = (profile.get("image_repo") or "").strip()
+    repo = custom_repo or "vllm/vllm-openai"
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
+    if override_image and (not custom_repo or "rocm" in override_image.lower()):
         return override_image, override_commit or commit_from_image(override_image)
-    if override_commit:
-        return COMMIT_IMAGE_TEMPLATE.format(commit=override_commit), override_commit
-    image = vllm.get("image", "vllm/vllm-openai:nightly")
+
+    commit = override_commit or commit_from_image(override_image)
+    if commit:
+        return f"{repo}:nightly-{commit}", commit
+
+    image = vllm.get("image", f"{repo}:nightly")
     return image, commit_from_image(str(image))
 
 
@@ -192,6 +212,37 @@ def task_tsv(tasks: list, base_args: dict) -> str:
     return "\n".join(lines)
 
 
+def normalize_bench_arg_name(name: str) -> str:
+    return name.lstrip("-").replace("_", "-")
+
+
+def encode_bench_args(args: object, config_name: str, path: str) -> str:
+    if args is None:
+        args = {}
+    if not isinstance(args, dict):
+        sys.exit(f"{path}: vllm_bench config {config_name!r} args must be a map")
+    normalized = {}
+    for name, value in args.items():
+        if not isinstance(name, str) or not normalize_bench_arg_name(name):
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args keys must be non-empty strings"
+            )
+        normalized_name = normalize_bench_arg_name(name)
+        if normalized_name in BENCH_RESERVED_ARGS:
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args cannot override "
+                f"wrapper-owned option --{normalized_name}"
+            )
+        if normalized_name in normalized:
+            sys.exit(
+                f"{path}: vllm_bench config {config_name!r} args contains duplicate "
+                f"option --{normalized_name} after normalization"
+            )
+        normalized[normalized_name] = value
+    payload = json.dumps(normalized, separators=(",", ":")).encode()
+    return base64.b64encode(payload).decode()
+
+
 def bench_tsv(configs: list, path: str) -> str:
     seen = set()
     lines = []
@@ -213,13 +264,46 @@ def bench_tsv(configs: list, path: str) -> str:
             v = c.get(key)
             return str(v) if v not in (None, "") else "-"
 
-        lines.append("\t".join([
-            c["name"], opt("backend"), str(c.get("dataset", "random")),
-            str(c["input_len"]), str(c["output_len"]),
-            str(c["num_prompts"]), str(c["max_concurrency"]),
-            opt("speed_bench_dataset_subset"), opt("speed_bench_category"),
-        ]))
+        lines.append(
+            "\t".join(
+                [
+                    c["name"],
+                    opt("backend"),
+                    str(c.get("dataset", "random")),
+                    str(c["input_len"]),
+                    str(c["output_len"]),
+                    str(c["num_prompts"]),
+                    str(c["max_concurrency"]),
+                    opt("speed_bench_dataset_subset"),
+                    opt("speed_bench_category"),
+                    encode_bench_args(c.get("args"), c["name"], path),
+                ]
+            )
+        )
     return "\n".join(lines)
+
+
+def _validate_bfcl_limits(bfcl: dict, path: str) -> None:
+    limit = bfcl.get("maximum_step_limit")
+    if limit is not None and (not isinstance(limit, int) or limit < 1):
+        sys.exit(f"{path}: bfcl.maximum_step_limit must be a positive integer")
+
+    cases = bfcl.get("max_test_cases")
+    if cases is None:
+        return
+    if isinstance(cases, int):
+        if cases < 1:
+            sys.exit(f"{path}: bfcl.max_test_cases must be a positive integer")
+        return
+    if not isinstance(cases, dict):
+        sys.exit(
+            f"{path}: bfcl.max_test_cases must be a positive integer or category map"
+        )
+    for cat, count in cases.items():
+        if cat not in BFCL_KNOWN_CATEGORIES:
+            sys.exit(f"{path}: unknown bfcl max_test_cases category {cat!r}")
+        if not isinstance(count, int) or count < 1:
+            sys.exit(f"{path}: bfcl.max_test_cases[{cat!r}] must be a positive integer")
 
 
 def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
@@ -233,15 +317,45 @@ def validate_bfcl(bfcl: dict, serve_args: str, path: str) -> None:
         if cat not in BFCL_KNOWN_CATEGORIES:
             sys.exit(f"{path}: unknown bfcl test category {cat!r}")
     if "--tool-call-parser" not in serve_args:
-        print(f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
-              "some models may need it for function-calling", file=sys.stderr)
+        print(
+            f"WARNING: {path}: bfcl without --tool-call-parser in serve_args; "
+            "some models may need it for function-calling",
+            file=sys.stderr,
+        )
+    _validate_bfcl_limits(bfcl, path)
+
+
+def max_test_cases_for_category(bfcl: dict, category: str) -> int | None:
+    cases = bfcl.get("max_test_cases")
+    if isinstance(cases, int):
+        return cases
+    if isinstance(cases, dict):
+        return cases.get(category)
+    return None
 
 
 def bfcl_tsv(bfcl: dict) -> str:
+    """Emit per-category rows; use '-' for unset optional columns (bash read drops empties)."""
     cats = bfcl.get("test_categories") or []
     num_threads = bfcl.get("num_threads", 8)
     temperature = bfcl.get("temperature", 0.001)
-    return "\n".join(f"{cat}\t{num_threads}\t{temperature}" for cat in cats)
+    limit = bfcl.get("maximum_step_limit")
+
+    def opt(value: object) -> str:
+        return "-" if value in (None, "") else str(value)
+
+    return "\n".join(
+        "\t".join(
+            [
+                cat,
+                str(num_threads),
+                str(temperature),
+                opt(limit),
+                opt(max_test_cases_for_category(bfcl, cat)),
+            ]
+        )
+        for cat in cats
+    )
 
 
 def schema_error(path: str, location: str, message: str) -> None:
@@ -834,7 +948,9 @@ def main(path: str) -> None:
     bench_configs = bench.get("configs") or []
 
     if not tasks and not bench_configs and not bfcl:
-        sys.exit(f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl")
+        sys.exit(
+            f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl"
+        )
 
     if tasks:
         validate_tasks(tasks, path)
@@ -843,7 +959,7 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
-    image, vllm_commit = resolve_image(vllm)
+    image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
@@ -904,7 +1020,10 @@ def main(path: str) -> None:
     emit("BENCH_GPU_COUNT", bench_gpu_count)
     emit("BENCH_DISAGG", str(bench_disagg).lower())
     emit("BENCH_IS_MULTINODE", str(bench_is_multinode).lower())
-    emit("BENCH_PRECISION", metadata.get("precision") or precision_from_model(vllm.get("model") or ""))
+    emit(
+        "BENCH_PRECISION",
+        metadata.get("precision") or precision_from_model(vllm.get("model") or ""),
+    )
 
 
 if __name__ == "__main__":

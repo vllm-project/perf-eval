@@ -1,17 +1,15 @@
-# Kimi-K2.5 on H200 (per vLLM recipe: 8xH200 verified)
-name: kimi_k2_5-h200
-gpu: H200
+# Kimi-K2.5 on AMD MI355X
+name: kimi_k2_5-mi355x
+gpu: MI355X
 num_gpus: 8
 nightly: true
 
 vllm:
   model: moonshotai/Kimi-K2.5
+  env:
+    VLLM_ROCM_USE_AITER: 1
   serve_args: >-
     --tensor-parallel-size 8
-    --mm-encoder-tp-mode data
-    --tool-call-parser kimi_k2
-    --reasoning-parser kimi_k2
-    --enable-auto-tool-choice
     --trust-remote-code
 
 lm_eval:
@@ -27,17 +25,6 @@ lm_eval:
         max_length: 40960
         max_gen_toks: 32768
 
-bfcl:
-  test_categories:
-    - simple_python
-    - multiple
-    - parallel
-    - parallel_multiple
-    - multi_turn
-  num_threads: 16
-  max_test_cases:
-    multi_turn: 240
-
 vllm_bench:
   configs:
     - name: 8k-in-1k-out-conc-128
@@ -47,3 +34,5 @@ vllm_bench:
       output_len: 1024
       num_prompts: 512
       max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

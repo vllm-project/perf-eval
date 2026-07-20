@@ -84,7 +84,7 @@ class RunVllmBenchTests(unittest.TestCase):
                 source {REPO_ROOT / 'lib' / 'run_vllm_bench.sh'}
                 export WORKLOAD_SERVER_RUNTIME=native
                 run_vllm_bench unused 8000 model delayed - random \\
-                  32 8 1 1 - - false {results_path}
+                  32 8 1 1 - - e30= false {results_path}
                 """
             )
             environment = os.environ.copy()
