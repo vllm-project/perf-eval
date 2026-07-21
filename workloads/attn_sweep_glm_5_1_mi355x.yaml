@@ -1,0 +1,31 @@
+# GLM-5.1 (FP8) on H200
+# Recipe recommends the glm51-cu130 image when CUDA >= 13.
+# MTP speculative decoding is part of the recommended config.
+name: attn_sweep_glm_5_1_mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: zai-org/GLM-5.1-FP8
+  serve_args: >-
+    --tensor-parallel-size 8
+    --tool-call-parser glm47
+    --reasoning-parser glm45
+    --enable-auto-tool-choice
+    --chat-template-content-format=string
+    --speculative-config {"method":"mtp","num_speculative_tokens":"3"}
+  attention_backends:
+    - default
+    - ROCM_AITER_TRITON_MLA
+    - ROCM_ATTN  
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128

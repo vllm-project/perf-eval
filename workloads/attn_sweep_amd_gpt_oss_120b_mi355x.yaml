@@ -42,12 +42,12 @@ vllm_bench:
       output_len: 1024
       num_prompts: 200
       max_concurrency: 4
-    - name: isl1024-osl1024-conc64
-      dataset: random
-      input_len: 1024
-      output_len: 1024
-      num_prompts: 200
-      max_concurrency: 64
+    # - name: isl1024-osl1024-conc64
+    #   dataset: random
+    #   input_len: 1024
+    #   output_len: 1024
+    #   num_prompts: 200
+    #   max_concurrency: 64
     - name: isl1024-osl1024-conc128
       dataset: random
       input_len: 1024
@@ -60,12 +60,12 @@ vllm_bench:
       output_len: 1024
       num_prompts: 200
       max_concurrency: 4
-    - name: isl8192-osl1024-conc64
-      dataset: random
-      input_len: 8192
-      output_len: 1024
-      num_prompts: 200
-      max_concurrency: 64
+    # - name: isl8192-osl1024-conc64
+    #   dataset: random
+    #   input_len: 8192
+    #   output_len: 1024
+    #   num_prompts: 200
+    #   max_concurrency: 64
     - name: isl8192-osl1024-conc128
       dataset: random
       input_len: 8192

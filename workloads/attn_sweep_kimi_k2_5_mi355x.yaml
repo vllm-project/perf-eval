@@ -1,0 +1,30 @@
+# Kimi-K2.5 on AMD MI300X
+name: attn_sweep_kimi_k2_5_mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: moonshotai/Kimi-K2.5
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+  attention_backends:
+    - default
+    - ROCM_AITER_TRITON_MLA
+    - ROCM_AITER_MLA
+    - ROCM_AITER_MLA_SPARSE
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
