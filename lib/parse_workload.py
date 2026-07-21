@@ -162,7 +162,7 @@ def precision_from_model(model: str) -> str:
 def validate_tasks(tasks: list, path: str) -> None:
     if not tasks:
         sys.exit(f"{path}: missing or empty `lm_eval.tasks`")
-    skip_registry = env_truthy("BENCH_ONLY")
+    skip_registry = env_truthy("BENCH_ONLY") or env_truthy("SKIP_TASK_REGISTRY")
     known = set() if skip_registry else known_task_names()
     for t in tasks:
         extra = set(t) - TASK_FIELDS
