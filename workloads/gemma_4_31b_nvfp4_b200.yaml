@@ -1,0 +1,26 @@
+# Gemma-4-31B-IT NVFP4 on B200 (1xB200, TP=1) -- accuracy-only (gsm8k)
+# Reference gsm8k (vLLM CI gsm8k harness, 5-shot, 1319 questions): 0.702
+name: gemma_4_31b_nvfp4-b200
+gpu: B200
+num_gpus: 1
+nightly: true
+
+vllm:
+  model: nvidia/Gemma-4-31B-IT-NVFP4
+  serve_args: >-
+    --tensor-parallel-size 1
+    --enforce-eager
+    --max-model-len 4096
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 4096
+        max_gen_toks: 512
