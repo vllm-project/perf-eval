@@ -2,7 +2,7 @@
 # Recipe: https://recipes.vllm.ai/moonshotai/Kimi-K2.5
 name: kimi_k2_5-b200
 gpu: B200
-num_gpus: 8
+num_gpus: 4
 nightly: true
 
 vllm:
@@ -10,7 +10,7 @@ vllm:
   env:
     VLLM_USE_FLASHINFER_MOE_FP4: 1
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 4
     --kv-cache-dtype fp8
     --mm-encoder-tp-mode data
     --tool-call-parser kimi_k2
