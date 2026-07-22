@@ -12,7 +12,6 @@ vllm:
   serve_args: >-
     --tensor-parallel-size 8
     --kv-cache-dtype fp8
-    --attention-config.use_trtllm_ragged_deepseek_prefill=True
     --mm-encoder-tp-mode data
     --tool-call-parser kimi_k2
     --reasoning-parser kimi_k2
