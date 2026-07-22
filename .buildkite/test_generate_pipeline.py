@@ -4,9 +4,10 @@
 Run with ``python3 .buildkite/test_generate_pipeline.py`` (needs only pyyaml,
 which the pipeline already installs). No pytest / GPU / network required.
 
-Guards the HF-cache volume behaviour: the AMD k8s plugin must NOT emit a
-root-disk hostPath by default (that leaked model caches onto node root disks),
-and the volume source must be overridable per-cluster.
+Guards workload discovery/selection and the HF-cache volume behaviour: nested
+model directories must remain discoverable without breaking existing
+WORKLOADS selectors, and the AMD k8s plugin must not emit a root-disk hostPath
+by default.
 """
 
 import importlib.util
@@ -98,6 +99,67 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         assert not hf_home.startswith("/mnt/shared"), (
             f"{gpu} hf_home={hf_home!r} would land on the node root disk"
         )
+
+
+def _select(workloads, value):
+    previous = os.environ.get("WORKLOADS")
+    os.environ["WORKLOADS"] = value
+    try:
+        return g.select_workloads(workloads)
+    finally:
+        if previous is None:
+            os.environ.pop("WORKLOADS", None)
+        else:
+            os.environ["WORKLOADS"] = previous
+
+
+def test_load_workloads_discovers_nested_model_directories():
+    workloads = g.load_workloads()
+    paths = {w["path"] for w in workloads}
+    assert "workloads/qwen3_5/h200.yaml" in paths
+    assert "workloads/minimax_m3/b200.yaml" in paths
+    assert all(os.path.dirname(path) != "workloads" for path in paths), paths
+
+
+def test_select_workloads_accepts_nested_and_legacy_aliases():
+    workload = {
+        "path": "workloads/qwen3_5/h200.yaml",
+        "data": {"name": "qwen3_5-h200", "nightly": True},
+    }
+    selectors = (
+        "workloads/qwen3_5/h200.yaml",
+        "workloads/qwen3_5/h200",
+        "qwen3_5/h200.yaml",
+        "qwen3_5/h200",
+        "qwen3_5-h200",
+        "qwen3_5_h200",
+        "workloads/qwen3_5_h200.yaml",
+    )
+    for selector in selectors:
+        selected = _select([workload], selector)
+        assert selected == [workload], (selector, selected)
+
+
+def test_select_workloads_preserves_irregular_legacy_alias():
+    workload = {
+        "path": "workloads/deepseek_v4_pro/h200.yaml",
+        "data": {"name": "deepseek_v4_pro-h200", "nightly": True},
+    }
+    assert _select([workload], "deepseek_v4_pro_5_h200") == [workload]
+    assert _select([workload], "workloads/deepseek_v4_pro_5_h200.yaml") == [workload]
+
+
+def test_select_workloads_rejects_ambiguous_yaml_names():
+    workloads = [
+        {"path": "workloads/alpha/h200.yaml", "data": {"name": "duplicate"}},
+        {"path": "workloads/beta/h200.yaml", "data": {"name": "duplicate"}},
+    ]
+    try:
+        _select(workloads, "duplicate")
+    except SystemExit as exc:
+        assert "ambiguous" in str(exc), exc
+    else:
+        raise AssertionError("ambiguous WORKLOADS selector was accepted")
 
 
 def main():

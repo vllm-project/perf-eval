@@ -7,7 +7,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 ## Repo layout
 
 ```
-workloads/        one YAML per (model, hardware) recipe
+workloads/        one directory per model, with one YAML recipe per hardware
 lib/              orchestrator (run.sh), helpers, GPU profiles
 .buildkite/       pipeline bootstrap, step generator, and its tests
 CLAUDE.md         agent conventions and detailed Buildkite workflow
@@ -17,10 +17,10 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 ### Add a new recipe
 
-1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` for H200 or `workloads/minimax_m3_b200.yaml` for B200.
-2. Name the file `<model>_<hardware>.yaml`. Keep hardware variants in separate files.
+1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5/h200.yaml` for H200 or `workloads/minimax_m3/b200.yaml` for B200.
+2. Create `workloads/<model>/` when adding a new model, then name each hardware variant `<hardware>.yaml` inside it.
 3. Edit the fields to match your model and tasks. Set `nightly: true` if it should run in the nightly schedule; leave it off for opt-in recipes.
-4. Open a PR. The pipeline auto-discovers `workloads/*.yaml` — no Buildkite YAML edits needed.
+4. Open a PR. The pipeline recursively discovers `workloads/**/*.yaml` — no Buildkite YAML edits needed.
 
 B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
 GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
@@ -101,7 +101,7 @@ A few things worth knowing:
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
 
-For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
+For everything else (the full set of supported fields, defaults, validation rules), the existing files below `workloads/<model>/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
 ### HF cache volume (Kubernetes profiles)
 
@@ -134,7 +134,7 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 **Optional env vars:**
 
-- `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
+- `WORKLOADS` — comma- or newline-separated list of workload paths or `model/hardware` selectors. Runs exactly those instead of the default `nightly: true` set. YAML `name` values and former flat filename stems such as `qwen3_5_h200` remain supported for existing triggers.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
 **Example — trigger a build from the Buildkite UI:**
@@ -145,11 +145,11 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
    ```
    VLLM_COMMIT=abc1234def5678
    VLLM_IMAGE=vllm/vllm-openai:nightly-abc1234def5678
-   WORKLOADS=qwen3_5_h200
+   WORKLOADS=qwen3_5/h200
    ```
 4. Click **Create Build**.
 
-This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
+This runs `workloads/qwen3_5/h200.yaml` against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
 
 **From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
 `bk` workflows. Don't make raw Buildkite API calls with `curl`.
@@ -159,7 +159,7 @@ This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. 
 A real run needs a GPU host with Docker, vLLM, and lm-eval available:
 
 ```bash
-./lib/run.sh workloads/qwen3_5_h200.yaml
+./lib/run.sh workloads/qwen3_5/h200.yaml
 ```
 
 Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for the parser stub and shell-syntax checks.
