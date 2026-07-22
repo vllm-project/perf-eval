@@ -8,6 +8,7 @@ nightly: true
 vllm:
   model: nvidia/DeepSeek-V4-Pro-NVFP4
   env:
+    CUDA_HOME: /usr/local/cuda
     TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
   serve_args: >-
     --tensor-parallel-size 8
