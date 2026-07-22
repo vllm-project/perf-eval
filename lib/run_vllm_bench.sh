@@ -93,9 +93,10 @@ PY
   fi
   test -s "${data_dir}/${subset}.jsonl"
 
-  # Docker runtime: ship the data into the container and make sure pandas is
-  # available there (vLLM's SpeedBench loads the JSONL via pandas).
+  # vLLM's SpeedBench loads the JSONL via pandas, which the release image
+  # lacks. Ensure pandas is importable by whatever Python runs `vllm bench`.
   if [[ "$runtime" != "native" ]]; then
+    # Docker runtime: ship the data into the container and install there.
     docker exec "$container" mkdir -p "$data_dir"
     docker cp "${data_dir}/." "${container}:${data_dir}/"
     if ! docker exec "$container" python3 -c 'import pandas' 2>/dev/null; then
@@ -103,6 +104,19 @@ PY
       docker exec "$container" bash -lc \
         'PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --quiet pandas \
           || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --quiet pandas'
+    fi
+  else
+    # Native runtime: `vllm bench serve` runs under the interpreter backing the
+    # `vllm` CLI (the container's system Python), not the job .venv, so pandas
+    # installed into the .venv above isn't visible to it.
+    local vllm_bin vllm_py
+    vllm_bin="$(command -v vllm || true)"
+    vllm_py="$(awk 'NR==1{sub(/^#![[:space:]]*/,""); print $1; exit}' "$vllm_bin" 2>/dev/null)"
+    [[ -x "$vllm_py" ]] || vllm_py="$(command -v python3)"
+    if ! "$vllm_py" -c 'import pandas' 2>/dev/null; then
+      echo "--- :python: installing pandas for native vllm bench ($vllm_py)"
+      PIP_BREAK_SYSTEM_PACKAGES=1 "$vllm_py" -m pip install --quiet pandas \
+        || PIP_BREAK_SYSTEM_PACKAGES=1 "$vllm_py" -m pip install --user --quiet pandas
     fi
   fi
 }
