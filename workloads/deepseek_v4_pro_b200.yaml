@@ -1,4 +1,4 @@
-# DeepSeek-V4-Pro NVFP4 on B200 (8xB200, TP=8 + EP)
+# DeepSeek-V4-Pro NVFP4 on B200 (8xB200, DP=8 + EP)
 # Recipe: https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Pro
 name: deepseek_v4_pro-b200
 gpu: B200
@@ -11,7 +11,7 @@ vllm:
     CUDA_HOME: /usr/local/cuda
     TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
   serve_args: >-
-    --tensor-parallel-size 8
+    --data-parallel-size 8
     --enable-expert-parallel
     --max-model-len 32768
     --max-num-seqs 512
