@@ -1,6 +1,6 @@
 # perf-eval
 
-Run accuracy + perf workloads against vLLM, defined by small YAML recipes in `workloads/`.
+Run accuracy + perf workloads against vLLM, defined by small YAML recipes in `workloads/`. Most recipes launch one vLLM server; opt-in schema-v1 recipes can instead launch a multi-node prefill/decode-disaggregated deployment through Slurm and Pyxis.
 
 Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite pipeline picks recipes up automatically — to ship a new run, you write a YAML file, push it, and trigger a build.
 
@@ -8,8 +8,9 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 
 ```
 workloads/        one YAML per (model, hardware) recipe
-lib/              orchestrator (run.sh), helpers, GPU profiles
+lib/              orchestrator, server/Slurm launchers, helpers, GPU profiles
 .buildkite/       pipeline bootstrap, step generator, and its tests
+.agents/skills/   repo-scoped agent workflows, including PD model onboarding
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
 
@@ -30,6 +31,7 @@ GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 A recipe has top-level metadata plus up to three eval blocks:
 
 - **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
+- **`serving:`** — *optional multi-node orchestration.* Schema v1 supports Slurm/Pyxis prefill/decode disaggregation. Omit it for the existing standalone Docker/native path.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
@@ -103,6 +105,73 @@ A few things worth knowing:
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
+### Slurm prefill/decode disaggregation
+
+`workloads/kimi_k2_5_gb300_pd.yaml` is the first schema-v1 example. It allocates three four-GPU GB300 nodes: one TP1 × DP4/EP prefill instance (DEP4) and two independent TP4 × DP1/EP decode replicas (TEP4×2). `num_gpus` must equal the total implied by the roles.
+
+The parser turns this block into a validated launch plan for `lib/slurm_pd_launcher.py`:
+
+```yaml
+serving:
+  version: 1
+  mode: pd_disagg
+  launcher: slurm
+  common_serve_args: >-
+    --enable-expert-parallel --enable-ep-weight-filter
+  slurm:
+    partition: batch
+    time_limit: "03:00:00"
+    grace_period_s: 120
+    container:
+      runtime: pyxis
+      mounts:
+        - source: /raid/shared/nvidia/Kimi-K2.5-NVFP4
+          source_env: KIMI_K2_5_MODEL_PATH
+          target: /model
+          read_only: true
+        - source: /dev/infiniband
+          target: /dev/infiniband
+        - source: /home/${USER}/.cache/flashinfer
+          source_env: FLASHINFER_CACHE_PATH
+          target: /root/.cache/flashinfer
+  kv_transfer:
+    connector: NixlConnector
+    load_failure_policy: fail
+    extra_config: {num_threads: 4}
+  roles:
+    - role: prefill
+      count: 1
+      nodes_per_instance: 1
+      gpus_per_node: 4
+      tensor_parallel_size: 1
+      kv_role: kv_producer
+    - role: decode
+      count: 2
+      nodes_per_instance: 1
+      gpus_per_node: 4
+      tensor_parallel_size: 4
+      kv_role: kv_consumer
+  router:
+    repo_path: ${HOME}/Kimi-PD/vllm-router
+    revision: v0.1.12
+    command: [target/release/vllm-router]
+    port: 31000
+    nofile_limit: 8192
+    intra_node_data_parallel_size: 1
+```
+
+`tensor_parallel_size` defaults to 1 and must divide `gpus_per_node`; the launcher derives local DP as `gpus_per_node / tensor_parallel_size` and global DP as `nodes_per_instance × local DP`. It owns `--tensor-parallel-size`, `--port`, all global/local DP ranks and addresses, shared per-instance RPC ports, `--data-parallel-hybrid-lb`, and the NIXL KV-transfer JSON. Do not repeat those flags in `common_serve_args` or a role's `serve_args`.
+
+The serving state file records the allocation-owning controller PID and `grace_period_s`. Normal cleanup signals that controller first so it can stop the router and every `srun` cleanly; `scancel` is used only if the controller is unavailable or does not exit within the bounded shutdown wait.
+
+Router v0.1.12 has one global `intra_node_data_parallel_size`. Set it to `1` for mixed local DP sizes: the router treats each URL as one endpoint, vLLM internally balances the prefill endpoint across its four local DP ranks, and each TP4 decode replica remains one logical worker. Values above 1 are valid only when every role has the same local DP size, because the router expands both prefill and decode URLs uniformly.
+
+High-concurrency PD routing can require several sockets per in-flight request. Set `router.nofile_limit` high enough for the workload; the launcher raises its soft `RLIMIT_NOFILE` before starting the router and fails clearly if the requested value exceeds the process hard limit. The Kimi concurrency-3072 recipe uses `8192`, the hard limit available to the Buildkite agent on the GB300 Slurm login node.
+
+Mount `source_env` values make site-specific paths overridable without editing YAML. The Kimi workload accepts `KIMI_K2_5_MODEL_PATH` and `FLASHINFER_CACHE_PATH`. NIXL also requires `/dev/infiniband` inside the container. The checked-in GB300 settings match the `nvidia-b300-login` cluster (`mlx5_4:1` and `enP22p3s0f0np0`); other clusters should override the workload environment rather than copying the GB200 NVL72 settings.
+
+The Kimi workload uses BF16 KV cache because vLLM v0.25.1 does not load the checkpoint's calibrated FP8 KV scales for MLA models. Revisit FP8 only after the loader remap is fixed and correctness is revalidated.
+
 ### HF cache volume (Kubernetes profiles)
 
 For profiles that run in-pod on Kubernetes (`server_runtime: native` with a `k8s_plugin`), the HuggingFace cache is a named `hf-cache` volume mounted at the profile's `hf_home`. **By default it is an `emptyDir`** — scoped to the benchmark pod, so the cache is reclaimed when the pod exits and can never accumulate on the node's disk.
@@ -164,6 +233,21 @@ A real run needs a GPU host with Docker, vLLM, and lm-eval available:
 
 Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for the parser stub and shell-syntax checks.
 
+For the GB300 Slurm recipe, run from a login-node shell outside any existing Slurm allocation, with `salloc`, `srun`, `scontrol`, Pyxis, and the v0.1.12 router binary already built at the configured path. The launcher owns and cancels one allocation, starts all role steps, then runs `vllm bench serve` inside the same image and allocation:
+
+```bash
+export KIMI_K2_5_MODEL_PATH=/raid/shared/nvidia/Kimi-K2.5-NVFP4
+export FLASHINFER_CACHE_PATH="$HOME/.cache/flashinfer"
+export ENROOT_CACHE_PATH="/raid/users/$USER/enroot-cache"
+export ENROOT_DATA_PATH="/raid/users/$USER/enroot-data"
+export ENROOT_RUNTIME_PATH="/tmp/enroot-$USER"
+./lib/run.sh workloads/kimi_k2_5_gb300_pd.yaml
+```
+
+The checkout and results directory must be on storage visible at the same path from the compute nodes; the benchmark client bind-mounts that path to persist its JSON artifact. For this first bring-up it runs as an overlapping CPU-only step on the first prefill node, so reported performance can include client-side contention; a dedicated client node is a follow-up for authoritative peak numbers. The `GB300` profile targets the `gb300-slurm` Buildkite login-node agent queue. This workload remains manual/opt-in (`nightly: false`); `GB300_QUEUE` can target an alternate cluster or canary queue. Generated Slurm steps are serialized with `concurrency: 1`, `concurrency_group: perf-eval/<resolved-queue>`, and `concurrency_method: eager`, preventing fixed router and DP RPC ports from colliding even if another agent is later attached to the queue. Keep the login-node agent itself at one worker as an additional guard. Its agent environment hook must put the cluster's Slurm binaries on `PATH` and set any site-required `SLURM_CONF` and `LD_LIBRARY_PATH`; the dynamic command defers `HOME` and `PATH` expansion until this GPU job runs. Before triggering the workload, ensure the queue has an online agent and the router/model prerequisites above are present.
+
 ## Agents
 
 `CLAUDE.md` has conventions for AI agents working in this repo: smoke-testing changes, launching Buildkite builds for a chosen branch/commit, and the AI-assistance disclosure rule for PRs and commits.
+
+For onboarding another model to the schema-v1 Slurm prefill/decode path, invoke the repository skill with `$vllm-pd-disagg-model-onboarding`. It captures the reusable model-contract, topology, NIXL/Pyxis, router, staged cluster bring-up, correctness, and Buildkite workflow behind `workloads/kimi_k2_5_gb300_pd.yaml`.

@@ -1,0 +1,44 @@
+{
+  "skill_name": "vllm-pd-disagg-model-onboarding",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Add a manual perf-eval workload for a new 400B MoE checkpoint on the nvidia-b300-login Slurm cluster. The internal recipe uses one TP1/DP4 expert-parallel prefill instance and two TP4 expert-parallel decode replicas, NIXL, and a locally mounted checkpoint. Start with a cheap 8k-input smoke benchmark, prove it on the cluster, and prepare a scoped Buildkite run.",
+      "expected_output": "A model-specific workload and evidence-driven bring-up plan that reuses schema v1, computes the three-node/12-GPU topology correctly, validates generated commands, tests locally before Buildkite, and records correctness caveats.",
+      "files": [],
+      "expectations": [
+        "The response inspects the existing Kimi PD workload and launcher contract before editing.",
+        "The topology is calculated as one DEP4 prefill plus two TEP4 decode replicas on three four-GPU nodes.",
+        "The workload stays opt-in and includes a small smoke benchmark before large performance cases.",
+        "The plan validates parser and launcher dry-run output before requesting Slurm GPUs.",
+        "The plan requires local Slurm success before triggering the exact pushed commit in Buildkite."
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Port an internal PD-disaggregated vLLM config for a dense model to perf-eval. It needs two prefill replicas and four decode replicas on eight-GPU nodes, but the source config does not say whether FP8 KV scales are calibrated or which mlx5 device this cluster uses. Please implement whatever is safe and tell me what remains blocked.",
+      "expected_output": "A conservative onboarding change that derives topology, distinguishes model and cluster unknowns, avoids guessing correctness-sensitive KV/network settings, and limits launcher changes to requirements the schema cannot already express.",
+      "files": [],
+      "expectations": [
+        "The response explicitly computes role and total node/GPU counts from count, nodes per instance, GPUs per node, and TP.",
+        "The response does not copy Kimi's network device or claim FP8 KV correctness without evidence.",
+        "The response uses a correctness-safe KV-cache choice or reports the missing decision as a blocker.",
+        "The response prefers a workload-only implementation when schema v1 already expresses the topology.",
+        "Any schema or launcher extension includes focused tests and a README update."
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The new Slurm PD Buildkite job allocates all nodes, but the prefill health check times out after 20 minutes while logs show FlashInfer kernel autotuning. A retry then reports the wrong number of router workers for asymmetric prefill/decode DP. Diagnose it and make the smallest reliable fix.",
+      "expected_output": "A layered diagnosis that persists compilation artifacts and aligns timeouts, then corrects asymmetric router endpoint expansion without masking real role or NIXL failures.",
+      "files": [],
+      "expectations": [
+        "The diagnosis separates first-start autotuning from allocation, model-load, NIXL, and router failures.",
+        "The fix persists the FlashInfer cache and aligns engine, role, launcher, Slurm, and Buildkite time budgets.",
+        "The router uses endpoint-level expansion for asymmetric local DP rather than expanding every URL by the prefill DP size.",
+        "The response reruns a cheap local smoke test before another shared GPU Buildkite build.",
+        "The response preserves failure-on-KV-load behavior and does not hide transfer errors."
+      ]
+    }
+  ]
+}
