@@ -42,7 +42,5 @@ vllm_bench:
       dataset: random
       input_len: 8192
       output_len: 1024
-      num_prompts: 512
+      num_prompts: 256
       max_concurrency: 128
-      args:
-        prompt_token_ids: true
