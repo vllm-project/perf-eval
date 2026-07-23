@@ -61,6 +61,7 @@ start_server() {
   IFS=' ' read -ra serve_args_arr <<< "$serve_args"
   # vllm/vllm-openai's entrypoint takes the model as the first positional
   # arg; do not prepend `vllm` or `serve`.
+  echo "docker run -d --rm --name \"$container\" ${docker_args[*]} \"$image\" \"$model\" --port \"$port\" ${serve_args_arr[*]}" >&2
   docker run -d --rm --name "$container" "${docker_args[@]}" \
     "$image" \
   #  "$model" --port "$port" $serve_args

@@ -527,6 +527,7 @@ INDEX_CSS = """
 
     .model-tab-bar {
       display: flex;
+      flex-wrap: wrap;
       gap: 0;
       border-bottom: 1px solid #1e293b;
     }
@@ -539,7 +540,6 @@ INDEX_CSS = """
       border-bottom: 2px solid transparent;
       margin-bottom: -1px;
       user-select: none;
-      white-space: nowrap;
       transition: color 0.15s;
     }
     .model-tab:hover { color: #94a3b8; }
@@ -744,13 +744,13 @@ def build_index_html_moe(reports: list[tuple[str, str]]) -> str:
 
 def model_name_from_dir(dir_name: str) -> str:
     """Best-effort human label from directory name like attn_sweep_gpt_oss_120b_mi355x."""
-    name = re.sub(r"^attn_sweep_", "", dir_name)
+    name = re.sub(r"^attn-sweep-", "", dir_name)
     return name
 
 
 def model_name_from_dir_moe(dir_name: str) -> str:
     """Best-effort human label from directory name like moe_sweep_deepseek_r1_0528_mi355x."""
-    name = re.sub(r"^moe_sweep_", "", dir_name)
+    name = re.sub(r"^moe-sweep-", "", dir_name)
     return name
 
 
@@ -758,7 +758,10 @@ def main():
     if not RESULTS_DIR.exists():
         sys.exit(f"results/ not found at {RESULTS_DIR}")
 
-    model_dirs = [d for d in sorted(RESULTS_DIR.iterdir()) if d.is_dir()]
+    model_dirs = [
+        d for d in sorted(RESULTS_DIR.iterdir())
+        if d.is_dir() and (d.name.startswith("attn-sweep") or d.name.startswith("moe-sweep"))
+    ]
     if not model_dirs:
         sys.exit("No subdirectories found in results/")
 
@@ -780,14 +783,6 @@ def main():
         points = sum(len(v) for v in backend_data.values())
         print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
         reports.append((model_name, out_filename))
-
-    # Also pick up any pre-existing benchmark-*.html files not produced this run
-    # (e.g. from a previous round with different models), so the index is complete.
-    existing = {fname for _, fname in reports}
-    for html_path in sorted(OUT_DIR.glob("benchmark-*.html")):
-        if html_path.name not in existing and html_path.name != "benchmark-index.html":
-            label = model_name_from_dir(html_path.stem.removeprefix("benchmark-"))
-            reports.append((label, html_path.name))
 
     if reports:
         index_path = OUT_DIR / "benchmark-index.html"
@@ -821,13 +816,6 @@ def main():
         points = sum(len(v) for v in backend_data.values())
         print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
         moe_reports.append((model_name, out_filename))
-
-    # Pick up any pre-existing moe-benchmark-*.html files not produced this run.
-    existing_moe = {fname for _, fname in moe_reports}
-    for html_path in sorted(OUT_DIR.glob("moe-benchmark-*.html")):
-        if html_path.name not in existing_moe and html_path.name != "moe-benchmark-index.html":
-            label = model_name_from_dir_moe(html_path.stem.removeprefix("moe-benchmark-"))
-            moe_reports.append((label, html_path.name))
 
     if moe_reports:
         index_path = OUT_DIR / "moe-benchmark-index.html"

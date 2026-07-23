@@ -1,24 +1,24 @@
 # GPT-OSS 120B on MI355X
-name: attn-sweep-amd-gpt-oss-120b-w-mxfp4-a-fp8-mi355x
+name: attn-sweep-Qwen3.5-397B-A17B-FP8-mi355x
 gpu: MI355X
 num_gpus: 8
-# Opt-in for now: WORKLOADS=gpt_oss_120b_mi355x
 nightly: false
 
 vllm:
-  model: amd/gpt-oss-120b-w-mxfp4-a-fp8
+  model: Qwen/Qwen3.5-397B-A17B-FP8
   env:
     VLLM_ROCM_USE_AITER: 1
   serve_args: >-
-    --tensor-parallel-size 1
+    --tensor-parallel-size 8
+    --enable-expert-parallel
+    --reasoning-parser qwen3
     --trust-remote-code
-    --kv-cache-dtype=fp8
   attention_backends:
     - default
+    - ROCM_ATTN #attention sinks not supported
     - TRITON_ATTN
-    - ROCM_AITER_FA # incompatible in v0.22.0 was default 2026-06-18
-    - ROCM_ATTN  #fails for attention sinks not supported
-    - ROCM_AITER_UNIFIED_ATTN 
+    - ROCM_AITER_UNIFIED_ATTN #this one is the default
+    - ROCM_AITER_FA #fails "attention sinks not supported"
 
 
 # lm_eval:
