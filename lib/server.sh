@@ -38,6 +38,24 @@ start_server() {
   local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
                      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
+  local container_command=("$image" "$model" --port "$port" $serve_args)
+  if [[ "$runtime" == "xpu_docker" ]]; then
+    docker_args=(
+      --device /dev/dri:/dev/dri
+      --net=host
+      --ipc=host
+      --privileged
+      --ulimit nofile=65536:65536
+      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
+    )
+    [[ -d /dev/dri/by-path ]] && docker_args+=(-v /dev/dri/by-path:/dev/dri/by-path)
+    [[ -n "${ZE_AFFINITY_MASK:-}" ]] && docker_args+=(-e "ZE_AFFINITY_MASK=${ZE_AFFINITY_MASK}")
+    [[ -n "${HF_TOKEN:-}" ]] && docker_args+=(-e "HF_TOKEN=${HF_TOKEN}")
+    local bash_serve_cmd
+    printf -v bash_serve_cmd 'source /root/.bashrc >/dev/null 2>&1; exec vllm serve %q --port %q %s' \
+      "$model" "$port" "$serve_args"
+    container_command=(--entrypoint /bin/bash "$image" -ic "$bash_serve_cmd")
+  fi
   local hf_home=""
   while IFS= read -r kv; do
     [[ -z "$kv" ]] && continue
@@ -52,8 +70,7 @@ start_server() {
   # vllm/vllm-openai's entrypoint takes the model as the first positional
   # arg; do not prepend `vllm` or `serve`.
   docker run -d --rm --name "$container" "${docker_args[@]}" \
-    "$image" \
-    "$model" --port "$port" $serve_args
+    "${container_command[@]}"
 
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true

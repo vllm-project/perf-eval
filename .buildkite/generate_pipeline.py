@@ -273,9 +273,10 @@ def make_step(path, data, profiles):
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
     else:
         setup_commands = FULL_SETUP_COMMANDS
+    agents = {"queue": queue, **(profile.get("agent_tags") or {})}
     step = {
         "label": f"{emoji} {name}",
-        "agents": {"queue": queue},
+        "agents": agents,
         "timeout_in_minutes": timeout,
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
