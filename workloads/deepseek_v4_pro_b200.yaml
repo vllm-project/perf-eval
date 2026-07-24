@@ -1,0 +1,63 @@
+# DeepSeek-V4-Pro NVFP4 on B200 (8xB200, TP=8 + EP)
+# Recipe: https://recipes.vllm.ai/deepseek-ai/DeepSeek-V4-Pro
+name: deepseek_v4_pro-b200
+gpu: B200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: nvidia/DeepSeek-V4-Pro-NVFP4
+  env:
+    CUDA_HOME: /usr/local/cuda
+    TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+  serve_args: >-
+    --tensor-parallel-size 8
+    --enable-expert-parallel
+    --max-model-len 32768
+    --max-num-seqs 512
+    --max-num-batched-tokens 512
+    --kv-cache-dtype fp8
+    --block-size 256
+    --attention_config.use_fp4_indexer_cache=True
+    --tokenizer-mode deepseek_v4
+    --gpu-memory-utilization 0.95
+    --tool-call-parser deepseek_v4
+    --reasoning-parser deepseek_v4
+    --enable-auto-tool-choice
+    --trust-remote-code
+    --kernel-config {"enable_jit_warmup":false}
+    --compilation-config {"cudagraph_mode":"FULL_AND_PIECEWISE","custom_ops":["all"]}
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+    - multi_turn
+  num_threads: 16
+  max_test_cases:
+    multi_turn: 240
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
