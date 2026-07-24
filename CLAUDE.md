@@ -1,6 +1,6 @@
 # Agent instructions for perf-eval
 
-This repo orchestrates lm-evaluation-harness runs against vLLM via YAML workloads in `workloads/`. `lib/run.sh` parses a workload, brings up vLLM in Docker, and dispatches each task to a helper in `lib/`. Real runs need GPUs and are exercised on Buildkite.
+This repo orchestrates lm-evaluation-harness runs against vLLM via YAML workloads in `workloads/<model>/<hardware>.yaml`. `lib/run.sh` parses a workload, brings up vLLM in Docker, and dispatches each task to a helper in `lib/`. Real runs need GPUs and are exercised on Buildkite.
 
 ## Keep the README in sync
 
@@ -29,7 +29,7 @@ m = types.ModuleType('lm_eval'); t = types.ModuleType('lm_eval.tasks')
 class TM: all_tasks = ['gsm8k', 'aime25']
 t.TaskManager = TM
 sys.modules['lm_eval'] = m; sys.modules['lm_eval.tasks'] = t
-sys.argv = ['parse_workload.py', 'workloads/qwen3_5_h200.yaml']
+sys.argv = ['parse_workload.py', 'workloads/qwen3_5/h200.yaml']
 exec(open('lib/parse_workload.py').read())
 "
 ```
@@ -55,7 +55,7 @@ Pipeline metadata:
 - **pipeline**: `perf-eval`
 - **repo**: `github.com/vllm-project/perf-eval`
 - **default branch**: `main`
-- **what it runs**: a dynamic pipeline. A bootstrap step runs `.buildkite/generate_pipeline.py` and generates per-workload steps using each workload's GPU profile. When `WORKLOADS` is set, it runs exactly those workload paths or stems. Otherwise it discovers all `workloads/*.yaml` with `nightly: true`.
+- **what it runs**: a dynamic pipeline. A bootstrap step runs `.buildkite/generate_pipeline.py` and generates per-workload steps using each workload's GPU profile. When `WORKLOADS` is set, it runs exactly those workload paths or `model/hardware` selectors (legacy flat stems remain supported). Otherwise it recursively discovers all `workloads/**/*.yaml` with `nightly: true`.
 
 ### Workflow
 

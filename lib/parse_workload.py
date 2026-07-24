@@ -1,6 +1,6 @@
 """Read a workload YAML and emit `WORKLOAD_*` shell exports for run.sh.
 
-Usage: eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
+Usage: eval "$(python3 lib/parse_workload.py workloads/foo/h200.yaml)"
 
 The README documents the recipe schema. This script validates it and
 projects it into shell variables: top-level metadata, server config
@@ -41,6 +41,8 @@ BFCL_FIELDS = {
     "maximum_step_limit", "max_test_cases",
 }
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROFILES_PATH = os.path.join(REPO_ROOT, "lib", "gpu_profiles.yaml")
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
     "multiple", "parallel", "parallel_multiple", "irrelevance",
@@ -92,13 +94,11 @@ def known_task_names() -> set:
     return set(TaskManager().all_tasks)
 
 
-def load_profile(gpu: str, workload_path: str) -> dict:
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
-    profiles_path = os.path.join(repo_root, "lib", "gpu_profiles.yaml")
-    with open(profiles_path) as f:
+def load_profile(gpu: str) -> dict:
+    with open(PROFILES_PATH) as f:
         profiles = yaml.safe_load(f)
     if gpu not in profiles:
-        sys.exit(f"unknown gpu {gpu!r} in {profiles_path} (have {', '.join(profiles)})")
+        sys.exit(f"unknown gpu {gpu!r} in {PROFILES_PATH} (have {', '.join(profiles)})")
     return profiles[gpu]
 
 
@@ -337,7 +337,7 @@ def main(path: str) -> None:
     gpu = data.get("gpu")
     if not gpu:
         sys.exit(f"{path}: missing required 'gpu' field")
-    profile = load_profile(gpu, path)
+    profile = load_profile(gpu)
     vllm = data.get("vllm") or {}
     lm_eval = data.get("lm_eval") or {}
     bench = data.get("vllm_bench") or {}

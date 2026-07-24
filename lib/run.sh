@@ -2,7 +2,7 @@
 # Orchestrate a workload: bring up vLLM, then dispatch each task to the
 # helper script for its type.
 #
-# Usage: ./lib/run.sh workloads/qwen3_5_h200.yaml
+# Usage: ./lib/run.sh workloads/qwen3_5/h200.yaml
 set -euo pipefail
 
 WORKLOAD="${1:?usage: $0 <workload.yaml>}"

@@ -3,8 +3,9 @@
 
 Always emits one GPU-profiled step per selected workload. Selection rules:
 
-  WORKLOADS env var set?  → run exactly those paths (comma- or newline-
-                             separated; resolved against workloads/*.yaml)
+  WORKLOADS env var set?  → run exactly those paths or stable aliases (comma-
+                             or newline-separated; resolved recursively below
+                             workloads/)
   Otherwise               → run every workload with ``nightly: true``
 
 Override env vars are propagated to each step:
@@ -52,7 +53,15 @@ RUN_TEMPLATE = (
 
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
+WORKLOADS_GLOB = "workloads/**/*.yaml"
 DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
+
+# Preserve the one historical filename that cannot be derived mechanically
+# from <model>/<hardware>.yaml. All other flat stems map by replacing "/" with
+# "_" (for example qwen3_5/h200 -> qwen3_5_h200).
+LEGACY_WORKLOAD_ALIASES = {
+    "deepseek_v4_pro_5_h200": "workloads/deepseek_v4_pro/h200.yaml",
+}
 
 GPU_EMOJI = {
     "H200": ":h200:",
@@ -240,11 +249,39 @@ def load_profiles():
 
 def load_workloads():
     workloads = []
-    for path in sorted(glob.glob("workloads/*.yaml")):
+    for path in sorted(glob.glob(WORKLOADS_GLOB, recursive=True)):
         with open(path) as f:
             data = yaml.safe_load(f)
         workloads.append({"path": path, "data": data})
     return workloads
+
+
+def workload_aliases(workload):
+    """Return stable selectors for a nested workload path.
+
+    The canonical selector is ``model/hardware``. Exact paths, YAML names, and
+    the former flat filename stem remain accepted so existing Buildkite
+    triggers do not break when files move into model directories.
+    """
+    path = workload["path"]
+    rel = os.path.relpath(path, "workloads")
+    rel_stem = os.path.splitext(rel)[0]
+    legacy_stem = rel_stem.replace(os.sep, "_")
+    aliases = {
+        path,
+        os.path.splitext(path)[0],
+        rel,
+        rel_stem,
+        legacy_stem,
+        f"workloads/{legacy_stem}.yaml",
+    }
+    name = workload["data"].get("name")
+    if name:
+        aliases.add(name)
+    for alias, target in LEGACY_WORKLOAD_ALIASES.items():
+        if target == path:
+            aliases.update({alias, f"workloads/{alias}.yaml"})
+    return aliases
 
 
 def queue_for_gpu(gpu, profile):
@@ -307,21 +344,24 @@ def make_step(path, data, profiles):
 def select_workloads(workloads):
     raw = (os.environ.get("WORKLOADS") or "").strip()
     if raw:
-        # Accept comma- or newline-separated. Each entry is a workload path
-        # (e.g. workloads/qwen3_5_h200.yaml) or a bare name (qwen3_5_h200).
+        # Accept comma- or newline-separated canonical paths, model/hardware
+        # selectors, YAML names, and legacy flat filename stems.
         entries = [e.strip() for e in raw.replace(",", "\n").split("\n") if e.strip()]
-        by_path = {w["path"]: w for w in workloads}
-        by_stem = {os.path.basename(w["path"]).removesuffix(".yaml"): w for w in workloads}
+        by_alias = {}
+        for workload in workloads:
+            for alias in workload_aliases(workload):
+                by_alias.setdefault(alias, []).append(workload)
         selected = []
         for e in entries:
-            if e in by_path:
-                selected.append(by_path[e])
-            elif e in by_stem:
-                selected.append(by_stem[e])
-            elif (f"workloads/{e}.yaml") in by_path:
-                selected.append(by_path[f"workloads/{e}.yaml"])
-            else:
-                sys.exit(f"WORKLOADS entry {e!r} did not match any file in workloads/")
+            matches = by_alias.get(e, [])
+            if not matches:
+                sys.exit(
+                    f"WORKLOADS entry {e!r} did not match any workload below workloads/"
+                )
+            if len(matches) > 1:
+                paths = ", ".join(w["path"] for w in matches)
+                sys.exit(f"WORKLOADS entry {e!r} is ambiguous; matches {paths}")
+            selected.append(matches[0])
         return selected
     return [w for w in workloads if w["data"].get("nightly") is True]
 
