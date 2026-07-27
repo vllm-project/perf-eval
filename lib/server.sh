@@ -43,7 +43,12 @@ start_server() {
     return
   fi
 
-  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
+  local docker_args=(--device=/dev/kfd --device=/dev/dri
+                     --group-add=video --ipc=host
+                     --cap-add=SYS_PTRACE --cap-add=SYS_ADMIN
+                     --security-opt seccomp=unconfined --security-opt apparmor=unconfined
+                     --shm-size=32G
+                     --ulimit nofile=65536:65536
                      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
   local hf_home=""
@@ -61,14 +66,15 @@ start_server() {
   IFS=' ' read -ra serve_args_arr <<< "$serve_args"
   # vllm/vllm-openai's entrypoint takes the model as the first positional
   # arg; do not prepend `vllm` or `serve`.
+  [[ -n "${HF_TOKEN:-}" ]] && docker_args+=(-e "HF_TOKEN=${HF_TOKEN}")
+  docker_args+=(-e "HF_HUB_CACHE=${HF_HUB_CACHE:-/shareddata/hf_hub_cache}")
+  docker_args+=(-v "${HF_HUB_CACHE:-/shareddata/hf_hub_cache}:${HF_HUB_CACHE:-/shareddata/hf_hub_cache}")
+
   echo "docker run -d --rm --name \"$container\" ${docker_args[*]} \"$image\" \"$model\" --port \"$port\" ${serve_args_arr[*]}" >&2
   docker run -d --rm --name "$container" "${docker_args[@]}" \
     "$image" \
-  #  "$model" --port "$port" $serve_args
     "$model" --port "$port" "${serve_args_arr[@]}"
-
-  # Install pytest to avoid cupy.testing import failure during torch.compile
-  docker exec "$container" pip install -q pytest 2>/dev/null || true
+  VLLM_CONTAINER_NAME="$container"
 
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true
@@ -94,6 +100,13 @@ wait_healthy() {
       echo "vLLM server exited before becoming healthy" >&2
       [[ -n "${VLLM_LOG_FILE:-}" ]] && tail -n 80 "$VLLM_LOG_FILE" >&2 || true
       return 1
+    fi
+    if [[ -n "${VLLM_CONTAINER_NAME:-}" ]]; then
+      if ! docker inspect --format '{{.State.Running}}' "$VLLM_CONTAINER_NAME" 2>/dev/null | grep -q true; then
+        echo "vLLM container exited before becoming healthy" >&2
+        docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -n 80 >&2 || true
+        return 1
+      fi
     fi
     now=$(date +%s)
     if (( now >= next_status )); then

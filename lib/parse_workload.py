@@ -402,7 +402,7 @@ def main(path: str) -> None:
     emit("VLLM_COMMIT", vllm_commit)
     emit("MODEL", vllm.get("model", ""))
     emit("SERVE_ARGS", serve_args)
-    emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
+    emit("SERVER_RUNTIME", os.environ.get("WORKLOAD_SERVER_RUNTIME") or profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
