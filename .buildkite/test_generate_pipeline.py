@@ -42,6 +42,16 @@ def test_b200_uses_podspec_patch_to_override_agent_container():
     assert c["name"] == "container-0"
     assert c["image"] == "lmsysorg/sglang:latest"
     assert c["resources"]["limits"]["nvidia.com/gpu"] == 8
+    assert patch["hostIPC"] is True
+    assert c["securityContext"]["privileged"] is True
+    assert "SYS_ADMIN" in c["securityContext"]["capabilities"]["add"]
+    mounts = {m["name"]: m["mountPath"] for m in c["volumeMounts"]}
+    volumes = {v["name"]: v for v in patch["volumes"]}
+    assert mounts["infiniband"] == "/dev/infiniband"
+    assert volumes["infiniband"]["hostPath"] == {
+        "path": "/dev/infiniband",
+        "type": "Directory",
+    }
 
 
 def test_native_runtime_venv_keeps_image_packages_visible():

@@ -129,6 +129,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
             "podSpecPatch": {
                 "runtimeClassName": "nvidia",
                 "hostNetwork": True,
+                "hostIPC": True,
                 "dnsPolicy": "ClusterFirstWithHostNet",
                 "imagePullSecrets": [
                     {"name": "k8s-ecr-login-renew-docker-secret"},
@@ -139,12 +140,14 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                         "image": image,
                         "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
                         "securityContext": {
+                            "privileged": True,
                             "capabilities": {
-                                "add": ["IPC_LOCK", "SYS_RESOURCE"],
+                                "add": ["IPC_LOCK", "SYS_RESOURCE", "SYS_ADMIN"],
                             },
                         },
                         "volumeMounts": [
                             {"name": "devshm", "mountPath": "/dev/shm"},
+                            {"name": "infiniband", "mountPath": "/dev/infiniband"},
                             {"name": "raid", "mountPath": "/raid"},
                             {"name": "shared", "mountPath": "/mnt/shared"},
                         ],
@@ -166,6 +169,10 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                 ],
                 "volumes": [
                     {"name": "devshm", "emptyDir": {"medium": "Memory"}},
+                    {
+                        "name": "infiniband",
+                        "hostPath": {"path": "/dev/infiniband", "type": "Directory"},
+                    },
                     {
                         "name": "raid",
                         "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
