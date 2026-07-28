@@ -1,0 +1,44 @@
+# GLM-5.2 FP8 on a single 8xB200 node.
+# This opt-in workload exercises the 1M-context serving configuration with the
+# 8K-input/1K-output concurrency points requested for P6-B200 comparison.
+name: glm_5_2-b200
+gpu: B200
+num_gpus: 8
+nightly: false
+
+vllm:
+  model: zai-org/GLM-5.2-FP8
+  serve_args: >-
+    --tensor-parallel-size 8
+    --kv-cache-dtype fp8_e4m3
+    --max-model-len 1048576
+    --max-num-batched-tokens 65536
+    --max-num-seqs 64
+    --gpu-memory-utilization 0.92
+    --enable-chunked-prefill
+    --no-enable-prefix-caching
+    --speculative-config.method mtp
+    --speculative-config.num_speculative_tokens 5
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 256
+      max_concurrency: 64
+      args:
+        num_warmups: 16
+        disable_tqdm: true
+    - name: 8k-in-1k-out-conc-256
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 256
+      args:
+        num_warmups: 16
+        disable_tqdm: true
