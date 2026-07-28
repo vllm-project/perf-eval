@@ -145,7 +145,6 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                 },
                 "volumeMounts": [
                     {"name": "devshm", "mountPath": "/dev/shm"},
-                    {"name": "infiniband", "mountPath": "/dev/infiniband"},
                     {"name": "raid", "mountPath": "/raid"},
                     {"name": "shared", "mountPath": "/mnt/shared"},
                 ],
@@ -167,10 +166,6 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
         ],
         "volumes": [
             {"name": "devshm", "emptyDir": {"medium": "Memory"}},
-            {
-                "name": "infiniband",
-                "hostPath": {"path": "/dev/infiniband", "type": "Directory"},
-            },
             {
                 "name": "raid",
                 "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
