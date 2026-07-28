@@ -124,65 +124,69 @@ def resolved_image(data, profile):
 
 
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
-    return {
-        "kubernetes": {
-            "podSpecPatch": {
-                "runtimeClassName": "nvidia",
-                "hostNetwork": True,
-                "hostIPC": True,
-                "dnsPolicy": "ClusterFirstWithHostNet",
-                "imagePullSecrets": [
-                    {"name": "k8s-ecr-login-renew-docker-secret"},
+    pod_spec = {
+        "runtimeClassName": "nvidia",
+        "hostNetwork": True,
+        "hostIPC": True,
+        "dnsPolicy": "ClusterFirstWithHostNet",
+        "imagePullSecrets": [
+            {"name": "k8s-ecr-login-renew-docker-secret"},
+        ],
+        "containers": [
+            {
+                "name": "container-0",
+                "image": image,
+                "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
+                "securityContext": {
+                    "privileged": True,
+                    "capabilities": {
+                        "add": ["IPC_LOCK", "SYS_RESOURCE", "SYS_ADMIN"],
+                    },
+                },
+                "volumeMounts": [
+                    {"name": "devshm", "mountPath": "/dev/shm"},
+                    {"name": "infiniband", "mountPath": "/dev/infiniband"},
+                    {"name": "raid", "mountPath": "/raid"},
+                    {"name": "shared", "mountPath": "/mnt/shared"},
                 ],
-                "containers": [
+                "env": [
+                    {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
+                    {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
+                    {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
                     {
-                        "name": "container-0",
-                        "image": image,
-                        "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
-                        "securityContext": {
-                            "privileged": True,
-                            "capabilities": {
-                                "add": ["IPC_LOCK", "SYS_RESOURCE", "SYS_ADMIN"],
+                        "name": "HF_TOKEN",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "hf-token-secret",
+                                "key": "token",
                             },
                         },
-                        "volumeMounts": [
-                            {"name": "devshm", "mountPath": "/dev/shm"},
-                            {"name": "infiniband", "mountPath": "/dev/infiniband"},
-                            {"name": "raid", "mountPath": "/raid"},
-                            {"name": "shared", "mountPath": "/mnt/shared"},
-                        ],
-                        "env": [
-                            {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
-                            {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
-                            {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
-                            {
-                                "name": "HF_TOKEN",
-                                "valueFrom": {
-                                    "secretKeyRef": {
-                                        "name": "hf-token-secret",
-                                        "key": "token",
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                ],
-                "volumes": [
-                    {"name": "devshm", "emptyDir": {"medium": "Memory"}},
-                    {
-                        "name": "infiniband",
-                        "hostPath": {"path": "/dev/infiniband", "type": "Directory"},
-                    },
-                    {
-                        "name": "raid",
-                        "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
-                    },
-                    {
-                        "name": "shared",
-                        "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
                     },
                 ],
             },
+        ],
+        "volumes": [
+            {"name": "devshm", "emptyDir": {"medium": "Memory"}},
+            {
+                "name": "infiniband",
+                "hostPath": {"path": "/dev/infiniband", "type": "Directory"},
+            },
+            {
+                "name": "raid",
+                "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
+            },
+            {
+                "name": "shared",
+                "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
+            },
+        ],
+    }
+    node_name = (os.environ.get("B200_NODE_NAME") or "").strip()
+    if node_name:
+        pod_spec["nodeName"] = node_name
+    return {
+        "kubernetes": {
+            "podSpecPatch": pod_spec,
         },
     }
 

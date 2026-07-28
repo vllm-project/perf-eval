@@ -52,6 +52,21 @@ def test_b200_uses_podspec_patch_to_override_agent_container():
         "path": "/dev/infiniband",
         "type": "Directory",
     }
+    assert "nodeName" not in patch
+
+
+def test_b200_node_name_override_is_opt_in():
+    key = "B200_NODE_NAME"
+    prev = os.environ.get(key)
+    os.environ[key] = "dgxB200-12"
+    try:
+        patch = _b200_patch("lmsysorg/sglang:latest", 8)
+    finally:
+        if prev is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = prev
+    assert patch["nodeName"] == "dgxB200-12"
 
 
 def test_native_runtime_venv_keeps_image_packages_visible():
