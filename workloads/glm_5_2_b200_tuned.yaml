@@ -26,7 +26,7 @@ vllm:
     --enable-chunked-prefill
     --no-enable-prefix-caching
     --kernel-config
-    '{"ir_op_priority":{"rms_norm":["vllm_c","native"],"fused_add_rms_norm":["vllm_c","native"]}}'
+    {"ir_op_priority":{"rms_norm":["vllm_c","native"],"fused_add_rms_norm":["vllm_c","native"]}}
     --trust-remote-code
 
 vllm_bench:
