@@ -47,6 +47,13 @@ def test_hf_home_mount_matches_env():
     assert mount["mountPath"] == hf_home["value"] == "/root/.cache/huggingface"
 
 
+def test_run_command_preserves_injected_hf_home():
+    """Kubernetes injects HF_HOME for its mounted cache. The run command must
+    retain that value instead of redirecting a large download into the checkout."""
+    rendered = g.RUN_TEMPLATE.format(path="workloads/example.yaml")
+    assert 'HF_HOME="${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
+
+
 def test_profile_field_overrides_source():
     """A profile-level hf_cache_volume sets the source but keeps the volume name."""
     pvc = {"persistentVolumeClaim": {"claimName": "hf-cache-pvc"}}
