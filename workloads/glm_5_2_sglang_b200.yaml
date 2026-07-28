@@ -1,6 +1,9 @@
 # GLM-5.2 FP8 on B200 with SGLang
 # Recipe: https://lmsysorg.mintlify.app/cookbook/autoregressive/GLM/GLM-5.2#hw=b200&variant=default&quant=fp8&strategy=balanced&nodes=single
-name: glm_5_2-sglang-b200
+# The recipe's balanced strategy uses DeepEP. The current B200 Kubernetes pod
+# does not expose a working NVSHMEM/IBGDA path, so this CI baseline uses the
+# SGLang `none` A2A backend (All-Reduce/All-Gather token dispatch) instead.
+name: glm_5_2-sglang-b200-nodeepep
 gpu: B200
 num_gpus: 8
 timeout_in_minutes: 180
@@ -15,7 +18,7 @@ sglang:
     --tp 8
     --dp 8
     --enable-dp-attention
-    --moe-a2a-backend deepep
+    --moe-a2a-backend none
     --speculative-algorithm EAGLE
     --speculative-num-steps 1
     --speculative-eagle-topk 1
