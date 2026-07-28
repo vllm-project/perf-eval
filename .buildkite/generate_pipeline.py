@@ -26,9 +26,10 @@ import sys
 
 import yaml
 
-def setup_command(packages):
+def setup_command(packages, system_site_packages=False):
+    venv_args = "--system-site-packages .venv" if system_site_packages else ".venv"
     return (
-        "if python3 -m venv .venv; then\n"
+        f"if python3 -m venv {venv_args}; then\n"
         "  . .venv/bin/activate\n"
         "  (python -m ensurepip --upgrade --default-pip 2>/dev/null"
         " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)\n"
@@ -43,8 +44,12 @@ def setup_command(packages):
 
 
 FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
+NATIVE_FULL_SETUP_COMMANDS = [
+    setup_command("'lm-eval[api]' pyyaml", system_site_packages=True)
+]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
+NATIVE_BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml", system_site_packages=True)]
 
 RUN_TEMPLATE = (
     'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
@@ -282,10 +287,22 @@ def make_step(path, data, profiles):
     )
     has_bfcl = bool(data.get("bfcl"))
     has_sglang_bench = bool(data.get("sglang_bench"))
-    if bench_only or has_sglang_bench:
+    native_runtime = profile.get("server_runtime") == "native"
+    if (bench_only or has_sglang_bench) and native_runtime:
+        setup_commands = NATIVE_BENCH_ONLY_SETUP_COMMANDS
+    elif bench_only or has_sglang_bench:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
+    elif has_bfcl and native_runtime:
+        setup_commands = [
+            setup_command(
+                "'lm-eval[api]' pyyaml bfcl-eval soundfile",
+                system_site_packages=True,
+            )
+        ]
     elif has_bfcl:
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
+    elif native_runtime:
+        setup_commands = NATIVE_FULL_SETUP_COMMANDS
     else:
         setup_commands = FULL_SETUP_COMMANDS
     step = {
@@ -295,7 +312,7 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
-    if profile.get("server_runtime") == "native":
+    if native_runtime:
         kind = profile.get("k8s_plugin")
         if not kind:
             sys.exit(

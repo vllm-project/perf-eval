@@ -44,6 +44,26 @@ def test_b200_uses_podspec_patch_to_override_agent_container():
     assert c["resources"]["limits"]["nvidia.com/gpu"] == 8
 
 
+def test_native_runtime_venv_keeps_image_packages_visible():
+    """Native runtimes use packages already installed in the workload image
+    (`vllm`, `sglang`). The helper venv is only for pyyaml/lm-eval, so it must
+    include system site packages."""
+    profiles = {"B200": g.load_profiles()["B200"]}
+    step = g.make_step(
+        "workloads/glm_5_2_sglang_b200.yaml",
+        {
+            "name": "glm_5_2-sglang-b200",
+            "gpu": "B200",
+            "num_gpus": 8,
+            "bench_only": True,
+            "sglang": {"model": "zai-org/GLM-5.2-FP8"},
+            "sglang_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert "python3 -m venv --system-site-packages .venv" in step["commands"][0]
+
+
 def test_default_hf_cache_is_emptydir_not_hostpath():
     """Default (no override, no profile field) must be an emptyDir, never a
     hostPath — a hostPath on an unmounted node path is what filled root disks."""
