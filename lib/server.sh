@@ -1,8 +1,8 @@
 # vLLM server lifecycle. Source this from run.sh.
 #
 # Functions:
-#   start_server <container> <port> <image> <model> <serve_args> <env> [runtime]
-#   wait_healthy <port> [timeout_s=1500]
+#   start_server <container> <port> <image> <model> <serve_args> <env> [runtime] [startup_timeout_s]
+#   wait_healthy <port> [timeout_s=3600]
 #   stop_server  <container>
 #
 # `env` is a newline-separated list of KEY=VALUE pairs. For Docker runtime,
@@ -17,9 +17,11 @@
 
 start_server() {
   local container=$1 port=$2 image=$3 model=$4 serve_args=$5 env=$6 runtime=${7:-docker}
+  local startup_timeout=${8:-3600}
   echo "--- :rocket: starting vllm: $model"
 
   if [[ "$runtime" == "native" ]]; then
+    export VLLM_ENGINE_READY_TIMEOUT_S="$startup_timeout"
     while IFS= read -r kv; do
       [[ -z "$kv" ]] && continue
       export "$kv"
@@ -36,7 +38,7 @@ start_server() {
   fi
 
   local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
-                     -e VLLM_ENGINE_READY_TIMEOUT_S=3600
+                     -e "VLLM_ENGINE_READY_TIMEOUT_S=${startup_timeout}"
                      -p "${port}:${port}")
   local hf_home=""
   while IFS= read -r kv; do
