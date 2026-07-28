@@ -15,6 +15,31 @@
 # server startup progress in real time. The streamer's PID is held in
 # $VLLM_LOGS_PID; stop_server kills it.
 
+run_rdma_preflight() {
+  echo "+++ :mag: SGLang RDMA/NVSHMEM preflight"
+  uname -a || true
+  nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader || true
+  echo "--- /dev/infiniband"
+  ls -la /dev/infiniband || true
+  for cmd in ibv_devices "ibv_devinfo -l" ibv_devinfo "rdma link show"; do
+    echo "--- ${cmd}"
+    bash -lc "command -v ${cmd%% *} >/dev/null && ${cmd}" || true
+  done
+  echo "--- HCA to network-device mapping"
+  for hca in /sys/class/infiniband/*; do
+    [[ -e "$hca" ]] || continue
+    printf "%s: " "$(basename "$hca")"
+    for netdev in "$hca"/device/net/*; do
+      [[ -e "$netdev" ]] && printf "%s " "$(basename "$netdev")"
+    done
+    echo
+  done
+  echo "--- network addresses"
+  ip -brief address || true
+  echo "--- transport environment"
+  env | grep -E '^(CUDA_VISIBLE_DEVICES|NCCL_|NVSHMEM_)' | sort || true
+}
+
 start_server() {
   local container=$1 port=$2 image=$3 model=$4 serve_args=$5 env=$6 runtime=${7:-docker} engine=${8:-vllm}
   echo "--- :rocket: starting ${engine}: $model"
@@ -24,6 +49,10 @@ start_server() {
       [[ -z "$kv" ]] && continue
       export "$kv"
     done <<< "$env"
+    if [[ "$engine" == "sglang" &&
+          "${SGLANG_RDMA_PREFLIGHT:-0}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
+      run_rdma_preflight
+    fi
     local log_file="/tmp/${container}.log"
     VLLM_LOG_FILE="$log_file"
     case "$engine" in

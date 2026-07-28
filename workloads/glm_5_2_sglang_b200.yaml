@@ -14,6 +14,9 @@ sglang:
   image: lmsysorg/sglang:latest
   env:
     SGLANG_SIMULATE_ACC_LEN: 2
+    SGLANG_RDMA_PREFLIGHT: 1
+    NVSHMEM_DEBUG: INFO
+    NVSHMEM_DEBUG_SUBSYS: INIT,BOOTSTRAP,TRANSPORT
   serve_args: >-
     --tp 8
     --dp 8
