@@ -46,7 +46,12 @@ def test_b200_uses_podspec_patch_to_override_agent_container():
     assert c["securityContext"]["privileged"] is True
     assert "SYS_ADMIN" in c["securityContext"]["capabilities"]["add"]
     mounts = {m["name"]: m["mountPath"] for m in c["volumeMounts"]}
-    assert "infiniband" not in mounts
+    volumes = {v["name"]: v for v in patch["volumes"]}
+    assert mounts["infiniband"] == "/dev/infiniband"
+    assert volumes["infiniband"]["hostPath"] == {
+        "path": "/dev/infiniband",
+        "type": "Directory",
+    }
     assert "nodeSelector" not in patch
 
 
