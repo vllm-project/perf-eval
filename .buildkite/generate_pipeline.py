@@ -183,7 +183,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
     }
     node_name = (os.environ.get("B200_NODE_NAME") or "").strip()
     if node_name:
-        pod_spec["nodeName"] = node_name
+        pod_spec["nodeSelector"] = {"kubernetes.io/hostname": node_name}
     return {
         "kubernetes": {
             "podSpecPatch": pod_spec,
