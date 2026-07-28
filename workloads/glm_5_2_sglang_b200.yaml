@@ -1,0 +1,48 @@
+# GLM-5.2 FP8 on B200 with SGLang
+# Recipe: https://lmsysorg.mintlify.app/cookbook/autoregressive/GLM/GLM-5.2#hw=b200&variant=default&quant=fp8&strategy=balanced&nodes=single
+name: glm_5_2-sglang-b200
+gpu: B200
+num_gpus: 8
+timeout_in_minutes: 180
+bench_only: true
+
+sglang:
+  model: zai-org/GLM-5.2-FP8
+  image: lmsysorg/sglang:latest
+  env:
+    SGLANG_SIMULATE_ACC_LEN: 2
+  serve_args: >-
+    --tp 8
+    --dp 8
+    --enable-dp-attention
+    --moe-a2a-backend deepep
+    --speculative-algorithm EAGLE
+    --speculative-num-steps 1
+    --speculative-eagle-topk 1
+    --speculative-num-draft-tokens 2
+    --mem-fraction-static 0.85
+    --chunked-prefill-size 32768
+    --max-running-requests 256
+
+sglang_bench:
+  metadata:
+    device: b200
+    # SGLang's GLM-5.2 B200 balanced recipe is one 8-GPU node. Do not use
+    # tp*dp here: --dp 8 is part of DP-attention, not 64 physical GPUs.
+    tp: 8
+    precision: fp8
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: sglang
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 128
+      max_concurrency: 64
+    - name: 8k-in-1k-out-conc-256
+      backend: sglang
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 256

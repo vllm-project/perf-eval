@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Orchestrate a workload: bring up vLLM, then dispatch each task to the
+# Orchestrate a workload: bring up the model server, then dispatch each task to the
 # helper script for its type.
 #
 # Usage: ./lib/run.sh workloads/qwen3_5_h200.yaml
@@ -15,9 +15,11 @@ source "$DIR/server.sh"
 source "$DIR/run_lm_eval.sh"
 # shellcheck disable=SC1091
 source "$DIR/run_vllm_bench.sh"
+# shellcheck disable=SC1091
+source "$DIR/run_sglang_bench.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
-export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
+export WORKLOAD_ENGINE WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
 
 PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
@@ -33,7 +35,8 @@ mkdir -p "$RESULTS_DIR"
 trap 'stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
-             "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
+             "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME" \
+             "$WORKLOAD_ENGINE"
 wait_healthy "$PORT"
 
 # vllm bench serve runs first so we can validate perf flow without waiting
@@ -56,6 +59,23 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc speed_subset
     --image "$WORKLOAD_IMAGE" \
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
+
+while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc _speed_subset _speed_category extra_args; do
+  [[ -z "$bname" ]] && continue
+  run_sglang_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
+                   "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
+                   "$conc" "$extra_args" "$RESULTS_DIR"
+
+  python3 "$DIR/ingest_perf.py" \
+    --raw-result "${RESULTS_DIR}/bench-${bname}.json" \
+    --framework sglang \
+    --device "$WORKLOAD_BENCH_DEVICE" \
+    --tp "$WORKLOAD_BENCH_TP" \
+    --precision "$WORKLOAD_BENCH_PRECISION" \
+    --model "$WORKLOAD_MODEL" \
+    --image "$WORKLOAD_IMAGE" \
+    --isl "$isl" --osl "$osl" --conc "$conc" || true
+done <<< "$WORKLOAD_SGLANG_BENCH_TSV"
 
 if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
   echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"

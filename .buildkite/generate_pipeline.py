@@ -10,6 +10,7 @@ Always emits one GPU-profiled step per selected workload. Selection rules:
 Override env vars are propagated to each step:
   VLLM_IMAGE   full docker image URI; overrides workload's vllm.image
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
+  SGLANG_IMAGE full docker image URI; overrides workload's sglang.image
   BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
 
 Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
@@ -53,6 +54,7 @@ RUN_TEMPLATE = (
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
 DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
+DEFAULT_SGLANG_IMAGE = "lmsysorg/sglang:latest"
 
 GPU_EMOJI = {
     "H200": ":h200:",
@@ -90,7 +92,18 @@ def commit_from_image(image):
     return m.group(1) if m else ""
 
 
+def server_config(data):
+    if data.get("sglang"):
+        return "sglang", data.get("sglang") or {}
+    return "vllm", data.get("vllm") or {}
+
+
 def resolved_image(data, profile):
+    engine, server = server_config(data)
+    if engine == "sglang":
+        override_image = (os.environ.get("SGLANG_IMAGE") or "").strip()
+        return override_image or server.get("image", DEFAULT_SGLANG_IMAGE)
+
     vllm = data.get("vllm") or {}
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
@@ -102,7 +115,7 @@ def resolved_image(data, profile):
     commit = override_commit or commit_from_image(override_image)
     if commit:
         return f"{repo}:nightly-{commit}"
-    return vllm.get("image", f"{repo}:nightly")
+    return server.get("image", f"{repo}:nightly")
 
 
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
@@ -267,7 +280,8 @@ def make_step(path, data, profiles):
         data.get("bench_only")
     )
     has_bfcl = bool(data.get("bfcl"))
-    if bench_only:
+    has_sglang_bench = bool(data.get("sglang_bench"))
+    if bench_only or has_sglang_bench:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
     elif has_bfcl:
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
@@ -297,6 +311,8 @@ def make_step(path, data, profiles):
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
         if os.environ.get(k)
     }
+    if os.environ.get("SGLANG_IMAGE"):
+        step_env["SGLANG_IMAGE"] = os.environ["SGLANG_IMAGE"]
     if bench_only and "BENCH_ONLY" not in step_env:
         step_env["BENCH_ONLY"] = "1"
     if step_env:

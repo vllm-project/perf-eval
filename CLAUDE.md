@@ -69,7 +69,7 @@ Pipeline metadata:
    - `commit: "<full SHA>"`
    - `branch: "<branch name>"` (use the actual branch, not `main`, when testing a feature branch)
    - `message: "<short description of what this tests>"` — match the existing convention: short, action-oriented (e.g. "Add gpqa diamond", "Writable HF_HOME for lm_eval datasets cache"). No emoji unless the user asks.
-   - `environment`: always pass both `VLLM_COMMIT` (the vLLM SHA being tested) and `VLLM_IMAGE` (the full Docker image URI). Optionally pass `WORKLOADS` for an explicit workload list; omit it to run all `nightly: true` workloads.
+   - `environment`: for vLLM workloads, always pass both `VLLM_COMMIT` (the vLLM SHA being tested) and `VLLM_IMAGE` (the full Docker image URI). For SGLang workloads, pass `SGLANG_IMAGE` when testing a specific SGLang image; otherwise the workload's `sglang.image` is used. Optionally pass `WORKLOADS` for an explicit workload list; omit it to run all `nightly: true` workloads.
 
    With `bk` (run `bk auth status` first):
 
@@ -85,7 +85,7 @@ Pipeline metadata:
      --env "WORKLOADS=<optional workload list>"
    ```
 
-   Omit the final `WORKLOADS` argument to run every `nightly: true` workload.
+   Omit the final `WORKLOADS` argument to run every `nightly: true` workload. For SGLang-only opt-in runs, use `--env "SGLANG_IMAGE=<full Docker image URI>"` instead of the vLLM image envs.
 3. **Report the build URL** back to the user immediately so they can follow
    along. MCP returns it as `web_url`; `bk build create` prints it in the build
    summary.

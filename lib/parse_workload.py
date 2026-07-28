@@ -4,12 +4,16 @@ Usage: eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 
 The README documents the recipe schema. This script validates it and
 projects it into shell variables: top-level metadata, server config
-(image, model, serve_args, env, runtime), the lm_eval task list, the
-vllm_bench config list, and bench ingest metadata (device/tp/precision).
+(engine, image, model, serve_args, env, runtime), the lm_eval task list, the
+vllm_bench / sglang_bench config lists, and bench ingest metadata
+(device/tp/precision).
 
 Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 `vllm/vllm-openai:latest`. When BENCH_ONLY is truthy, lm_eval task names
 are not validated against the registry (because they will not run).
+
+SGLang workloads use a top-level `sglang:` block. Image precedence is
+SGLANG_IMAGE > workload `sglang.image` > `lmsysorg/sglang:latest`.
 """
 
 import base64
@@ -35,6 +39,11 @@ BENCH_RESERVED_ARGS = {
     "speed-bench-output-len", "speed-bench-dataset-subset",
     "speed-bench-category", "skip-tokenizer-init", "save-result",
     "result-filename",
+}
+SGLANG_BENCH_RESERVED_ARGS = {
+    "backend", "host", "port", "model", "dataset-name", "num-prompts",
+    "max-concurrency", "random-input-len", "random-output-len",
+    "random-range-ratio", "warmup-requests", "flush-cache", "output-file",
 }
 BFCL_FIELDS = {
     "test_categories", "num_threads", "temperature",
@@ -102,8 +111,25 @@ def load_profile(gpu: str, workload_path: str) -> dict:
     return profiles[gpu]
 
 
-def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
+def server_config(data: dict, path: str) -> tuple[str, dict]:
+    has_vllm = bool(data.get("vllm"))
+    has_sglang = bool(data.get("sglang"))
+    if has_vllm and has_sglang:
+        sys.exit(f"{path}: define only one of `vllm:` or `sglang:`")
+    if has_sglang:
+        return "sglang", data.get("sglang") or {}
+    return "vllm", data.get("vllm") or {}
+
+
+def resolve_image(engine: str, server: dict, profile: dict) -> tuple[str, str]:
     """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload."""
+    if engine == "sglang":
+        override_image = (os.environ.get("SGLANG_IMAGE") or "").strip()
+        if override_image:
+            return override_image, commit_from_image(override_image)
+        image = server.get("image", "lmsysorg/sglang:latest")
+        return image, commit_from_image(str(image))
+
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     # ROCm images are located at vllm/vllm-openai-rocm. The default
@@ -118,7 +144,7 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     if commit:
         return f"{repo}:nightly-{commit}", commit
 
-    image = vllm.get("image", f"{repo}:nightly")
+    image = server.get("image", f"{repo}:nightly")
     return image, commit_from_image(str(image))
 
 
@@ -188,26 +214,35 @@ def normalize_bench_arg_name(name: str) -> str:
     return name.lstrip("-").replace("_", "-")
 
 
-def encode_bench_args(args: object, config_name: str, path: str) -> str:
+def encode_bench_args(
+    args: object,
+    config_name: str,
+    path: str,
+    block_name: str = "vllm_bench",
+) -> str:
     if args is None:
         args = {}
     if not isinstance(args, dict):
-        sys.exit(f"{path}: vllm_bench config {config_name!r} args must be a map")
+        sys.exit(f"{path}: {block_name} config {config_name!r} args must be a map")
+    reserved = (
+        SGLANG_BENCH_RESERVED_ARGS if block_name == "sglang_bench"
+        else BENCH_RESERVED_ARGS
+    )
     normalized = {}
     for name, value in args.items():
         if not isinstance(name, str) or not normalize_bench_arg_name(name):
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args keys must be non-empty strings"
+                f"{path}: {block_name} config {config_name!r} args keys must be non-empty strings"
             )
         normalized_name = normalize_bench_arg_name(name)
-        if normalized_name in BENCH_RESERVED_ARGS:
+        if normalized_name in reserved:
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args cannot override "
+                f"{path}: {block_name} config {config_name!r} args cannot override "
                 f"wrapper-owned option --{normalized_name}"
             )
         if normalized_name in normalized:
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args contains duplicate "
+                f"{path}: {block_name} config {config_name!r} args contains duplicate "
                 f"option --{normalized_name} after normalization"
             )
         normalized[normalized_name] = value
@@ -215,21 +250,21 @@ def encode_bench_args(args: object, config_name: str, path: str) -> str:
     return base64.b64encode(payload).decode()
 
 
-def bench_tsv(configs: list, path: str) -> str:
+def bench_tsv(configs: list, path: str, block_name: str = "vllm_bench") -> str:
     seen = set()
     lines = []
     for c in configs:
         extra = set(c) - BENCH_FIELDS
         if extra:
             sys.exit(
-                f"{path}: vllm_bench config {c.get('name')!r} has unsupported "
+                f"{path}: {block_name} config {c.get('name')!r} has unsupported "
                 f"fields {sorted(extra)}; allowed: {sorted(BENCH_FIELDS)}"
             )
         for k in BENCH_REQUIRED:
             if c.get(k) is None:
-                sys.exit(f"{path}: vllm_bench config {c.get('name')!r} missing required field {k!r}")
+                sys.exit(f"{path}: {block_name} config {c.get('name')!r} missing required field {k!r}")
         if c["name"] in seen:
-            sys.exit(f"{path}: duplicate vllm_bench config name {c['name']!r}")
+            sys.exit(f"{path}: duplicate {block_name} config name {c['name']!r}")
         seen.add(c["name"])
 
         def opt(key):
@@ -248,7 +283,7 @@ def bench_tsv(configs: list, path: str) -> str:
                     str(c["max_concurrency"]),
                     opt("speed_bench_dataset_subset"),
                     opt("speed_bench_category"),
-                    encode_bench_args(c.get("args"), c["name"], path),
+                    encode_bench_args(c.get("args"), c["name"], path, block_name),
                 ]
             )
         )
@@ -338,51 +373,57 @@ def main(path: str) -> None:
     if not gpu:
         sys.exit(f"{path}: missing required 'gpu' field")
     profile = load_profile(gpu, path)
-    vllm = data.get("vllm") or {}
+    engine, server = server_config(data, path)
     lm_eval = data.get("lm_eval") or {}
-    bench = data.get("vllm_bench") or {}
+    vllm_bench = data.get("vllm_bench") or {}
+    sglang_bench = data.get("sglang_bench") or {}
 
     tasks = lm_eval.get("tasks") or []
     bfcl = data.get("bfcl") or {}
-    bench_configs = bench.get("configs") or []
+    vllm_bench_configs = vllm_bench.get("configs") or []
+    sglang_bench_configs = sglang_bench.get("configs") or []
 
-    if not tasks and not bench_configs and not bfcl:
+    if not tasks and not vllm_bench_configs and not sglang_bench_configs and not bfcl:
         sys.exit(
-            f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl"
+            f"{path}: workload must define at least one of lm_eval, vllm_bench, sglang_bench, or bfcl"
         )
 
     if tasks:
         validate_tasks(tasks, path)
 
-    serve_args = vllm.get("serve_args") or ""
+    serve_args = server.get("serve_args") or ""
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
-    image, vllm_commit = resolve_image(vllm, profile)
-    env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
+    image, version_commit = resolve_image(engine, server, profile)
+    env = {**(profile.get("env") or {}), **(server.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
 
-    metadata = bench.get("metadata") or {}
+    metadata = (
+        sglang_bench.get("metadata") or vllm_bench.get("metadata") or {}
+    )
     tp = metadata.get("tp")
     if tp is None:
         tp = parse_tp(serve_args)
 
     emit("NAME", data.get("name", ""))
+    emit("ENGINE", engine)
     emit("IMAGE", image)
-    emit("VLLM_COMMIT", vllm_commit)
-    emit("MODEL", vllm.get("model", ""))
+    emit("VLLM_COMMIT", version_commit)
+    emit("MODEL", server.get("model", ""))
     emit("SERVE_ARGS", serve_args)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
-    emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
+    emit("VLLM_BENCH_TSV", bench_tsv(vllm_bench_configs, path))
+    emit("SGLANG_BENCH_TSV", bench_tsv(sglang_bench_configs, path, "sglang_bench"))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
     emit(
         "BENCH_PRECISION",
-        metadata.get("precision") or precision_from_model(vllm.get("model") or ""),
+        metadata.get("precision") or precision_from_model(server.get("model") or ""),
     )
 
 
