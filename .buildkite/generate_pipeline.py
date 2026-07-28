@@ -46,7 +46,9 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="${{HF_HOME:-$(pwd)/.hf-cache}}"'
+    # Double-dollar escapes Buildkite pipeline-upload interpolation so the
+    # runtime pod, not the upload agent, resolves its injected HF_HOME.
+    'export HF_HOME="$${{HF_HOME:-$(pwd)/.hf-cache}}"'
     ' PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )

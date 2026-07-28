@@ -49,9 +49,10 @@ def test_hf_home_mount_matches_env():
 
 def test_run_command_preserves_injected_hf_home():
     """Kubernetes injects HF_HOME for its mounted cache. The run command must
-    retain that value instead of redirecting a large download into the checkout."""
+    retain that value instead of redirecting a large download into the checkout.
+    The double dollar survives Buildkite's pipeline-upload interpolation."""
     rendered = g.RUN_TEMPLATE.format(path="workloads/example.yaml")
-    assert 'HF_HOME="${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
+    assert 'HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
 
 
 def test_profile_field_overrides_source():
