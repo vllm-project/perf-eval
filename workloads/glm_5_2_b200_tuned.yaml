@@ -1,7 +1,7 @@
-# GLM-5.2 FP8 customer-reproduction recipe on a single 8xB200 node.
-# Keep the server settings aligned with the supplied P6/B200 configuration so
-# the 8K-input/1K-output concurrency points can be compared directly.
-name: glm_5_2-b200-repro
+# GLM-5.2 FP8 tuned comparison recipe on a single 8xB200 node.
+# Run after glm_5_2_b200.yaml to measure the effect of a larger token budget,
+# lower sequence cap, disabled random-prefix cache, and MTP depth 5.
+name: glm_5_2-b200-tuned
 gpu: B200
 num_gpus: 8
 nightly: false
@@ -10,17 +10,15 @@ vllm:
   model: zai-org/GLM-5.2-FP8
   serve_args: >-
     --tensor-parallel-size 8
-    --enable-expert-parallel
     --kv-cache-dtype fp8_e4m3
     --max-model-len 1048576
-    --max-num-batched-tokens 32000
-    --max-num-seqs 256
+    --max-num-batched-tokens 65536
+    --max-num-seqs 64
     --gpu-memory-utilization 0.92
     --enable-chunked-prefill
-    --enable-prefix-caching
-    --scheduling-policy priority
+    --no-enable-prefix-caching
     --speculative-config.method mtp
-    --speculative-config.num_speculative_tokens 1
+    --speculative-config.num_speculative_tokens 5
 
 vllm_bench:
   configs:
