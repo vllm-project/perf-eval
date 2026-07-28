@@ -1,6 +1,8 @@
 # GLM-5.2 FP8 tuned comparison recipe on a single 8xB200 node.
-# Run after glm_5_2_b200.yaml to measure the effect of a larger token budget,
-# lower sequence cap, disabled random-prefix cache, and MTP depth 5.
+# Keep this separate from glm_5_2_b200.yaml: the customer-reproduction workload
+# is intentionally frozen, while this recipe follows the GLM team's throughput
+# guidance for synthetic random-token traffic. In particular, MTP is disabled
+# because its acceptance rate is near zero on random tokens.
 name: glm_5_2-b200-tuned
 gpu: B200
 num_gpus: 8
@@ -10,17 +12,22 @@ bench_only: true
 vllm:
   model: zai-org/GLM-5.2-FP8
   startup_timeout: 7200
+  env:
+    VLLM_USE_V2_MODEL_RUNNER: 1
+    VLLM_DEEP_GEMM_WARMUP: skip
   serve_args: >-
     --tensor-parallel-size 8
+    --enable-expert-parallel
     --kv-cache-dtype fp8_e4m3
-    --max-model-len 1048576
-    --max-num-batched-tokens 65536
-    --max-num-seqs 64
-    --gpu-memory-utilization 0.92
+    --max-model-len 32768
+    --max-num-batched-tokens 16384
+    --max-num-seqs 256
+    --gpu-memory-utilization 0.90
     --enable-chunked-prefill
     --no-enable-prefix-caching
-    --speculative-config.method mtp
-    --speculative-config.num_speculative_tokens 5
+    --kernel-config
+    '{"ir_op_priority":{"rms_norm":["vllm_c","native"],"fused_add_rms_norm":["vllm_c","native"]}}'
+    --trust-remote-code
 
 vllm_bench:
   configs:
@@ -29,10 +36,10 @@ vllm_bench:
       dataset: random
       input_len: 8192
       output_len: 1024
-      num_prompts: 256
+      num_prompts: 128
       max_concurrency: 64
       args:
-        num_warmups: 16
+        num_warmups: 64
         disable_tqdm: true
     - name: 8k-in-1k-out-conc-256
       backend: openai
@@ -42,5 +49,5 @@ vllm_bench:
       num_prompts: 512
       max_concurrency: 256
       args:
-        num_warmups: 16
+        num_warmups: 64
         disable_tqdm: true
