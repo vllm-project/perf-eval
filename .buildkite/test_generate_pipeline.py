@@ -28,6 +28,22 @@ def _amd_volumes(profile, gpu="MI300X"):
     return patch, vols
 
 
+def _b200_patch(image="img", num_gpus=8):
+    plugin = g.b200_k8s_plugin(image, num_gpus, {}, "B200")
+    return plugin["kubernetes"]["podSpecPatch"]
+
+
+def test_b200_uses_podspec_patch_to_override_agent_container():
+    """The B200 Kubernetes stack runs commands in its pre-created build
+    container, so the workload image must patch container-0 instead of adding a
+    separate unnamed container that the agent ignores."""
+    patch = _b200_patch("lmsysorg/sglang:latest", 8)
+    c = patch["containers"][0]
+    assert c["name"] == "container-0"
+    assert c["image"] == "lmsysorg/sglang:latest"
+    assert c["resources"]["limits"]["nvidia.com/gpu"] == 8
+
+
 def test_default_hf_cache_is_emptydir_not_hostpath():
     """Default (no override, no profile field) must be an emptyDir, never a
     hostPath — a hostPath on an unmounted node path is what filled root disks."""

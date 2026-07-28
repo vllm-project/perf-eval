@@ -121,7 +121,7 @@ def resolved_image(data, profile):
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
     return {
         "kubernetes": {
-            "podSpec": {
+            "podSpecPatch": {
                 "runtimeClassName": "nvidia",
                 "hostNetwork": True,
                 "dnsPolicy": "ClusterFirstWithHostNet",
@@ -130,6 +130,7 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                 ],
                 "containers": [
                     {
+                        "name": "container-0",
                         "image": image,
                         "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
                         "securityContext": {
