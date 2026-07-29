@@ -20,6 +20,10 @@ sglang:
     NVSHMEM_IB_ADDR_FAMILY: AF_INET
     NVSHMEM_IB_ADDR_RANGE: 0.0.0.0/0
     NVSHMEM_ENABLE_NIC_PE_MAPPING: 1
+    # dgxB200-12 currently exposes four native-IB HCAs plus one RoCE HCA as
+    # active. Keep this diagnostic homogeneous instead of mixing link layers.
+    NVSHMEM_HCA_LIST: mlx5_12:1
+    NVSHMEM_IB_GID_INDEX: 3
   serve_args: >-
     --tp 8
     --dp 8
