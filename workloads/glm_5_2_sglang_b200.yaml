@@ -14,16 +14,11 @@ sglang:
   image: lmsysorg/sglang:latest
   env:
     SGLANG_SIMULATE_ACC_LEN: 2
-    SGLANG_RDMA_PREFLIGHT: 1
     NVSHMEM_DEBUG: INFO
     NVSHMEM_DEBUG_SUBSYS: INIT,BOOTSTRAP,TRANSPORT
-    NVSHMEM_IB_ADDR_FAMILY: AF_INET
-    NVSHMEM_IB_ADDR_RANGE: 0.0.0.0/0
-    NVSHMEM_ENABLE_NIC_PE_MAPPING: 1
-    # dgxB200-12 currently exposes four native-IB HCAs plus one RoCE HCA as
-    # active. Keep this diagnostic homogeneous instead of mixing link layers.
-    NVSHMEM_HCA_LIST: mlx5_12:1
-    NVSHMEM_IB_GID_INDEX: 3
+    # This is a one-node EP group. Keep DeepEP on NVLink and do not initialize
+    # the host's partially configured IB/RoCE fabric.
+    NVSHMEM_DISABLE_IB: 1
   serve_args: >-
     --tp 8
     --dp 8
