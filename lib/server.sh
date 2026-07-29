@@ -104,7 +104,10 @@ wait_healthy() {
     if [[ -n "${VLLM_CONTAINER_NAME:-}" ]]; then
       if ! docker inspect --format '{{.State.Running}}' "$VLLM_CONTAINER_NAME" 2>/dev/null | grep -q true; then
         echo "vLLM container exited before becoming healthy" >&2
-        docker logs "$VLLM_CONTAINER_NAME" 2>&1 | tail -n 80 >&2 || true
+        # Save logs now — container is removed by --rm as soon as we return.
+        VLLM_CONTAINER_LAST_LOGS=$(docker logs "$VLLM_CONTAINER_NAME" 2>&1) || true
+        export VLLM_CONTAINER_LAST_LOGS
+        echo "$VLLM_CONTAINER_LAST_LOGS" | tail -n 80 >&2
         return 1
       fi
     fi

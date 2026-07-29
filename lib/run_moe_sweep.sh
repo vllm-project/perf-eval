@@ -55,9 +55,24 @@ for MOE_BACKEND in "${MOE_BACKENDS[@]}"; do
 
   trap 'stop_server "$CONTAINER"' EXIT
 
+  _capture_error_msg() {
+    local _logs _msg
+    if [[ "${WORKLOAD_SERVER_RUNTIME:-docker}" == "native" ]]; then
+      _logs=$(cat "${VLLM_LOG_FILE:-/dev/null}" 2>/dev/null) || true
+    else
+      # Prefer live docker logs; fall back to logs saved by wait_healthy before
+      # --rm removed the container.
+      _logs=$(docker logs "$CONTAINER" 2>&1) || _logs="${VLLM_CONTAINER_LAST_LOGS:-}"
+    fi
+    _msg=$(grep -oE "ValueError: .+" <<< "$_logs" | tail -1) || true
+    [[ -z "$_msg" ]] && _msg=$(grep -oE "RuntimeError: .+" <<< "$_logs" | tail -1) || true
+    [[ -n "$_msg" ]] && printf '%s\n' "$_msg" > "${RESULTS_DIR}/error.txt"
+  }
+
   if ! start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
                     "$EFFECTIVE_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"; then
     echo "^^^ +++ ERROR: start_server failed for moe backend ${MOE_BACKEND}; skipping" >&2
+    _capture_error_msg
     stop_server "$CONTAINER"
     trap - EXIT
     drain_gpu
@@ -66,6 +81,7 @@ for MOE_BACKEND in "${MOE_BACKENDS[@]}"; do
 
   if ! wait_healthy "$PORT"; then
     echo "^^^ +++ ERROR: vLLM never became healthy for moe backend ${MOE_BACKEND}; skipping" >&2
+    _capture_error_msg
     stop_server "$CONTAINER"
     trap - EXIT
     drain_gpu

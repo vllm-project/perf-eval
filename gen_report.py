@@ -72,14 +72,16 @@ def parse_txt_moe(path: Path) -> dict | None:
 
 # ── Directory scan ────────────────────────────────────────────────────────────
 
-def collect_model_dir(model_dir: Path) -> tuple[dict, str | None]:
-    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name)
+def collect_model_dir(model_dir: Path) -> tuple[dict, str | None, dict]:
+    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name, errors)
 
+    errors maps backend_name -> error message string for backends that failed to start.
     The default backend is the one whose results live at the top level of the
     model directory (not inside an attn-* subdirectory).
     """
     data = defaultdict(dict)
     default_backend: str | None = None
+    errors: dict[str, str] = {}
 
     def ingest(txt_path: Path, backend_override: str | None = None) -> str | None:
         rec = parse_txt(txt_path)
@@ -113,19 +115,24 @@ def collect_model_dir(model_dir: Path) -> tuple[dict, str | None]:
                         last = raw.strip().splitlines()[-1].strip()
                         backend_name = last.split()[0] if last else "default"
                 # backend_name may still be "default" if attn_backend.txt is absent.
+            err_file = sub / "error.txt"
+            if err_file.exists():
+                errors[backend_name] = err_file.read_text(errors="replace").strip()
             for txt in sorted(sub.glob("*-summary.txt")):
                 ingest(txt, backend_override=backend_name)
 
-    return dict(data), default_backend
+    return dict(data), default_backend, errors
 
 
-def collect_model_dir_moe(model_dir: Path) -> tuple[dict, str | None]:
-    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name)
+def collect_model_dir_moe(model_dir: Path) -> tuple[dict, str | None, dict]:
+    """Return ({backend -> {(isl,osl,conc) -> metrics_dict}}, default_backend_name, errors)
 
+    errors maps backend_name -> error message string for backends that failed to start.
     Looks for moe-* subdirectories instead of attn-* subdirectories.
     """
     data = defaultdict(dict)
     default_backend: str | None = None
+    errors: dict[str, str] = {}
 
     def ingest(txt_path: Path, backend_override: str | None = None) -> str | None:
         rec = parse_txt_moe(txt_path)
@@ -151,12 +158,15 @@ def collect_model_dir_moe(model_dir: Path) -> tuple[dict, str | None]:
                         backend_name = m.group(1)
 
                 # backend_name stays "default" if the moe backend line is absent.
+            err_file = sub / "error.txt"
+            if err_file.exists():
+                errors[backend_name] = err_file.read_text(errors="replace").strip()
             for txt in sorted(sub.glob("*-summary.txt")):
                 name = ingest(txt, backend_override=backend_name)
                 if name and default_backend is None:
                     default_backend = name
 
-    return dict(data), default_backend
+    return dict(data), default_backend, errors
 
 
 # ── HTML generation ───────────────────────────────────────────────────────────
@@ -254,6 +264,15 @@ CSS = """
       font-weight: 600;
     }
     thead th.backend-name.default-backend { color: #38bdf8; }
+    thead th.backend-name.failed-backend { color: #ef4444; }
+
+    .backend-error {
+      color: #ef4444;
+      font-size: 0.65rem;
+      font-weight: 400;
+      cursor: help;
+      margin-top: 0.2rem;
+    }
 
     tr.section-row td {
       font-size: 0.65rem;
@@ -336,8 +355,10 @@ function buildTable(key, concLabel) {{
 
   var headCols = '<th>Metric</th>';
   BACKENDS.forEach(function(b) {{
-    var cls = 'backend-name' + (b.isDefault ? ' default-backend' : '');
-    var tag = b.isDefault ? ' <span style="color:#334155;font-size:0.65rem;font-weight:400">(default)</span>' : '';
+    var cls = 'backend-name' + (b.isDefault ? ' default-backend' : '') + (b.error ? ' failed-backend' : '');
+    var tag = b.error
+      ? ' <div class="backend-error" title="' + b.errorMsg.replace(/"/g, '&quot;') + '">failed &#9888;</div>'
+      : (b.isDefault ? ' <span style="color:#334155;font-size:0.65rem;font-weight:400">(default)</span>' : '');
     headCols += '<th class="' + cls + '">' + b.label + tag + '</th>';
   }});
 
@@ -347,7 +368,7 @@ function buildTable(key, concLabel) {{
     sec.defs.forEach(function(def) {{
       var vals = rows[def.label];
       if (!vals) return;
-      var valid = vals.map(function(v, i) {{ return {{ v: v, i: i }}; }}).filter(function(x) {{ return x.v !== null; }});
+      var valid = vals.map(function(v, i) {{ return {{ v: v, i: i }}; }}).filter(function(x) {{ return x.v !== null && !BACKENDS[x.i].error; }});
       var bestIdx = null, worstIdx = null;
       if (valid.length > 1) {{
         var sorted = valid.slice().sort(function(a, b) {{ return def.hi ? b.v - a.v : a.v - b.v; }});
@@ -413,12 +434,16 @@ function switchTab(el) {{
 """
 
 
-def build_html(model_name: str, backend_data: dict, default_backend: str | None) -> str:
-    # Put the default backend first; sort the rest alphabetically
+def build_html(model_name: str, backend_data: dict, default_backend: str | None, errors: dict | None = None) -> str:
+    errors = errors or {}
+    # Put the default backend first; sort the rest alphabetically; append failed backends at end
     all_backends = sorted(backend_data.keys())
     if default_backend and default_backend in all_backends:
         all_backends.remove(default_backend)
         all_backends = [default_backend] + all_backends
+    for failed in sorted(errors):
+        if failed not in all_backends:
+            all_backends.append(failed)
 
     # Collect all (isl,osl,conc) test points
     all_keys: set[tuple] = set()
@@ -445,7 +470,13 @@ def build_html(model_name: str, backend_data: dict, default_backend: str | None)
     osl_label = "/".join(str(o) for o in osl_values)
 
     backends_js = json.dumps([
-        {"key": b.lower().replace("_", ""), "label": b, "isDefault": i == 0}
+        {
+            "key": b.lower().replace("_", ""),
+            "label": b,
+            "isDefault": i == 0,
+            "error": b in errors,
+            "errorMsg": errors.get(b, ""),
+        }
         for i, b in enumerate(all_backends)
     ], indent=2)
 
@@ -623,12 +654,16 @@ def build_index_html(reports: list[tuple[str, str]]) -> str:
 """
 
 
-def build_html_moe(model_name: str, backend_data: dict, default_backend: str | None) -> str:
+def build_html_moe(model_name: str, backend_data: dict, default_backend: str | None, errors: dict | None = None) -> str:
     """Build a per-model MoE backend benchmark HTML page."""
+    errors = errors or {}
     all_backends = sorted(backend_data.keys())
     if default_backend and default_backend in all_backends:
         all_backends.remove(default_backend)
         all_backends = [default_backend] + all_backends
+    for failed in sorted(errors):
+        if failed not in all_backends:
+            all_backends.append(failed)
 
     all_keys: set[tuple] = set()
     for bdata in backend_data.values():
@@ -652,7 +687,13 @@ def build_html_moe(model_name: str, backend_data: dict, default_backend: str | N
     osl_label = "/".join(str(o) for o in osl_values)
 
     backends_js = json.dumps([
-        {"key": b.lower().replace("_", ""), "label": b, "isDefault": i == 0}
+        {
+            "key": b.lower().replace("_", ""),
+            "label": b,
+            "isDefault": i == 0,
+            "error": b in errors,
+            "errorMsg": errors.get(b, ""),
+        }
         for i, b in enumerate(all_backends)
     ], indent=2)
 
@@ -768,20 +809,22 @@ def main():
     reports: list[tuple[str, str]] = []
 
     for model_dir in model_dirs:
-        backend_data, default_backend = collect_model_dir(model_dir)
-        if not backend_data:
+        backend_data, default_backend, errors = collect_model_dir(model_dir)
+        if not backend_data and not errors:
             print(f"  skip {model_dir.name} — no parseable summary files")
             continue
 
         model_name = model_name_from_dir(model_dir.name)
-        html = build_html(model_name, backend_data, default_backend)
+        html = build_html(model_name, backend_data, default_backend, errors)
 
         out_filename = f"benchmark-{model_dir.name}.html"
         out_path = OUT_DIR / out_filename
         out_path.write_text(html)
         backends = list(backend_data.keys())
         points = sum(len(v) for v in backend_data.values())
-        print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
+        failed = len(errors)
+        failed_str = f", {failed} failed" if failed else ""
+        print(f"  wrote {out_filename}  ({len(backends)} backends{failed_str}, {points} test points)")
         reports.append((model_name, out_filename))
 
     if reports:
@@ -801,20 +844,22 @@ def main():
         if not has_moe:
             continue
 
-        backend_data, default_backend = collect_model_dir_moe(model_dir)
-        if not backend_data:
+        backend_data, default_backend, errors = collect_model_dir_moe(model_dir)
+        if not backend_data and not errors:
             print(f"  skip {model_dir.name} (moe) — no parseable summary files")
             continue
 
         model_name = model_name_from_dir_moe(model_dir.name)
-        html = build_html_moe(model_name, backend_data, default_backend)
+        html = build_html_moe(model_name, backend_data, default_backend, errors)
 
         out_filename = f"moe-benchmark-{model_dir.name}.html"
         out_path = OUT_DIR / out_filename
         out_path.write_text(html)
         backends = list(backend_data.keys())
         points = sum(len(v) for v in backend_data.values())
-        print(f"  wrote {out_filename}  ({len(backends)} backends, {points} test points)")
+        failed = len(errors)
+        failed_str = f", {failed} failed" if failed else ""
+        print(f"  wrote {out_filename}  ({len(backends)} backends{failed_str}, {points} test points)")
         moe_reports.append((model_name, out_filename))
 
     if moe_reports:
