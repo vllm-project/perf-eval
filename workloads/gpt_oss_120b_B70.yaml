@@ -2,16 +2,18 @@
 # Tracking perf regression: https://github.com/vllm-project/vllm/issues/40838
 name: gpt_oss_120b-xpu
 gpu: XPU
-num_gpus: 8
+num_gpus: 4
 nightly: true
 
 vllm:
   model: openai/gpt-oss-120b
   serve_args: >-
-    --device xpu
     --tensor-parallel-size 4
     --max-model-len 32768
     --max-num-seqs 512
+    --enforce-eager
+    --trust-remote-code
+    --no-enable-prefix-caching
     --tool-call-parser openai
     --enable-auto-tool-choice
 
@@ -42,5 +44,5 @@ vllm_bench:
       dataset: random
       input_len: 4096
       output_len: 1024
-      num_prompts: 512
+      num_prompts: 128
       max_concurrency: 32
