@@ -16,6 +16,8 @@
 # $VLLM_LOGS_PID; stop_server kills it.
 
 run_rdma_preflight() {
+  local attr cmd gid gid_idx hca ib_port_path netdev
+
   echo "+++ :mag: SGLang RDMA/NVSHMEM preflight"
   uname -a || true
   nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader || true
@@ -39,23 +41,22 @@ run_rdma_preflight() {
   echo "--- HCA port state and GID table"
   for hca in /sys/class/infiniband/*; do
     [[ -e "$hca" ]] || continue
-    for port in "$hca"/ports/*; do
-      [[ -e "$port" ]] || continue
-      printf "%s port %s:" "$(basename "$hca")" "$(basename "$port")"
+    for ib_port_path in "$hca"/ports/*; do
+      [[ -e "$ib_port_path" ]] || continue
+      printf "%s port %s:" "$(basename "$hca")" "$(basename "$ib_port_path")"
       for attr in state phys_state rate link_layer; do
-        [[ -r "$port/$attr" ]] &&
-          printf " %s=%s" "$attr" "$(tr -d '\n' < "$port/$attr")"
+        [[ -r "$ib_port_path/$attr" ]] &&
+          printf " %s=%s" "$attr" "$(tr -d '\n' < "$ib_port_path/$attr")"
       done
       echo
-      for gid in "$port"/gids/*; do
+      for gid in "$ib_port_path"/gids/*; do
         [[ -r "$gid" ]] || continue
-        local gid_idx
         gid_idx=$(basename "$gid")
         printf "  gid[%s]=%s" "$gid_idx" "$(tr -d '\n' < "$gid")"
-        [[ -r "$port/gid_attrs/types/$gid_idx" ]] &&
-          printf " type=%s" "$(tr -d '\n' < "$port/gid_attrs/types/$gid_idx")"
-        [[ -r "$port/gid_attrs/ndevs/$gid_idx" ]] &&
-          printf " netdev=%s" "$(tr -d '\n' < "$port/gid_attrs/ndevs/$gid_idx")"
+        [[ -r "$ib_port_path/gid_attrs/types/$gid_idx" ]] &&
+          printf " type=%s" "$(tr -d '\n' < "$ib_port_path/gid_attrs/types/$gid_idx")"
+        [[ -r "$ib_port_path/gid_attrs/ndevs/$gid_idx" ]] &&
+          printf " netdev=%s" "$(tr -d '\n' < "$ib_port_path/gid_attrs/ndevs/$gid_idx")"
         echo
       done
     done
