@@ -19,6 +19,8 @@ run_rdma_preflight() {
   echo "+++ :mag: SGLang RDMA/NVSHMEM preflight"
   uname -a || true
   nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader || true
+  echo "--- GPU/NIC topology"
+  nvidia-smi topo -m || true
   echo "--- /dev/infiniband"
   ls -la /dev/infiniband || true
   for cmd in ibv_devices "ibv_devinfo -l" ibv_devinfo "rdma link show"; do
@@ -33,6 +35,30 @@ run_rdma_preflight() {
       [[ -e "$netdev" ]] && printf "%s " "$(basename "$netdev")"
     done
     echo
+  done
+  echo "--- HCA port state and GID table"
+  for hca in /sys/class/infiniband/*; do
+    [[ -e "$hca" ]] || continue
+    for port in "$hca"/ports/*; do
+      [[ -e "$port" ]] || continue
+      printf "%s port %s:" "$(basename "$hca")" "$(basename "$port")"
+      for attr in state phys_state rate link_layer; do
+        [[ -r "$port/$attr" ]] &&
+          printf " %s=%s" "$attr" "$(tr -d '\n' < "$port/$attr")"
+      done
+      echo
+      for gid in "$port"/gids/*; do
+        [[ -r "$gid" ]] || continue
+        local gid_idx
+        gid_idx=$(basename "$gid")
+        printf "  gid[%s]=%s" "$gid_idx" "$(tr -d '\n' < "$gid")"
+        [[ -r "$port/gid_attrs/types/$gid_idx" ]] &&
+          printf " type=%s" "$(tr -d '\n' < "$port/gid_attrs/types/$gid_idx")"
+        [[ -r "$port/gid_attrs/ndevs/$gid_idx" ]] &&
+          printf " netdev=%s" "$(tr -d '\n' < "$port/gid_attrs/ndevs/$gid_idx")"
+        echo
+      done
+    done
   done
   echo "--- network addresses"
   ip -brief address || true
