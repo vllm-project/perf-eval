@@ -26,17 +26,19 @@ import sys
 import yaml
 
 def setup_command(packages):
+    pip_network_args = "--retries 10 --timeout 120"
     return (
         "if python3 -m venv .venv; then\n"
         "  . .venv/bin/activate\n"
         "  (python -m ensurepip --upgrade --default-pip 2>/dev/null"
         " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)\n"
-        f"  python -m pip install --upgrade {packages}\n"
+        f"  python -m pip install --upgrade {pip_network_args} {packages}\n"
         "else\n"
         "  rm -rf .venv\n"
         "  (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
         " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user)\n"
-        f"  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade {packages}\n"
+        "  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade"
+        f" {pip_network_args} {packages}\n"
         "fi"
     )
 

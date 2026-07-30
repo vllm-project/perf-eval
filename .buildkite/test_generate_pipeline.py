@@ -100,6 +100,11 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         )
 
 
+def test_setup_command_tolerates_slow_package_downloads():
+    command = g.setup_command("pyyaml")
+    assert command.count("--retries 10 --timeout 120") == 2, command
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
