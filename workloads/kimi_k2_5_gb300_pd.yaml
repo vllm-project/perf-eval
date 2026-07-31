@@ -1,0 +1,166 @@
+# Kimi-K2.5 NVFP4 prefill/decode disaggregation on GB300 Slurm nodes.
+#
+# This is an opt-in bring-up workload. It uses one DEP4 prefill instance and
+# two independent TEP4 decode replicas:
+#   1 * (1 node * 4 GPUs) prefill + 2 * (1 node * 4 GPUs) decode = 12 GPUs.
+name: kimi_k2_5-gb300-pd
+gpu: GB300
+num_gpus: 12
+nightly: false
+bench_only: true
+timeout_in_minutes: 240
+
+vllm:
+  model: /model
+  image: vllm/vllm-openai:v0.25.1
+  env:
+    # First startup on GB300 can spend tens of minutes autotuning FlashInfer's
+    # NVFP4 kernels. Keep vLLM's internal wait aligned with role health checks.
+    VLLM_ENGINE_READY_TIMEOUT_S: "3600"
+    VLLM_NIXL_SIDE_CHANNEL_PORT: "5600"
+    UCX_MEMTYPE_CACHE: "n"
+    # This is an allow-list; omitting cuda_ipc excludes it without making UCX
+    # try to resolve the literal transport name "^cuda_ipc".
+    UCX_TLS: "rc,cuda_copy"
+    UCX_NET_DEVICES: "mlx5_4:1"
+    NCCL_CUMEM_ENABLE: "1"
+    NCCL_DEBUG: WARN
+    NCCL_SOCKET_IFNAME: enP22p3s0f0np0
+    GLOO_SOCKET_IFNAME: enP22p3s0f0np0
+
+serving:
+  version: 1
+  mode: pd_disagg
+  launcher: slurm
+  # The NVIDIA checkpoint's calibrated FP8 KV scales are not loaded by vLLM
+  # v0.25.1 for MLA models. Use BF16 until the loader remap is fixed so the
+  # benchmark output is numerically trustworthy.
+  common_serve_args: >-
+    --enable-expert-parallel
+    --enable-ep-weight-filter
+    --trust-remote-code
+    --block-size 64
+    --kv-cache-dtype bfloat16
+    --gpu-memory-utilization 0.90
+    --max-model-len 9216
+    --no-enable-prefix-caching
+    --attention-backend FLASHINFER_MLA
+    --attention-config '{"mla_prefill_backend":"TRTLLM_RAGGED"}'
+    --moe-backend flashinfer_trtllm
+    --all2all-backend allgather_reducescatter
+    --enable-sleep-mode
+    --disable-uvicorn-access-log
+    --safetensors-load-strategy prefetch
+    --language-model-only
+    --enforce-eager
+    --api-server-count 1
+  slurm:
+    partition: batch
+    time_limit: "03:00:00"
+    grace_period_s: 120
+    container:
+      runtime: pyxis
+      mounts:
+        - source: /raid/shared/nvidia/Kimi-K2.5-NVFP4
+          source_env: KIMI_K2_5_MODEL_PATH
+          target: /model
+          read_only: true
+        # NIXL cannot initialize RDMA without the device mount.
+        - source: /dev/infiniband
+          target: /dev/infiniband
+        # Reuse expensive FlashInfer JIT artifacts across allocations.
+        - source: /home/${USER}/.cache/flashinfer
+          source_env: FLASHINFER_CACHE_PATH
+          target: /root/.cache/flashinfer
+  kv_transfer:
+    connector: NixlConnector
+    load_failure_policy: fail
+    extra_config:
+      num_threads: 4
+  roles:
+    - role: prefill
+      count: 1
+      nodes_per_instance: 1
+      gpus_per_node: 4
+      # TP1 x DP4 with EP enabled by common_serve_args => DEP4.
+      tensor_parallel_size: 1
+      base_port: 8000
+      kv_role: kv_producer
+      serve_args: >-
+        --max-num-seqs 7
+        --max-num-batched-tokens 24576
+        --no-enable-chunked-prefill
+      health_check:
+        path: /health
+        timeout_s: 3600
+        poll_interval_s: 10
+    - role: decode
+      count: 2
+      nodes_per_instance: 1
+      gpus_per_node: 4
+      # Each replica is TP4 x DP1 with EP enabled => TEP4; count=2 gives x2.
+      tensor_parallel_size: 4
+      base_port: 8000
+      kv_role: kv_consumer
+      serve_args: >-
+        --max-num-seqs 180
+        --stream-interval 50
+      health_check:
+        path: /health
+        timeout_s: 3600
+        poll_interval_s: 10
+  router:
+    repo_path: ${HOME}/Kimi-PD/vllm-router
+    revision: v0.1.12
+    command:
+      - target/release/vllm-router
+    policy: round_robin
+    listen_host: 0.0.0.0
+    client_host: 127.0.0.1
+    port: 31000
+    # The concurrency-3072 benchmark needs several sockets per in-flight
+    # two-stage request; 8192 is the login-node process hard limit.
+    nofile_limit: 8192
+    # v0.1.12 has one global DP expansion setting. Endpoint-level routing lets
+    # vLLM balance the prefill node's local DP4 ranks while each TEP4 decoder
+    # remains one logical router worker.
+    intra_node_data_parallel_size: 1
+    prefill_endpoints: all_instances
+    decode_endpoints: all_nodes
+    health_check:
+      path: /readiness
+      timeout_s: 600
+      poll_interval_s: 5
+
+vllm_bench:
+  metadata:
+    device: gb300
+    precision: fp4
+    # Two TP4 decode replicas provide an effective decoder parallel degree of 8;
+    # all 12 serving GPUs participate in end-to-end throughput.
+    tp: 8
+    total_gpus: 12
+    disagg: true
+    is_multinode: true
+  configs:
+    - name: smoke-8k-in-64-out-conc-4
+      backend: vllm
+      dataset: random
+      input_len: 8192
+      output_len: 64
+      num_prompts: 4
+      max_concurrency: 4
+    - name: 8k-in-1k-out-conc-3072
+      backend: vllm
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 6144
+      max_concurrency: 3072
+    - name: 8k-in-1k-out-conc-3072-long
+      backend: vllm
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 30720
+      max_concurrency: 3072

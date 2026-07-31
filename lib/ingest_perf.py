@@ -8,9 +8,10 @@ here. Schema modeled after vllm-project/perf-dashboard/benchmark/process_result.
 
 Latencies in the raw result are in milliseconds (e.g., `mean_ttft_ms`).
 The dashboard expects seconds, so the transform drops the `_ms` suffix and
-divides by 1000. Aggregate throughput is divided by `tp` to match the
-dashboard's per-GPU columns (`tput_per_gpu`, `output_tput_per_gpu`,
-`input_tput_per_gpu`).
+divides by 1000. Aggregate throughput is divided by the total participating
+GPU count to match the dashboard's per-GPU columns (`tput_per_gpu`,
+`output_tput_per_gpu`, `input_tput_per_gpu`). This differs from the decoder's
+parallel degree for a prefill/decode-disaggregated deployment.
 
 Failures are logged but never fatal: ingestion is best-effort and must not
 abort the bench step.
@@ -44,6 +45,7 @@ def post(endpoint: str, payload: dict) -> None:
 def transform(raw: dict, args: argparse.Namespace) -> dict:
     """Map the raw `vllm bench serve` JSON to the dashboard's row shape."""
     tp = max(args.tp, 1)
+    gpu_count = max(getattr(args, "gpu_count", None) or tp, 1)
     total_token_throughput = float(raw.get("total_token_throughput", 0) or 0)
     output_throughput = float(raw.get("output_throughput", 0) or 0)
     input_throughput = total_token_throughput - output_throughput
@@ -57,16 +59,18 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
         "framework": "vllm",
         "precision": args.precision,
         "spec_decoding": "false",
-        "disagg": "false",
+        "disagg": str(bool(getattr(args, "disagg", False))).lower(),
         "isl": int(args.isl),
         "osl": int(args.osl),
-        "is_multinode": "false",
+        "is_multinode": str(
+            bool(getattr(args, "is_multinode", False))
+        ).lower(),
         "tp": tp,
         "ep": 1,
         "dp_attention": "false",
-        "tput_per_gpu": total_token_throughput / tp,
-        "output_tput_per_gpu": output_throughput / tp,
-        "input_tput_per_gpu": input_throughput / tp,
+        "tput_per_gpu": total_token_throughput / gpu_count,
+        "output_tput_per_gpu": output_throughput / gpu_count,
+        "input_tput_per_gpu": input_throughput / gpu_count,
     }
 
     if os.environ.get("NIGHTLY") == "1":
@@ -94,6 +98,18 @@ def main() -> int:
     p.add_argument("--raw-result", required=True, help="Raw JSON from `vllm bench serve --save-result`")
     p.add_argument("--device", required=True, help="Device tag (e.g. h200)")
     p.add_argument("--tp", type=int, required=True, help="Effective parallel-degree (TP * DP)")
+    p.add_argument(
+        "--gpu-count",
+        type=int,
+        default=None,
+        help="Total participating GPUs used for per-GPU throughput (default: --tp)",
+    )
+    p.add_argument(
+        "--disagg", action="store_true", help="Tag the result as disaggregated serving",
+    )
+    p.add_argument(
+        "--is-multinode", action="store_true", help="Tag the result as multi-node",
+    )
     p.add_argument("--precision", required=True, help="Precision tag (e.g. fp8, bf16)")
     p.add_argument("--model", required=True, help="HF model identifier (fallback if raw json lacks model_id)")
     p.add_argument("--image", required=True, help="Docker image used for the run")
