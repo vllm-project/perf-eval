@@ -17,7 +17,7 @@ B200:
 
 B300:
   queue: b300-8
-  hf_home: /raid/inf-simon/hf-cache
+  hf_home: /raid/buildkite/hf-cache
   server_runtime: native
   docker_plugin: nvidia
   # The standalone Axis host keeps validated framework images locally; avoid

@@ -250,6 +250,7 @@ def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
             # Buildkite step command runs through a shell inside the container.
             "entrypoint": "",
             "shell": ["/bin/sh", "-e", "-c"],
+            "propagate-uid-gid": True,
             "gpus": "all",
             "network": "host",
             "ipc": "host",
@@ -258,6 +259,8 @@ def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
                 "VLLM_USAGE_SOURCE=ci-test",
                 "NCCL_CUMEM_HOST_ENABLE=0",
                 f"HF_HOME={hf_home}",
+                "HOME=/raid/buildkite/home",
+                "XDG_CACHE_HOME=/raid/buildkite/cache",
                 "HF_TOKEN",
             ],
             "volumes": [
