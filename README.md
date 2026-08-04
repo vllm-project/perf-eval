@@ -25,6 +25,12 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
 GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
+Standalone B300 workloads run on the `b300-8` queue through the Buildkite
+Docker plugin. The profile exposes all eight GPUs, uses host networking and
+IPC, mounts `/raid`, and persists Hugging Face data under
+`/raid/inf-simon/hf-cache`. Before a large workload, validate the runner with
+`WORKLOADS=b300_runner_smoke`.
+
 ### Recipe schema
 
 A recipe has top-level metadata plus server and eval blocks:

@@ -15,6 +15,18 @@ B200:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
 
+B300:
+  queue: b300-8
+  hf_home: /raid/inf-simon/hf-cache
+  server_runtime: native
+  docker_plugin: nvidia
+  # The standalone Axis host keeps validated framework images locally; avoid
+  # re-pulling multi-gigabyte images on every opt-in benchmark invocation.
+  always_pull: false
+  env:
+    VLLM_DEEP_GEMM_WARMUP: skip
+    NCCL_CUMEM_HOST_ENABLE: 0
+
 MI300X:
   queue: mi300_perf_eval
   image_repo: vllm/vllm-openai-rocm

@@ -161,6 +161,46 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         )
 
 
+def test_b300_profile_uses_standalone_docker_plugin():
+    profiles = g.load_profiles()
+    profile = profiles["B300"]
+    plugin = g.nvidia_docker_plugin("example/sglang:test", 8, profile, "B300")
+    docker = plugin["docker#v5.2.0"]
+    assert profile["queue"] == "b300-8"
+    assert docker["gpus"] == "all"
+    assert docker["network"] == "host"
+    assert docker["ipc"] == "host"
+    assert "memlock=-1" in docker["ulimits"]
+    assert "/raid:/raid" in docker["volumes"]
+    assert "HF_HOME=/raid/inf-simon/hf-cache" in docker["environment"]
+
+
+def test_run_command_preserves_injected_hf_home():
+    rendered = g.RUN_TEMPLATE.format(path="workloads/example.yaml")
+    assert 'HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
+
+
+def test_b300_sglang_workload_renders_docker_plugin_step():
+    profiles = g.load_profiles()
+    step = g.make_step(
+        "workloads/glm_5_2_sglang_b200.yaml",
+        {
+            "name": "glm_5_2-sglang-b300",
+            "gpu": "B300",
+            "num_gpus": 8,
+            "bench_only": True,
+            "sglang": {
+                "model": "/raid/inf-simon/models/zai-org/GLM-5.2-FP8",
+                "image": "example/sglang:test",
+            },
+            "sglang_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert step["agents"] == {"queue": "b300-8"}
+    assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/sglang:test"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

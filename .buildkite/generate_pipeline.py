@@ -52,7 +52,10 @@ BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 NATIVE_BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml", system_site_packages=True)]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+    # Double-dollar escapes Buildkite pipeline-upload interpolation so the
+    # runtime container, not the upload agent, resolves its injected HF_HOME.
+    'export HF_HOME="$${{HF_HOME:-$(pwd)/.hf-cache}}"'
+    ' PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
 
@@ -64,6 +67,7 @@ DEFAULT_SGLANG_IMAGE = "lmsysorg/sglang:latest"
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
+    "B300": ":b300:",
     "A100": ":a100:",
     "MI355X": ":amd:",
     "MI300X": ":amd:",
@@ -263,6 +267,38 @@ K8S_PLUGINS = {
 }
 
 
+def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
+    """Run a native perf-eval step on a standalone NVIDIA Docker agent."""
+    profile = profile or {}
+    hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
+    return {
+        "docker#v5.2.0": {
+            "image": image,
+            "always-pull": profile.get("always_pull", True),
+            "propagate-environment": True,
+            "gpus": "all",
+            "network": "host",
+            "ipc": "host",
+            "ulimits": ["memlock=-1", "stack=67108864"],
+            "environment": [
+                "VLLM_USAGE_SOURCE=ci-test",
+                "NCCL_CUMEM_HOST_ENABLE=0",
+                f"HF_HOME={hf_home}",
+                "HF_TOKEN",
+            ],
+            "volumes": [
+                "/dev/shm:/dev/shm",
+                "/raid:/raid",
+            ],
+        },
+    }
+
+
+DOCKER_PLUGINS = {
+    "nvidia": nvidia_docker_plugin,
+}
+
+
 def load_profiles():
     with open(PROFILES_PATH) as f:
         return yaml.safe_load(f)
@@ -324,15 +360,27 @@ def make_step(path, data, profiles):
         "artifact_paths": ["results/**/*"],
     }
     if native_runtime:
-        kind = profile.get("k8s_plugin")
-        if not kind:
+        k8s_kind = profile.get("k8s_plugin")
+        docker_kind = profile.get("docker_plugin")
+        if bool(k8s_kind) == bool(docker_kind):
             sys.exit(
-                f"{path}: profile {gpu!r} sets server_runtime: native but no"
-                f" k8s_plugin; set one explicitly (have {', '.join(K8S_PLUGINS)})"
+                f"{path}: profile {gpu!r} sets server_runtime: native; set exactly"
+                " one of k8s_plugin or docker_plugin"
             )
-        builder = K8S_PLUGINS.get(kind)
-        if builder is None:
-            sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
+        if k8s_kind:
+            builder = K8S_PLUGINS.get(k8s_kind)
+            if builder is None:
+                sys.exit(
+                    f"{path}: unknown k8s_plugin {k8s_kind!r}"
+                    f" (have {', '.join(K8S_PLUGINS)})"
+                )
+        else:
+            builder = DOCKER_PLUGINS.get(docker_kind)
+            if builder is None:
+                sys.exit(
+                    f"{path}: unknown docker_plugin {docker_kind!r}"
+                    f" (have {', '.join(DOCKER_PLUGINS)})"
+                )
         image = ecr_pull_through(resolved_image(data, profile))
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
     step_env = {

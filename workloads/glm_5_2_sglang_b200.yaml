@@ -1,19 +1,22 @@
-# GLM-5.2 FP8 on B200 with SGLang
+# GLM-5.2 FP8 recipe migrated to one standalone 8xB300 with SGLang.
 # Recipe: https://lmsysorg.mintlify.app/cookbook/autoregressive/GLM/GLM-5.2#hw=b200&variant=default&quant=fp8&strategy=balanced&nodes=single
 # The published B200 balanced result is measured on SGLang main @ 09ca4fc with
 # lmsysorg/sglang:latest, DP8 + DeepEP, SGLANG_SIMULATE_ACC_LEN=2, and the
 # 8K/1K concurrency-64/256 benchmark cells below.
-name: glm_5_2-sglang-b200-deepep
-gpu: B200
+name: glm_5_2-sglang-b300-deepep
+gpu: B300
 num_gpus: 8
 timeout_in_minutes: 180
 bench_only: true
 
 sglang:
-  model: zai-org/GLM-5.2-FP8
+  # Pre-staged on the standalone Axis host; avoids a second 700+ GB download.
+  model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
   image: lmsysorg/sglang:latest
   env:
     SGLANG_SIMULATE_ACC_LEN: 2
+    # Single-node DeepEP should stay on NVLink on this host.
+    NVSHMEM_DISABLE_IB: 1
   serve_args: >-
     --tp 8
     --dp 8
@@ -29,7 +32,7 @@ sglang:
 
 sglang_bench:
   metadata:
-    device: b200
+    device: b300
     # SGLang's GLM-5.2 B200 balanced recipe is one 8-GPU node. Do not use
     # tp*dp here: --dp 8 is part of DP-attention, not 64 physical GPUs.
     tp: 8
