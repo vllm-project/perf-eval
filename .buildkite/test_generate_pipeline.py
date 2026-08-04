@@ -169,12 +169,15 @@ def test_b300_profile_uses_standalone_docker_plugin():
     assert profile["queue"] == "b300-8"
     assert docker["entrypoint"] == ""
     assert docker["shell"] == ["/bin/sh", "-e", "-c"]
+    assert docker["propagate-uid-gid"] is True
     assert docker["gpus"] == "all"
     assert docker["network"] == "host"
     assert docker["ipc"] == "host"
     assert "memlock=-1" in docker["ulimits"]
     assert "/raid:/raid" in docker["volumes"]
-    assert "HF_HOME=/raid/inf-simon/hf-cache" in docker["environment"]
+    assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
+    assert "HOME=/raid/buildkite/home" in docker["environment"]
+    assert "XDG_CACHE_HOME=/raid/buildkite/cache" in docker["environment"]
 
 
 def test_run_command_preserves_injected_hf_home():
