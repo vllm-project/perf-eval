@@ -246,6 +246,10 @@ def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
             "image": image,
             "always-pull": profile.get("always_pull", True),
             "propagate-environment": True,
+            # Framework images define serving entrypoints. Disable them so the
+            # Buildkite step command runs through a shell inside the container.
+            "entrypoint": "",
+            "shell": ["/bin/sh", "-e", "-c"],
             "gpus": "all",
             "network": "host",
             "ipc": "host",
