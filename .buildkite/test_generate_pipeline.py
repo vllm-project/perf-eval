@@ -167,6 +167,8 @@ def test_b300_profile_uses_standalone_docker_plugin():
     plugin = g.nvidia_docker_plugin("example/sglang:test", 8, profile, "B300")
     docker = plugin["docker#v5.2.0"]
     assert profile["queue"] == "b300-8"
+    assert docker["entrypoint"] == ""
+    assert docker["shell"] == ["/bin/sh", "-e", "-c"]
     assert docker["gpus"] == "all"
     assert docker["network"] == "host"
     assert docker["ipc"] == "host"
