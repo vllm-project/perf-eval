@@ -108,6 +108,38 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         )
 
 
+def test_b300_profile_uses_standalone_docker_plugin():
+    profiles = g.load_profiles()
+    profile = profiles["B300"]
+    plugin = g.nvidia_docker_plugin("example/vllm:test", 8, profile, "B300")
+    docker = plugin["docker#v5.2.0"]
+    assert profile["queue"] == "b300-8"
+    assert docker["gpus"] == "all"
+    assert docker["network"] == "host"
+    assert docker["ipc"] == "host"
+    assert "memlock=-1" in docker["ulimits"]
+    assert "/raid:/raid" in docker["volumes"]
+    assert "HF_HOME=/raid/inf-simon/hf-cache" in docker["environment"]
+
+
+def test_b300_workload_renders_docker_plugin_step():
+    profiles = g.load_profiles()
+    step = g.make_step(
+        "workloads/b300_runner_smoke.yaml",
+        {
+            "name": "b300-runner-smoke",
+            "gpu": "B300",
+            "num_gpus": 1,
+            "bench_only": True,
+            "vllm": {"model": "facebook/opt-125m", "image": "example/vllm:test"},
+            "vllm_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert step["agents"] == {"queue": "b300-8"}
+    assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

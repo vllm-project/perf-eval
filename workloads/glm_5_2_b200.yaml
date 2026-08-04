@@ -1,14 +1,15 @@
-# GLM-5.2 FP8 customer-reproduction recipe on a single 8xB200 node.
+# GLM-5.2 FP8 customer-reproduction recipe migrated to one standalone 8xB300.
 # Keep the server settings aligned with the supplied P6/B200 configuration so
 # the 8K-input/1K-output concurrency points can be compared directly.
-name: glm_5_2-b200-repro
-gpu: B200
+name: glm_5_2-b300-repro
+gpu: B300
 num_gpus: 8
 nightly: false
 bench_only: true
 
 vllm:
-  model: zai-org/GLM-5.2-FP8
+  # Pre-staged on the standalone Axis host; avoids a second 700+ GB download.
+  model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
   startup_timeout: 7200
   serve_args: >-
     --tensor-parallel-size 8
