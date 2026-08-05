@@ -12,7 +12,7 @@ vllm:
   model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
   startup_timeout: 7200
   env:
-    # Match SGLang's single-node DeepEP transport rather than probing IB.
+    # Keep the standalone node on its NVLink-local transport path.
     NVSHMEM_DISABLE_IB: 1
     # These are stability controls used by the validated B300 DP8 recipe.
     VLLM_USE_V2_MODEL_RUNNER: 1
@@ -23,7 +23,7 @@ vllm:
     --data-parallel-size 8
     --data-parallel-backend mp
     --enable-expert-parallel
-    --all2all-backend deepep_low_latency
+    --all2all-backend flashinfer_all2allv
     --kv-cache-dtype fp8_e4m3
     --max-model-len 32768
     --max-num-batched-tokens 32768
