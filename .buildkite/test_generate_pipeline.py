@@ -212,6 +212,40 @@ def test_b300_sglang_workload_renders_docker_plugin_step():
     assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/sglang:test"
 
 
+def test_glm_b300_sglang_uses_matched_real_eagle_shape():
+    path = os.path.join(
+        os.path.dirname(HERE), "workloads", "glm_5_2_sglang_b200.yaml"
+    )
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    sglang = data["sglang"]
+    args = sglang["serve_args"]
+    for expected in (
+        "--tp 8",
+        "--dp 8",
+        "--enable-dp-attention",
+        "--moe-a2a-backend deepep",
+        "--kv-cache-dtype fp8_e4m3",
+        "--speculative-algorithm EAGLE",
+        "--speculative-num-steps 1",
+        "--speculative-num-draft-tokens 2",
+        "--mem-fraction-static 0.85",
+        "--context-length 32768",
+        "--chunked-prefill-size 32768",
+        "--max-prefill-tokens 32768",
+        "--max-running-requests 256",
+        "--disable-radix-cache",
+    ):
+        assert expected in args
+    assert sglang["env"]["NVSHMEM_DISABLE_IB"] == 1
+    assert "SGLANG_SIMULATE_ACC_LEN" not in sglang["env"]
+    configs = data["sglang_bench"]["configs"]
+    assert [(c["num_prompts"], c["max_concurrency"]) for c in configs] == [
+        (128, 64),
+        (512, 256),
+    ]
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
