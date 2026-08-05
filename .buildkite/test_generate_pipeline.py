@@ -149,6 +149,39 @@ def test_b300_workload_renders_docker_plugin_step():
     assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
 
 
+def test_glm_b300_vllm_uses_matched_real_spec_shape():
+    path = os.path.join(
+        os.path.dirname(HERE), "workloads", "glm_5_2_b200.yaml"
+    )
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    vllm = data["vllm"]
+    args = vllm["serve_args"]
+    for expected in (
+        "--tensor-parallel-size 1",
+        "--data-parallel-size 8",
+        "--enable-expert-parallel",
+        "--all2all-backend deepep_high_throughput",
+        "--kv-cache-dtype fp8_e4m3",
+        "--max-model-len 32768",
+        "--max-num-batched-tokens 32768",
+        "--long-prefill-token-threshold 4096",
+        "--max-num-seqs 256",
+        "--gpu-memory-utilization 0.85",
+        "--no-enable-prefix-caching",
+        "--speculative-config.method mtp",
+        "--speculative-config.num_speculative_tokens 1",
+    ):
+        assert expected in args
+    assert vllm["env"]["NVSHMEM_DISABLE_IB"] == 1
+    configs = data["vllm_bench"]["configs"]
+    assert [(c["num_prompts"], c["max_concurrency"]) for c in configs] == [
+        (128, 64),
+        (512, 256),
+    ]
+    assert all(c["args"]["num_warmups"] == 64 for c in configs)
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

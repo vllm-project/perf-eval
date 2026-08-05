@@ -1,7 +1,7 @@
-# GLM-5.2 FP8 customer-reproduction recipe migrated to one standalone 8xB300.
-# Keep the server settings aligned with the supplied P6/B200 configuration so
-# the 8K-input/1K-output concurrency points can be compared directly.
-name: glm_5_2-b300-repro
+# GLM-5.2 FP8 apples-to-apples vLLM recipe on one standalone 8xB300.
+# Keep topology, transport, memory/cache policy, context/prefill limits, client
+# shape, and speculative depth aligned with glm_5_2_sglang_b200.yaml.
+name: glm_5_2-b300-apples-vllm
 gpu: B300
 num_gpus: 8
 nightly: false
@@ -11,19 +11,30 @@ vllm:
   # Pre-staged on the standalone Axis host; avoids a second 700+ GB download.
   model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
   startup_timeout: 7200
+  env:
+    # Match SGLang's single-node DeepEP transport rather than probing IB.
+    NVSHMEM_DISABLE_IB: 1
+    # These are stability controls used by the validated B300 DP8 recipe.
+    VLLM_USE_V2_MODEL_RUNNER: 1
+    VLLM_DEEP_GEMM_WARMUP: skip
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
   serve_args: >-
-    --tensor-parallel-size 8
+    --tensor-parallel-size 1
+    --data-parallel-size 8
+    --data-parallel-backend mp
     --enable-expert-parallel
+    --all2all-backend deepep_high_throughput
     --kv-cache-dtype fp8_e4m3
-    --max-model-len 1048576
-    --max-num-batched-tokens 32000
+    --max-model-len 32768
+    --max-num-batched-tokens 32768
+    --long-prefill-token-threshold 4096
     --max-num-seqs 256
-    --gpu-memory-utilization 0.92
+    --gpu-memory-utilization 0.85
     --enable-chunked-prefill
-    --enable-prefix-caching
-    --scheduling-policy priority
+    --no-enable-prefix-caching
     --speculative-config.method mtp
     --speculative-config.num_speculative_tokens 1
+    --disable-custom-all-reduce
 
 vllm_bench:
   configs:
@@ -32,10 +43,10 @@ vllm_bench:
       dataset: random
       input_len: 8192
       output_len: 1024
-      num_prompts: 256
+      num_prompts: 128
       max_concurrency: 64
       args:
-        num_warmups: 16
+        num_warmups: 64
         disable_tqdm: true
     - name: 8k-in-1k-out-conc-256
       backend: openai
@@ -45,5 +56,5 @@ vllm_bench:
       num_prompts: 512
       max_concurrency: 256
       args:
-        num_warmups: 16
+        num_warmups: 64
         disable_tqdm: true
