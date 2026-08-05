@@ -24,7 +24,7 @@ vllm:
     --data-parallel-backend mp
     --enable-expert-parallel
     --all2all-backend allgather_reducescatter
-    --moe-backend deep_gemm
+    --moe-backend triton
     --kv-cache-dtype fp8_e4m3
     --max-model-len 32768
     --max-num-batched-tokens 32768
