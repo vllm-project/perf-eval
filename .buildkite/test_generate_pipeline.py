@@ -178,6 +178,7 @@ def test_b300_profile_uses_standalone_docker_plugin():
     assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
     assert "HOME=/raid/buildkite/home" in docker["environment"]
     assert "XDG_CACHE_HOME=/raid/buildkite/cache" in docker["environment"]
+    assert "FLASHINFER_CUBIN_DIR=/raid/buildkite/flashinfer-cubins" in docker["environment"]
 
 
 def test_run_command_preserves_injected_hf_home():
