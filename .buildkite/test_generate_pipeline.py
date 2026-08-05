@@ -182,6 +182,8 @@ def test_b300_profile_uses_standalone_docker_plugin():
         "/raid/buildkite/flashinfer-cubins-sglang:"
         "/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins"
     ) in docker["volumes"]
+    assert "/etc/passwd:/etc/passwd:ro" in docker["volumes"]
+    assert "/etc/group:/etc/group:ro" in docker["volumes"]
 
 
 def test_run_command_preserves_injected_hf_home():

@@ -27,6 +27,10 @@ B300:
   # allowing its runtime-created TRT-LLM symlinks under an arbitrary UID.
   extra_volumes:
     - /raid/buildkite/flashinfer-cubins-sglang:/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins
+    # Torch resolves a cache namespace through getpwuid(); expose the host's
+    # service-account entry when the image runs as the propagated agent UID.
+    - /etc/passwd:/etc/passwd:ro
+    - /etc/group:/etc/group:ro
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
