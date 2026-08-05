@@ -261,12 +261,12 @@ def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
                 f"HF_HOME={hf_home}",
                 "HOME=/raid/buildkite/home",
                 "XDG_CACHE_HOME=/raid/buildkite/cache",
-                "FLASHINFER_CUBIN_DIR=/raid/buildkite/flashinfer-cubins",
                 "HF_TOKEN",
             ],
             "volumes": [
                 "/dev/shm:/dev/shm",
                 "/raid:/raid",
+                *(profile.get("extra_volumes") or []),
             ],
         },
     }
