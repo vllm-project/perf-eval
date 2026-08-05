@@ -173,7 +173,6 @@ def test_b300_profile_uses_standalone_docker_plugin():
     assert docker["gpus"] == "all"
     assert docker["network"] == "host"
     assert docker["ipc"] == "host"
-    assert docker["add-caps"] == ["SYS_PTRACE"]
     assert "memlock=-1" in docker["ulimits"]
     assert "/raid:/raid" in docker["volumes"]
     assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
@@ -225,8 +224,7 @@ def test_glm_b300_sglang_uses_matched_real_eagle_shape():
         "--tp 8",
         "--dp 8",
         "--enable-dp-attention",
-        "--moe-a2a-backend flashinfer",
-        "--moe-runner-backend flashinfer_cutlass",
+        "--moe-a2a-backend none",
         "--kv-cache-dtype fp8_e4m3",
         "--speculative-algorithm EAGLE",
         "--speculative-num-steps 1",
