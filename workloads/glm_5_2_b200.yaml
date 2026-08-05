@@ -23,8 +23,7 @@ vllm:
     --data-parallel-size 8
     --data-parallel-backend mp
     --enable-expert-parallel
-    --all2all-backend flashinfer_all2allv
-    --moe-backend flashinfer_cutlass
+    --all2all-backend allgather_reducescatter
     --kv-cache-dtype fp8_e4m3
     --max-model-len 32768
     --max-num-batched-tokens 32768
