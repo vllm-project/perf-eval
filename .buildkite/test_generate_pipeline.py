@@ -224,7 +224,7 @@ def test_glm_b300_sglang_uses_matched_real_eagle_shape():
         "--tp 8",
         "--dp 8",
         "--enable-dp-attention",
-        "--moe-a2a-backend deepep",
+        "--moe-a2a-backend flashinfer",
         "--kv-cache-dtype fp8_e4m3",
         "--speculative-algorithm EAGLE",
         "--speculative-num-steps 1",

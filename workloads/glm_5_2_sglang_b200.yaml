@@ -13,13 +13,13 @@ sglang:
   model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
   image: lmsysorg/sglang:latest
   env:
-    # Single-node DeepEP should stay on NVLink on this host.
+    # Keep the standalone node on its NVLink-local transport path.
     NVSHMEM_DISABLE_IB: 1
   serve_args: >-
     --tp 8
     --dp 8
     --enable-dp-attention
-    --moe-a2a-backend deepep
+    --moe-a2a-backend flashinfer
     --kv-cache-dtype fp8_e4m3
     --speculative-algorithm EAGLE
     --speculative-num-steps 1
