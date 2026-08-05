@@ -23,6 +23,10 @@ B300:
   # The standalone Axis host keeps validated framework images locally; avoid
   # re-pulling multi-gigabyte images on every opt-in benchmark invocation.
   always_pull: false
+  # Keep SGLang's flashinfer-cubin version isolated from the vLLM image while
+  # allowing its runtime-created TRT-LLM symlinks under an arbitrary UID.
+  extra_volumes:
+    - /raid/buildkite/flashinfer-cubins-sglang:/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
