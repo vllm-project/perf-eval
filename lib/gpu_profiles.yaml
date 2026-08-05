@@ -23,6 +23,10 @@ B300:
   # The standalone Axis host keeps validated framework images locally; avoid
   # re-pulling multi-gigabyte images on every opt-in benchmark invocation.
   always_pull: false
+  # FlashInfer NVLink A2A shares CUDA IPC handles between DP workers via
+  # pidfd_getfd(2), which Docker's default capability set blocks.
+  add_caps:
+    - SYS_PTRACE
   # Keep SGLang's flashinfer-cubin version isolated from the vLLM image while
   # allowing its runtime-created TRT-LLM symlinks under an arbitrary UID.
   extra_volumes:

@@ -20,6 +20,7 @@ sglang:
     --dp 8
     --enable-dp-attention
     --moe-a2a-backend flashinfer
+    --moe-runner-backend flashinfer_cutlass
     --kv-cache-dtype fp8_e4m3
     --speculative-algorithm EAGLE
     --speculative-num-steps 1
