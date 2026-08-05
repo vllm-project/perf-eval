@@ -1,0 +1,31 @@
+# Opt-in accuracy validation for the standalone Axis B300 Buildkite runner.
+# Keep this separate from the four-request smoke so the fast health check stays
+# cheap while the full GSM8K suite exercises lm-evaluation-harness end to end.
+name: b300-runner-gsm8k
+gpu: B300
+num_gpus: 1
+timeout_in_minutes: 60
+nightly: false
+
+vllm:
+  model: Qwen/Qwen2.5-0.5B-Instruct
+  image: vllm/vllm-openai:nightly-d223c900d85224c02f2162ee2c757a769e99f519
+  startup_timeout: 900
+  serve_args: >-
+    --max-model-len 4096
+    --gpu-memory-utilization 0.10
+    --enforce-eager
+    --generation-config vllm
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 600
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 4096
+        max_gen_toks: 512
