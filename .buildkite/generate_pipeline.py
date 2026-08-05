@@ -254,6 +254,11 @@ def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
             "gpus": "all",
             "network": "host",
             "ipc": "host",
+            **(
+                {"add-caps": profile["add_caps"]}
+                if profile.get("add_caps")
+                else {}
+            ),
             "ulimits": ["memlock=-1", "stack=67108864"],
             "environment": [
                 "VLLM_USAGE_SOURCE=ci-test",

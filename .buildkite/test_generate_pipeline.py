@@ -120,6 +120,7 @@ def test_b300_profile_uses_standalone_docker_plugin():
     assert docker["gpus"] == "all"
     assert docker["network"] == "host"
     assert docker["ipc"] == "host"
+    assert docker["add-caps"] == ["SYS_PTRACE"]
     assert "memlock=-1" in docker["ulimits"]
     assert "/raid:/raid" in docker["volumes"]
     assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
@@ -162,6 +163,7 @@ def test_glm_b300_vllm_uses_matched_real_spec_shape():
         "--data-parallel-size 8",
         "--enable-expert-parallel",
         "--all2all-backend flashinfer_all2allv",
+        "--moe-backend flashinfer_cutlass",
         "--kv-cache-dtype fp8_e4m3",
         "--max-model-len 32768",
         "--max-num-batched-tokens 32768",
