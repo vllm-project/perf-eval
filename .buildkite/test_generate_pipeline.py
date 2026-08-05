@@ -161,7 +161,7 @@ def test_glm_b300_vllm_uses_matched_real_spec_shape():
         "--tensor-parallel-size 1",
         "--data-parallel-size 8",
         "--enable-expert-parallel",
-        "--all2all-backend deepep_high_throughput",
+        "--all2all-backend deepep_v2",
         "--kv-cache-dtype fp8_e4m3",
         "--max-model-len 32768",
         "--max-num-batched-tokens 32768",
