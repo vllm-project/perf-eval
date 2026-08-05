@@ -28,6 +28,67 @@ def _amd_volumes(profile, gpu="MI300X"):
     return patch, vols
 
 
+def _b200_patch(image="img", num_gpus=8):
+    plugin = g.b200_k8s_plugin(image, num_gpus, {}, "B200")
+    return plugin["kubernetes"]["podSpecPatch"]
+
+
+def test_b200_uses_podspec_patch_to_override_agent_container():
+    """The B200 Kubernetes stack runs commands in its pre-created build
+    container, so the workload image must patch container-0 instead of adding a
+    separate unnamed container that the agent ignores."""
+    patch = _b200_patch("lmsysorg/sglang:latest", 8)
+    c = patch["containers"][0]
+    assert c["name"] == "container-0"
+    assert c["image"] == "lmsysorg/sglang:latest"
+    assert c["resources"]["limits"]["nvidia.com/gpu"] == 8
+    assert patch["hostIPC"] is True
+    assert c["securityContext"]["privileged"] is True
+    assert "SYS_ADMIN" in c["securityContext"]["capabilities"]["add"]
+    mounts = {m["name"]: m["mountPath"] for m in c["volumeMounts"]}
+    volumes = {v["name"]: v for v in patch["volumes"]}
+    assert mounts["infiniband"] == "/dev/infiniband"
+    assert volumes["infiniband"]["hostPath"] == {
+        "path": "/dev/infiniband",
+        "type": "Directory",
+    }
+    assert "nodeSelector" not in patch
+
+
+def test_b200_node_name_override_adds_hostname_selector():
+    key = "B200_NODE_NAME"
+    prev = os.environ.get(key)
+    os.environ[key] = "dgxB200-12"
+    try:
+        patch = _b200_patch("lmsysorg/sglang:latest", 8)
+    finally:
+        if prev is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = prev
+    assert patch["nodeSelector"] == {"kubernetes.io/hostname": "dgxB200-12"}
+
+
+def test_native_runtime_venv_keeps_image_packages_visible():
+    """Native runtimes use packages already installed in the workload image
+    (`vllm`, `sglang`). The helper venv is only for pyyaml/lm-eval, so it must
+    include system site packages."""
+    profiles = {"B200": g.load_profiles()["B200"]}
+    step = g.make_step(
+        "workloads/glm_5_2_sglang_b200.yaml",
+        {
+            "name": "glm_5_2-sglang-b200",
+            "gpu": "B200",
+            "num_gpus": 8,
+            "bench_only": True,
+            "sglang": {"model": "zai-org/GLM-5.2-FP8"},
+            "sglang_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert "python3 -m venv --system-site-packages .venv" in step["commands"][0]
+
+
 def test_default_hf_cache_is_emptydir_not_hostpath():
     """Default (no override, no profile field) must be an emptyDir, never a
     hostPath — a hostPath on an unmounted node path is what filled root disks."""
@@ -98,6 +159,92 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         assert not hf_home.startswith("/mnt/shared"), (
             f"{gpu} hf_home={hf_home!r} would land on the node root disk"
         )
+
+
+def test_b300_profile_uses_standalone_docker_plugin():
+    profiles = g.load_profiles()
+    profile = profiles["B300"]
+    plugin = g.nvidia_docker_plugin("example/sglang:test", 8, profile, "B300")
+    docker = plugin["docker#v5.2.0"]
+    assert profile["queue"] == "b300-8"
+    assert docker["entrypoint"] == ""
+    assert docker["shell"] == ["/bin/sh", "-e", "-c"]
+    assert docker["propagate-uid-gid"] is True
+    assert docker["gpus"] == "all"
+    assert docker["network"] == "host"
+    assert docker["ipc"] == "host"
+    assert "memlock=-1" in docker["ulimits"]
+    assert "/raid:/raid" in docker["volumes"]
+    assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
+    assert "HOME=/raid/buildkite/home" in docker["environment"]
+    assert "XDG_CACHE_HOME=/raid/buildkite/cache" in docker["environment"]
+    assert (
+        "/raid/buildkite/flashinfer-cubins-sglang:"
+        "/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins"
+    ) in docker["volumes"]
+    assert "/etc/passwd:/etc/passwd:ro" in docker["volumes"]
+    assert "/etc/group:/etc/group:ro" in docker["volumes"]
+
+
+def test_run_command_preserves_injected_hf_home():
+    rendered = g.RUN_TEMPLATE.format(path="workloads/example.yaml")
+    assert 'HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
+
+
+def test_b300_sglang_workload_renders_docker_plugin_step():
+    profiles = g.load_profiles()
+    step = g.make_step(
+        "workloads/glm_5_2_sglang_b200.yaml",
+        {
+            "name": "glm_5_2-sglang-b300",
+            "gpu": "B300",
+            "num_gpus": 8,
+            "bench_only": True,
+            "sglang": {
+                "model": "/raid/inf-simon/models/zai-org/GLM-5.2-FP8",
+                "image": "example/sglang:test",
+            },
+            "sglang_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert step["agents"] == {"queue": "b300-8"}
+    assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/sglang:test"
+
+
+def test_glm_b300_sglang_uses_matched_real_eagle_shape():
+    path = os.path.join(
+        os.path.dirname(HERE), "workloads", "glm_5_2_sglang_b200.yaml"
+    )
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    sglang = data["sglang"]
+    args = sglang["serve_args"]
+    for expected in (
+        "--tp 8",
+        "--dp 8",
+        "--enable-dp-attention",
+        "--moe-a2a-backend none",
+        "--moe-runner-backend triton",
+        "--kv-cache-dtype fp8_e4m3",
+        "--speculative-algorithm EAGLE",
+        "--speculative-num-steps 1",
+        "--speculative-num-draft-tokens 2",
+        "--mem-fraction-static 0.85",
+        "--context-length 32768",
+        "--chunked-prefill-size 32768",
+        "--max-prefill-tokens 32768",
+        "--max-running-requests 256",
+        "--disable-radix-cache",
+    ):
+        assert expected in args
+    assert sglang["env"]["NVSHMEM_DISABLE_IB"] == 1
+    assert "SGLANG_SIMULATE_ACC_LEN" not in sglang["env"]
+    configs = data["sglang_bench"]["configs"]
+    assert [(c["num_prompts"], c["max_concurrency"]) for c in configs] == [
+        (128, 64),
+        (512, 256),
+    ]
 
 
 def main():

@@ -1,6 +1,6 @@
 # perf-eval
 
-Run accuracy + perf workloads against vLLM, defined by small YAML recipes in `workloads/`.
+Run accuracy + perf workloads against vLLM and SGLang, defined by small YAML recipes in `workloads/`.
 
 Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite pipeline picks recipes up automatically — to ship a new run, you write a YAML file, push it, and trigger a build.
 
@@ -25,16 +25,24 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
 GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
+Standalone B300 workloads run on the `b300-8` queue through the Buildkite
+Docker plugin. The profile exposes all eight GPUs, uses host networking and
+IPC, mounts `/raid`, and persists Hugging Face data under
+`/raid/inf-simon/hf-cache`. Before a large workload, validate the runner with
+`WORKLOADS=b300_runner_smoke`.
+
 ### Recipe schema
 
-A recipe has top-level metadata plus up to three eval blocks:
+A recipe has top-level metadata plus server and eval blocks:
 
-- **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
+- **`vllm:`** — *how a vLLM server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Use either `vllm:` or `sglang:`.
+- **`sglang:`** — *how an SGLang server runs.* Defines the model, SGLang image/env, and args appended to `python3 -m sglang.launch_server --model-path <model> --host 0.0.0.0 --port <port>`.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
+- **`sglang_bench:`** — *what SGLang perf to measure.* Lists `python3 -m sglang.bench_serving` configs. Raw JSONL plus the final JSON row are saved and ingested into the perf dashboard with `framework=sglang`. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
 
-Include one or more of `lm_eval:` / `vllm_bench:` / `bfcl:` depending on what you want out of this recipe.
+Include one or more of `lm_eval:` / `vllm_bench:` / `sglang_bench:` / `bfcl:` depending on what you want out of this recipe.
 
 ```yaml
 name: qwen3_5-h200       # used in container name and results/<name>/
@@ -87,6 +95,28 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
       args:                             # optional vllm bench serve arguments
         num_warmups: 16                 # becomes --num-warmups 16
         disable_tqdm: true              # becomes --disable-tqdm
+
+sglang:                 # alternative server block for SGLang workloads
+  model: zai-org/GLM-5.2-FP8
+  image: lmsysorg/sglang:latest          # optional; falls back to SGLANG_IMAGE / latest
+  env:
+    SGLANG_SIMULATE_ACC_LEN: 2
+  serve_args: >-                         # appended to python3 -m sglang.launch_server ...
+    --tp 8 --dp 8
+    --enable-dp-attention
+
+sglang_bench:           # SGLang perf runs (optional) — fed to the perf dashboard
+  metadata:
+    tp: 8                # physical GPUs for per-GPU dashboard throughput
+    precision: fp8
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: sglang
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 128
+      max_concurrency: 64
 ```
 
 A few things worth knowing:
@@ -97,6 +127,7 @@ A few things worth knowing:
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
 - **`vllm_bench` uses the `random` dataset with `--ignore-eos`** so every request prefills exactly `input_len` and decodes exactly `output_len` tokens — that's what makes the per-GPU decode throughput meaningful. Pair it with `backend: openai` (the `/v1/completions` endpoint) for exact token control. Avoid `dataset: speed_bench` for throughput numbers: it requires `--skip-tokenizer-init`, which makes `vllm bench serve` cap every request at a single output token, so output throughput reads as ~0.
 - **`vllm_bench.configs[].args` forwards additional options to `vllm bench serve`.** Keys may use underscores, hyphens, or a leading `--`; they are normalized to `--kebab-case`. A `true` value emits a standalone flag, `false` and `null` omit it, scalar values emit a flag/value pair, and lists repeat the flag. Options managed by perf-eval itself, including the model, endpoint, dataset, request counts, lengths, concurrency, and result path, remain top-level config fields and cannot be overridden through `args`.
+- **`sglang_bench` currently supports the `random` dataset.** It runs `python3 -m sglang.bench_serving` with `--random-range-ratio 1.0`, `--warmup-requests 64`, and `--flush-cache`, matching SGLang's published GLM-5.2 serving recipes. Set `metadata.tp` to the physical GPU count used for per-GPU dashboard throughput; SGLang DP-attention recipes can use both `--tp` and `--dp` without consuming `tp * dp` GPUs.
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
@@ -127,7 +158,7 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 **From the UI:** open the pipeline → New Build → pick branch and commit (must be pushed to GitHub) → optionally fill Environment Variables to scope the run → Create Build.
 
-**Required env vars** — both must be set on every build:
+**Required env vars for vLLM image override builds** — both must be set when testing a specific vLLM revision:
 
 - `VLLM_COMMIT` — vLLM commit SHA being tested. Used to tag results and track which vLLM version produced them.
 - `VLLM_IMAGE` — full Docker image URI (e.g. `vllm/vllm-openai:nightly-abc1234`). This is the image that gets pulled and run.
@@ -135,6 +166,7 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 **Optional env vars:**
 
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
+- `SGLANG_IMAGE` — full Docker image URI for SGLang workloads. Overrides `sglang.image` in the workload.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
 **Example — trigger a build from the Buildkite UI:**

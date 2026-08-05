@@ -10,6 +10,7 @@ Always emits one GPU-profiled step per selected workload. Selection rules:
 Override env vars are propagated to each step:
   VLLM_IMAGE   full docker image URI; overrides workload's vllm.image
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
+  SGLANG_IMAGE full docker image URI; overrides workload's sglang.image
   BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
 
 Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
@@ -25,9 +26,10 @@ import sys
 
 import yaml
 
-def setup_command(packages):
+def setup_command(packages, system_site_packages=False):
+    venv_args = "--system-site-packages .venv" if system_site_packages else ".venv"
     return (
-        "if python3 -m venv .venv; then\n"
+        f"if python3 -m venv {venv_args}; then\n"
         "  . .venv/bin/activate\n"
         "  (python -m ensurepip --upgrade --default-pip 2>/dev/null"
         " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)\n"
@@ -42,21 +44,30 @@ def setup_command(packages):
 
 
 FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
+NATIVE_FULL_SETUP_COMMANDS = [
+    setup_command("'lm-eval[api]' pyyaml", system_site_packages=True)
+]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
+NATIVE_BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml", system_site_packages=True)]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+    # Double-dollar escapes Buildkite pipeline-upload interpolation so the
+    # runtime container, not the upload agent, resolves its injected HF_HOME.
+    'export HF_HOME="$${{HF_HOME:-$(pwd)/.hf-cache}}"'
+    ' PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
 
 DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
 DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
+DEFAULT_SGLANG_IMAGE = "lmsysorg/sglang:latest"
 
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
+    "B300": ":b300:",
     "A100": ":a100:",
     "MI355X": ":amd:",
     "MI300X": ":amd:",
@@ -90,7 +101,18 @@ def commit_from_image(image):
     return m.group(1) if m else ""
 
 
+def server_config(data):
+    if data.get("sglang"):
+        return "sglang", data.get("sglang") or {}
+    return "vllm", data.get("vllm") or {}
+
+
 def resolved_image(data, profile):
+    engine, server = server_config(data)
+    if engine == "sglang":
+        override_image = (os.environ.get("SGLANG_IMAGE") or "").strip()
+        return override_image or server.get("image", DEFAULT_SGLANG_IMAGE)
+
     vllm = data.get("vllm") or {}
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
@@ -102,61 +124,73 @@ def resolved_image(data, profile):
     commit = override_commit or commit_from_image(override_image)
     if commit:
         return f"{repo}:nightly-{commit}"
-    return vllm.get("image", f"{repo}:nightly")
+    return server.get("image", f"{repo}:nightly")
 
 
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
-    return {
-        "kubernetes": {
-            "podSpec": {
-                "runtimeClassName": "nvidia",
-                "hostNetwork": True,
-                "dnsPolicy": "ClusterFirstWithHostNet",
-                "imagePullSecrets": [
-                    {"name": "k8s-ecr-login-renew-docker-secret"},
+    pod_spec = {
+        "runtimeClassName": "nvidia",
+        "hostNetwork": True,
+        "hostIPC": True,
+        "dnsPolicy": "ClusterFirstWithHostNet",
+        "imagePullSecrets": [
+            {"name": "k8s-ecr-login-renew-docker-secret"},
+        ],
+        "containers": [
+            {
+                "name": "container-0",
+                "image": image,
+                "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
+                "securityContext": {
+                    "privileged": True,
+                    "capabilities": {
+                        "add": ["IPC_LOCK", "SYS_RESOURCE", "SYS_ADMIN"],
+                    },
+                },
+                "volumeMounts": [
+                    {"name": "devshm", "mountPath": "/dev/shm"},
+                    {"name": "infiniband", "mountPath": "/dev/infiniband"},
+                    {"name": "raid", "mountPath": "/raid"},
+                    {"name": "shared", "mountPath": "/mnt/shared"},
                 ],
-                "containers": [
+                "env": [
+                    {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
+                    {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
+                    {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
                     {
-                        "image": image,
-                        "resources": {"limits": {"nvidia.com/gpu": num_gpus}},
-                        "securityContext": {
-                            "capabilities": {
-                                "add": ["IPC_LOCK", "SYS_RESOURCE"],
+                        "name": "HF_TOKEN",
+                        "valueFrom": {
+                            "secretKeyRef": {
+                                "name": "hf-token-secret",
+                                "key": "token",
                             },
                         },
-                        "volumeMounts": [
-                            {"name": "devshm", "mountPath": "/dev/shm"},
-                            {"name": "raid", "mountPath": "/raid"},
-                            {"name": "shared", "mountPath": "/mnt/shared"},
-                        ],
-                        "env": [
-                            {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
-                            {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
-                            {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
-                            {
-                                "name": "HF_TOKEN",
-                                "valueFrom": {
-                                    "secretKeyRef": {
-                                        "name": "hf-token-secret",
-                                        "key": "token",
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                ],
-                "volumes": [
-                    {"name": "devshm", "emptyDir": {"medium": "Memory"}},
-                    {
-                        "name": "raid",
-                        "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
-                    },
-                    {
-                        "name": "shared",
-                        "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
                     },
                 ],
             },
+        ],
+        "volumes": [
+            {"name": "devshm", "emptyDir": {"medium": "Memory"}},
+            {
+                "name": "infiniband",
+                "hostPath": {"path": "/dev/infiniband", "type": "Directory"},
+            },
+            {
+                "name": "raid",
+                "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
+            },
+            {
+                "name": "shared",
+                "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
+            },
+        ],
+    }
+    node_name = (os.environ.get("B200_NODE_NAME") or "").strip()
+    if node_name:
+        pod_spec["nodeSelector"] = {"kubernetes.io/hostname": node_name}
+    return {
+        "kubernetes": {
+            "podSpecPatch": pod_spec,
         },
     }
 
@@ -233,6 +267,46 @@ K8S_PLUGINS = {
 }
 
 
+def nvidia_docker_plugin(image, num_gpus, profile=None, gpu=None):
+    """Run a native perf-eval step on a standalone NVIDIA Docker agent."""
+    profile = profile or {}
+    hf_home = profile.get("hf_home") or "/root/.cache/huggingface"
+    return {
+        "docker#v5.2.0": {
+            "image": image,
+            "always-pull": profile.get("always_pull", True),
+            "propagate-environment": True,
+            # Framework images define serving entrypoints. Disable them so the
+            # Buildkite step command runs through a shell inside the container.
+            "entrypoint": "",
+            "shell": ["/bin/sh", "-e", "-c"],
+            "propagate-uid-gid": True,
+            "gpus": "all",
+            "network": "host",
+            "ipc": "host",
+            "ulimits": ["memlock=-1", "stack=67108864"],
+            "environment": [
+                "VLLM_USAGE_SOURCE=ci-test",
+                "NCCL_CUMEM_HOST_ENABLE=0",
+                f"HF_HOME={hf_home}",
+                "HOME=/raid/buildkite/home",
+                "XDG_CACHE_HOME=/raid/buildkite/cache",
+                "HF_TOKEN",
+            ],
+            "volumes": [
+                "/dev/shm:/dev/shm",
+                "/raid:/raid",
+                *(profile.get("extra_volumes") or []),
+            ],
+        },
+    }
+
+
+DOCKER_PLUGINS = {
+    "nvidia": nvidia_docker_plugin,
+}
+
+
 def load_profiles():
     with open(PROFILES_PATH) as f:
         return yaml.safe_load(f)
@@ -267,10 +341,23 @@ def make_step(path, data, profiles):
         data.get("bench_only")
     )
     has_bfcl = bool(data.get("bfcl"))
-    if bench_only:
+    has_sglang_bench = bool(data.get("sglang_bench"))
+    native_runtime = profile.get("server_runtime") == "native"
+    if (bench_only or has_sglang_bench) and native_runtime:
+        setup_commands = NATIVE_BENCH_ONLY_SETUP_COMMANDS
+    elif bench_only or has_sglang_bench:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
+    elif has_bfcl and native_runtime:
+        setup_commands = [
+            setup_command(
+                "'lm-eval[api]' pyyaml bfcl-eval soundfile",
+                system_site_packages=True,
+            )
+        ]
     elif has_bfcl:
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
+    elif native_runtime:
+        setup_commands = NATIVE_FULL_SETUP_COMMANDS
     else:
         setup_commands = FULL_SETUP_COMMANDS
     step = {
@@ -280,16 +367,28 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
-    if profile.get("server_runtime") == "native":
-        kind = profile.get("k8s_plugin")
-        if not kind:
+    if native_runtime:
+        k8s_kind = profile.get("k8s_plugin")
+        docker_kind = profile.get("docker_plugin")
+        if bool(k8s_kind) == bool(docker_kind):
             sys.exit(
-                f"{path}: profile {gpu!r} sets server_runtime: native but no"
-                f" k8s_plugin; set one explicitly (have {', '.join(K8S_PLUGINS)})"
+                f"{path}: profile {gpu!r} sets server_runtime: native; set exactly"
+                " one of k8s_plugin or docker_plugin"
             )
-        builder = K8S_PLUGINS.get(kind)
-        if builder is None:
-            sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
+        if k8s_kind:
+            builder = K8S_PLUGINS.get(k8s_kind)
+            if builder is None:
+                sys.exit(
+                    f"{path}: unknown k8s_plugin {k8s_kind!r}"
+                    f" (have {', '.join(K8S_PLUGINS)})"
+                )
+        else:
+            builder = DOCKER_PLUGINS.get(docker_kind)
+            if builder is None:
+                sys.exit(
+                    f"{path}: unknown docker_plugin {docker_kind!r}"
+                    f" (have {', '.join(DOCKER_PLUGINS)})"
+                )
         image = ecr_pull_through(resolved_image(data, profile))
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
     step_env = {
@@ -297,6 +396,8 @@ def make_step(path, data, profiles):
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
         if os.environ.get(k)
     }
+    if os.environ.get("SGLANG_IMAGE"):
+        step_env["SGLANG_IMAGE"] = os.environ["SGLANG_IMAGE"]
     if bench_only and "BENCH_ONLY" not in step_env:
         step_env["BENCH_ONLY"] = "1"
     if step_env:

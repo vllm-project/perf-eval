@@ -1,0 +1,57 @@
+# GLM-5.2 FP8 apples-to-apples SGLang recipe on one standalone 8xB300.
+# This uses real EAGLE acceptance. Topology, transport, memory/cache policy,
+# context/prefill limits, client shape, and speculative depth are aligned with
+# glm_5_2_b200.yaml.
+name: glm_5_2-b300-apples-sglang
+gpu: B300
+num_gpus: 8
+timeout_in_minutes: 180
+bench_only: true
+
+sglang:
+  # Pre-staged on the standalone Axis host; avoids a second 700+ GB download.
+  model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
+  image: lmsysorg/sglang:latest
+  env:
+    # Keep the standalone node on its NVLink-local transport path.
+    NVSHMEM_DISABLE_IB: 1
+  serve_args: >-
+    --tp 8
+    --dp 8
+    --enable-dp-attention
+    --moe-a2a-backend none
+    --moe-runner-backend triton
+    --kv-cache-dtype fp8_e4m3
+    --speculative-algorithm EAGLE
+    --speculative-num-steps 1
+    --speculative-eagle-topk 1
+    --speculative-num-draft-tokens 2
+    --mem-fraction-static 0.85
+    --context-length 32768
+    --chunked-prefill-size 32768
+    --max-prefill-tokens 32768
+    --max-running-requests 256
+    --disable-radix-cache
+
+sglang_bench:
+  metadata:
+    device: b300
+    # SGLang's GLM-5.2 B200 balanced recipe is one 8-GPU node. Do not use
+    # tp*dp here: --dp 8 is part of DP-attention, not 64 physical GPUs.
+    tp: 8
+    precision: fp8
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: sglang
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 128
+      max_concurrency: 64
+    - name: 8k-in-1k-out-conc-256
+      backend: sglang
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 256
