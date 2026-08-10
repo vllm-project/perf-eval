@@ -24,7 +24,7 @@ import yaml
 TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
-    "num_prompts", "max_concurrency", "args",
+    "num_prompts", "max_concurrency", "repetitions", "args",
     "speed_bench_dataset_subset", "speed_bench_category",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
@@ -232,6 +232,18 @@ def bench_tsv(configs: list, path: str) -> str:
             sys.exit(f"{path}: duplicate vllm_bench config name {c['name']!r}")
         seen.add(c["name"])
 
+        repetitions = c.get("repetitions", 1)
+        if (
+            isinstance(repetitions, bool)
+            or not isinstance(repetitions, int)
+            or repetitions < 1
+            or repetitions % 2 == 0
+        ):
+            sys.exit(
+                f"{path}: vllm_bench config {c['name']!r} repetitions must be "
+                "a positive odd integer"
+            )
+
         def opt(key):
             v = c.get(key)
             return str(v) if v not in (None, "") else "-"
@@ -246,6 +258,7 @@ def bench_tsv(configs: list, path: str) -> str:
                     str(c["output_len"]),
                     str(c["num_prompts"]),
                     str(c["max_concurrency"]),
+                    str(repetitions),
                     opt("speed_bench_dataset_subset"),
                     opt("speed_bench_category"),
                     encode_bench_args(c.get("args"), c["name"], path),

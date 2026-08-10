@@ -84,8 +84,9 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
       output_len: 1024
       num_prompts: 500
       max_concurrency: 256
+      repetitions: 3                   # median-aggregate three complete runs
       args:                             # optional vllm bench serve arguments
-        num_warmups: 16                 # becomes --num-warmups 16
+        num_warmups: 256                # one full-concurrency warmup per run
         disable_tqdm: true              # becomes --disable-tqdm
 ```
 
@@ -97,6 +98,7 @@ A few things worth knowing:
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
 - **`vllm_bench` uses the `random` dataset with `--ignore-eos`** so every request prefills exactly `input_len` and decodes exactly `output_len` tokens — that's what makes the per-GPU decode throughput meaningful. Pair it with `backend: openai` (the `/v1/completions` endpoint) for exact token control. Avoid `dataset: speed_bench` for throughput numbers: it requires `--skip-tokenizer-init`, which makes `vllm bench serve` cap every request at a single output token, so output throughput reads as ~0.
 - **`vllm_bench.configs[].args` forwards additional options to `vllm bench serve`.** Keys may use underscores, hyphens, or a leading `--`; they are normalized to `--kebab-case`. A `true` value emits a standalone flag, `false` and `null` omit it, scalar values emit a flag/value pair, and lists repeat the flag. Options managed by perf-eval itself, including the model, endpoint, dataset, request counts, lengths, concurrency, and result path, remain top-level config fields and cannot be overridden through `args`.
+- **`vllm_bench.configs[].repetitions` repeats the complete benchmark on the same server and median-aggregates every numeric scalar before ingestion.** It defaults to `1` and must be a positive odd integer. For repeated configs, every raw run is retained as `bench-<name>-run-<n>.json`; the median aggregate remains `bench-<name>.json`. `args.num_warmups` applies independently to every repetition, so set it to the configured concurrency for one saturated warmup wave per measured run.
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
@@ -119,7 +121,14 @@ A cluster with fast shared storage can keep a warm, cross-run cache by overridin
 
 Do **not** set an `hf_home` under a node path like `/mnt/shared` unless that path is a real mount on every node in the queue — with the default `emptyDir` that only changes the in-pod path, but if you also point the volume at a `hostPath`, an unmounted path lands the cache on the node root disk with no reclamation.
 
-Run the generator's tests with `python3 .buildkite/test_generate_pipeline.py` (stdlib + pyyaml only; no GPU needed).
+Run the CPU-only regression tests with:
+
+```bash
+python3 .buildkite/test_generate_pipeline.py
+python3 .buildkite/test_benchmark_repetitions.py
+```
+
+They require only the standard library and PyYAML; the Buildkite bootstrap runs both before uploading GPU steps.
 
 ### Trigger a Buildkite build
 

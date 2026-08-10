@@ -5,7 +5,8 @@
 #   run_vllm_bench <container> <port> <model> <name> <backend> <dataset> \
 #                  <input_len> <output_len> <num_prompts> <max_concurrency> \
 #                  <speed_bench_dataset_subset> <speed_bench_category> \
-#                  <extra_args_base64> <trust_remote_code> <output_dir>
+#                  <repetitions> <extra_args_base64> <trust_remote_code> \
+#                  <output_dir>
 #
 # Docker runtime invokes `vllm bench serve` inside the vllm/vllm-openai
 # container via `docker exec`; native runtime invokes it directly. The raw
@@ -15,6 +16,7 @@
 # vLLM's SpeedBench class expects a local <subset>.jsonl file built by
 # NeMo's prepare.py — the bench CLI does not download the dataset itself.
 SPEED_BENCH_PREPARE_URL="https://raw.githubusercontent.com/NVIDIA-NeMo/Skills/refs/heads/main/nemo_skills/dataset/speed-bench/prepare.py"
+RUN_VLLM_BENCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pip_install_quiet() {
   if python3 -c 'import sys; sys.exit(0 if sys.prefix != sys.base_prefix else 1)'; then
@@ -107,20 +109,43 @@ PY
   fi
 }
 
+validate_bench_result() {
+  local result_path=$1 expected=$2
+  python3 - "$result_path" "$expected" <<'PY'
+import json, sys
+path, expected = sys.argv[1], int(sys.argv[2])
+with open(path) as f:
+    result = json.load(f)
+def read_int(*keys, default=None):
+    for k in keys:
+        v = result.get(k)
+        if v is not None:
+            return int(v)
+    if default is not None:
+        return default
+    raise KeyError(keys[0])
+completed = read_int("completed", "successful", "successful_requests")
+failed = read_int("failed", "errored", "failed_requests", "num_failed_requests", default=0)
+if failed or completed != expected:
+    print(f"vllm bench serve incomplete: completed={completed} failed={failed} expected={expected}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 run_vllm_bench() {
   local container=$1 port=$2 model=$3 name=$4 backend=$5 dataset=$6
   local input_len=$7 output_len=$8 num_prompts=$9 max_concurrency=${10}
   local speed_bench_dataset_subset=${11} speed_bench_category=${12}
-  local extra_args_base64=${13} trust_remote_code=${14} outdir=${15}
+  local repetitions=${13} extra_args_base64=${14} trust_remote_code=${15}
+  local outdir=${16}
   local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
-  local in_container_json="/tmp/bench-${name}.json"
   local host_json="${outdir}/bench-${name}.json"
 
   [[ "$backend" == "-" ]] && backend=""
   [[ "$speed_bench_dataset_subset" == "-" ]] && speed_bench_dataset_subset=""
   [[ "$speed_bench_category" == "-" ]] && speed_bench_category=""
 
-  echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts})"
+  echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts} repetitions=${repetitions})"
   mkdir -p "$outdir"
 
   local cmd=(vllm bench serve)
@@ -172,34 +197,36 @@ run_vllm_bench() {
 
   append_bench_args "$extra_args_base64" cmd
 
-  if [[ "$runtime" == "native" ]]; then
-    cmd+=(--save-result --result-filename "$host_json")
-  else
-    cmd+=(--save-result --result-filename "$in_container_json")
+  local result_files=()
+  local repetition run_host_json run_container_json
+  for ((repetition = 1; repetition <= repetitions; repetition++)); do
+    if ((repetitions == 1)); then
+      run_host_json="$host_json"
+      run_container_json="/tmp/bench-${name}.json"
+    else
+      run_host_json="${outdir}/bench-${name}-run-${repetition}.json"
+      run_container_json="/tmp/bench-${name}-run-${repetition}.json"
+      echo "  repetition ${repetition}/${repetitions}"
+    fi
+
+    local run_cmd=("${cmd[@]}")
+    if [[ "$runtime" == "native" ]]; then
+      run_cmd+=(--save-result --result-filename "$run_host_json")
+    else
+      run_cmd+=(--save-result --result-filename "$run_container_json")
+    fi
+    "${run_cmd[@]}"
+
+    if [[ "$runtime" != "native" ]]; then
+      docker cp "${container}:${run_container_json}" "$run_host_json"
+    fi
+    validate_bench_result "$run_host_json" "$num_prompts"
+    result_files+=("$run_host_json")
+  done
+
+  if ((repetitions > 1)); then
+    python3 "$RUN_VLLM_BENCH_DIR/aggregate_perf.py" \
+      --output "$host_json" "${result_files[@]}"
   fi
-
-  "${cmd[@]}"
-
-  [[ "$runtime" != "native" ]] && docker cp "${container}:${in_container_json}" "$host_json"
-
-  python3 - "$host_json" "$num_prompts" <<'PY'
-import json, sys
-path, expected = sys.argv[1], int(sys.argv[2])
-with open(path) as f:
-    result = json.load(f)
-def read_int(*keys, default=None):
-    for k in keys:
-        v = result.get(k)
-        if v is not None:
-            return int(v)
-    if default is not None:
-        return default
-    raise KeyError(keys[0])
-completed = read_int("completed", "successful", "successful_requests")
-failed = read_int("failed", "errored", "failed_requests", "num_failed_requests", default=0)
-if failed or completed != expected:
-    print(f"vllm bench serve incomplete: completed={completed} failed={failed} expected={expected}", file=sys.stderr)
-    sys.exit(1)
-PY
   echo "  saved $host_json"
 }
