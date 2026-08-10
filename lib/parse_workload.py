@@ -12,6 +12,8 @@ Image precedence: VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
 are not validated against the registry (because they will not run).
 """
 
+from __future__ import annotations
+
 import base64
 import json
 import os
