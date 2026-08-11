@@ -346,7 +346,9 @@ def make_step(path, data, profiles):
                     f"{path}: unknown docker_plugin {docker_kind!r}"
                     f" (have {', '.join(DOCKER_PLUGINS)})"
                 )
-        image = ecr_pull_through(resolved_image(data, profile))
+        image = resolved_image(data, profile)
+        if profile.get("ecr_pull_through_cache", True):
+            image = ecr_pull_through(image)
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
     step_env = {
         k: os.environ[k]

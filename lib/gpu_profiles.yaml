@@ -20,6 +20,9 @@ B300:
   hf_home: /raid/buildkite/hf-cache
   server_runtime: native
   docker_plugin: nvidia
+  # This standalone agent can pull public ECR directly but is not authenticated
+  # to the private AWS pull-through cache used by Kubernetes queues.
+  ecr_pull_through_cache: false
   # The standalone Axis host keeps validated framework images locally; avoid
   # re-pulling multi-gigabyte images on every opt-in benchmark invocation.
   always_pull: false
