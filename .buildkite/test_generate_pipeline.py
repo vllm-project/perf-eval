@@ -47,6 +47,14 @@ def test_hf_home_mount_matches_env():
     assert mount["mountPath"] == hf_home["value"] == "/root/.cache/huggingface"
 
 
+def test_run_command_preserves_injected_hf_home():
+    """Kubernetes injects HF_HOME for its mounted cache. The run command must
+    retain that value instead of redirecting a large download into the checkout.
+    The double dollar survives Buildkite's pipeline-upload interpolation."""
+    rendered = g.RUN_TEMPLATE.format(path="workloads/example.yaml")
+    assert 'HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"' in rendered
+
+
 def test_profile_field_overrides_source():
     """A profile-level hf_cache_volume sets the source but keeps the volume name."""
     pvc = {"persistentVolumeClaim": {"claimName": "hf-cache-pvc"}}
@@ -98,6 +106,81 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         assert not hf_home.startswith("/mnt/shared"), (
             f"{gpu} hf_home={hf_home!r} would land on the node root disk"
         )
+
+
+def test_b300_profile_uses_standalone_docker_plugin():
+    profiles = g.load_profiles()
+    profile = profiles["B300"]
+    plugin = g.nvidia_docker_plugin("example/vllm:test", 8, profile, "B300")
+    docker = plugin["docker#v5.2.0"]
+    assert profile["queue"] == "b300-8"
+    assert docker["entrypoint"] == ""
+    assert docker["shell"] == ["/bin/sh", "-e", "-c"]
+    assert docker["propagate-uid-gid"] is True
+    assert docker["gpus"] == "all"
+    assert docker["network"] == "host"
+    assert docker["ipc"] == "host"
+    assert "memlock=-1" in docker["ulimits"]
+    assert "/raid:/raid" in docker["volumes"]
+    assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
+    assert "HOME=/raid/buildkite/home" in docker["environment"]
+    assert "XDG_CACHE_HOME=/raid/buildkite/cache" in docker["environment"]
+    assert (
+        "/raid/buildkite/flashinfer-cubins:"
+        "/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins"
+    ) in docker["volumes"]
+
+
+def test_b300_workload_renders_docker_plugin_step():
+    profiles = g.load_profiles()
+    step = g.make_step(
+        "workloads/b300_runner_smoke.yaml",
+        {
+            "name": "b300-runner-smoke",
+            "gpu": "B300",
+            "num_gpus": 1,
+            "bench_only": True,
+            "vllm": {"model": "facebook/opt-125m", "image": "example/vllm:test"},
+            "vllm_bench": {"configs": []},
+        },
+        profiles,
+    )
+    assert step["agents"] == {"queue": "b300-8"}
+    assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
+
+
+def test_glm_b300_vllm_uses_matched_real_spec_shape():
+    path = os.path.join(
+        os.path.dirname(HERE), "workloads", "glm_5_2_b200.yaml"
+    )
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    vllm = data["vllm"]
+    args = vllm["serve_args"]
+    for expected in (
+        "--tensor-parallel-size 1",
+        "--data-parallel-size 8",
+        "--enable-expert-parallel",
+        "--all2all-backend allgather_reducescatter",
+        "--moe-backend triton",
+        "--kv-cache-dtype fp8_e4m3",
+        "--max-model-len 32768",
+        "--max-num-batched-tokens 32768",
+        "--long-prefill-token-threshold 4096",
+        "--max-num-seqs 256",
+        "--gpu-memory-utilization 0.85",
+        "--no-enable-prefix-caching",
+        "--speculative-config.method mtp",
+        "--speculative-config.num_speculative_tokens 1",
+    ):
+        assert expected in args
+    assert vllm["env"]["NVSHMEM_DISABLE_IB"] == 1
+    configs = data["vllm_bench"]["configs"]
+    assert [(c["num_prompts"], c["max_concurrency"]) for c in configs] == [
+        (128, 64),
+        (512, 256),
+    ]
+    assert all(c["args"]["num_warmups"] == 64 for c in configs)
 
 
 def main():

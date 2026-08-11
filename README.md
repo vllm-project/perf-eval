@@ -17,13 +17,19 @@ CLAUDE.md         agent conventions and detailed Buildkite workflow
 
 ### Add a new recipe
 
-1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` for H200 or `workloads/minimax_m3_b200.yaml` for B200.
+1. Copy an existing workload that targets the same GPU — e.g. `workloads/qwen3_5_h200.yaml` for H200, `workloads/minimax_m3_b200.yaml` for a nightly B200 recipe, or `workloads/glm_5_2_b200.yaml` and `workloads/glm_5_2_b200_tuned.yaml` for an opt-in long-context B200 reproduction/tuning pair.
 2. Name the file `<model>_<hardware>.yaml`. Keep hardware variants in separate files.
 3. Edit the fields to match your model and tasks. Set `nightly: true` if it should run in the nightly schedule; leave it off for opt-in recipes.
 4. Open a PR. The pipeline auto-discovers `workloads/*.yaml` — no Buildkite YAML edits needed.
 
 B200 workloads run in a single Kubernetes pod. `num_gpus` controls the pod's
 GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
+
+Standalone B300 workloads run on the `b300-8` queue through the Buildkite
+Docker plugin. The profile exposes all eight GPUs, uses host networking and
+IPC, mounts `/raid`, and persists Hugging Face data under
+`/raid/inf-simon/hf-cache`. Before a large workload, validate the runner with
+`WORKLOADS=b300_runner_smoke`.
 
 ### Recipe schema
 
@@ -96,6 +102,7 @@ A few things worth knowing:
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
 - **`vllm_bench` runs first** if both blocks are present — that way perf-pipeline bugs surface quickly instead of waiting on a full lm-eval pass.
+- **`vllm.startup_timeout`** controls both the perf-eval health wait and vLLM's engine-ready timeout in seconds (default 3600). Increase it for very large models whose first uncached download and load can exceed an hour.
 - **`vllm_bench` uses the `random` dataset with `--ignore-eos`** so every request prefills exactly `input_len` and decodes exactly `output_len` tokens — that's what makes the per-GPU decode throughput meaningful. Pair it with `backend: openai` (the `/v1/completions` endpoint) for exact token control. Avoid `dataset: speed_bench` for throughput numbers: it requires `--skip-tokenizer-init`, which makes `vllm bench serve` cap every request at a single output token, so output throughput reads as ~0.
 - **`vllm_bench.configs[].args` forwards additional options to `vllm bench serve`.** Keys may use underscores, hyphens, or a leading `--`; they are normalized to `--kebab-case`. A `true` value emits a standalone flag, `false` and `null` omit it, scalar values emit a flag/value pair, and lists repeat the flag. Options managed by perf-eval itself, including the model, endpoint, dataset, request counts, lengths, concurrency, and result path, remain top-level config fields and cannot be overridden through `args`.
 - **`vllm_bench.configs[].repetitions` repeats the complete benchmark on the same server and median-aggregates every numeric scalar before ingestion.** It defaults to `1` and must be a positive odd integer. For repeated configs, every raw run is retained as `bench-<name>-run-<n>.json`; the median aggregate remains `bench-<name>.json`. `args.num_warmups` applies independently to every repetition, so set it to the configured concurrency for one saturated warmup wave per measured run.

@@ -1,0 +1,61 @@
+# GLM-5.2 FP8 apples-to-apples vLLM recipe on one standalone 8xB300.
+# Keep topology, transport, memory/cache policy, context/prefill limits, client
+# shape, and speculative depth aligned with glm_5_2_sglang_b200.yaml.
+name: glm_5_2-b300-apples-vllm
+gpu: B300
+num_gpus: 8
+nightly: false
+bench_only: true
+
+vllm:
+  # Pre-staged on the standalone Axis host; avoids a second 700+ GB download.
+  model: /raid/inf-simon/models/zai-org/GLM-5.2-FP8
+  startup_timeout: 7200
+  env:
+    # Keep the standalone node on its NVLink-local transport path.
+    NVSHMEM_DISABLE_IB: 1
+    # These are stability controls used by the validated B300 DP8 recipe.
+    VLLM_USE_V2_MODEL_RUNNER: 1
+    VLLM_DEEP_GEMM_WARMUP: skip
+    PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+  serve_args: >-
+    --tensor-parallel-size 1
+    --data-parallel-size 8
+    --data-parallel-backend mp
+    --enable-expert-parallel
+    --all2all-backend allgather_reducescatter
+    --moe-backend triton
+    --kv-cache-dtype fp8_e4m3
+    --max-model-len 32768
+    --max-num-batched-tokens 32768
+    --long-prefill-token-threshold 4096
+    --max-num-seqs 256
+    --gpu-memory-utilization 0.85
+    --enable-chunked-prefill
+    --no-enable-prefix-caching
+    --speculative-config.method mtp
+    --speculative-config.num_speculative_tokens 1
+    --disable-custom-all-reduce
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 128
+      max_concurrency: 64
+      args:
+        num_warmups: 64
+        disable_tqdm: true
+    - name: 8k-in-1k-out-conc-256
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 256
+      args:
+        num_warmups: 64
+        disable_tqdm: true

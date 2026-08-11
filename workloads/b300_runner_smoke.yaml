@@ -1,0 +1,29 @@
+# Opt-in end-to-end smoke for the standalone Axis B300 Buildkite agent and its
+# Docker plugin. This intentionally uses a tiny public model and four requests.
+name: b300-runner-smoke
+gpu: B300
+num_gpus: 1
+timeout_in_minutes: 30
+nightly: false
+bench_only: true
+
+vllm:
+  # Use a tokenizer without OPT's implicit BOS token. The benchmarker's exact
+  # length correction can otherwise reduce very short random prompts to empty.
+  model: Qwen/Qwen2.5-0.5B-Instruct
+  image: vllm/vllm-openai:nightly-d223c900d85224c02f2162ee2c757a769e99f519
+  startup_timeout: 900
+  serve_args: >-
+    --max-model-len 2048
+    --gpu-memory-utilization 0.10
+    --enforce-eager
+
+vllm_bench:
+  configs:
+    - name: tiny-random-16
+      backend: openai
+      dataset: random
+      input_len: 16
+      output_len: 16
+      num_prompts: 4
+      max_concurrency: 1

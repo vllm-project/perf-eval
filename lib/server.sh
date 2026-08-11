@@ -1,8 +1,8 @@
 # vLLM server lifecycle. Source this from run.sh.
 #
 # Functions:
-#   start_server <container> <port> <image> <model> <serve_args> <env> [runtime]
-#   wait_healthy <port> [timeout_s=1500]
+#   start_server <container> <port> <image> <model> <serve_args> <env> [runtime] [startup_timeout_s]
+#   wait_healthy <port> [timeout_s=3600]
 #   stop_server  <container>
 #
 # `env` is a newline-separated list of KEY=VALUE pairs. For Docker runtime,
@@ -13,13 +13,43 @@
 #
 # After start_server, vLLM logs are streamed to stdout (prefixed with `[vllm]`)
 # so build output reflects server startup progress in real time. The streamer's
-# PID is held in $VLLM_LOGS_PID; stop_server kills it.
+# PID is held in $VLLM_LOGS_PID; stop_server kills its process group when
+# supported so pipeline children such as `tail -f` do not survive teardown.
+
+start_log_stream() {
+  local source_cmd=$1
+  if command -v setsid >/dev/null 2>&1; then
+    setsid bash -c "$source_cmd | stdbuf -oL -eL sed 's/^/[vllm] /'" &
+    VLLM_LOGS_PID=$!
+    VLLM_LOGS_PGID=$VLLM_LOGS_PID
+  else
+    bash -c "$source_cmd | stdbuf -oL -eL sed 's/^/[vllm] /'" &
+    VLLM_LOGS_PID=$!
+    VLLM_LOGS_PGID=""
+  fi
+}
+
+stop_log_stream() {
+  if [[ -z "${VLLM_LOGS_PID:-}" ]]; then
+    return
+  fi
+  if [[ -n "${VLLM_LOGS_PGID:-}" ]]; then
+    kill -- "-$VLLM_LOGS_PGID" 2>/dev/null || true
+  else
+    kill "$VLLM_LOGS_PID" 2>/dev/null || true
+  fi
+  wait "$VLLM_LOGS_PID" 2>/dev/null || true
+  VLLM_LOGS_PID=""
+  VLLM_LOGS_PGID=""
+}
 
 start_server() {
   local container=$1 port=$2 image=$3 model=$4 serve_args=$5 env=$6 runtime=${7:-docker}
+  local startup_timeout=${8:-3600}
   echo "--- :rocket: starting vllm: $model"
 
   if [[ "$runtime" == "native" ]]; then
+    export VLLM_ENGINE_READY_TIMEOUT_S="$startup_timeout"
     while IFS= read -r kv; do
       [[ -z "$kv" ]] && continue
       export "$kv"
@@ -30,13 +60,12 @@ start_server() {
     vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
     VLLM_SERVER_PID=$!
     echo "--- :memo: streaming vllm logs"
-    ( tail -f "$log_file" 2>/dev/null | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
-    VLLM_LOGS_PID=$!
+    start_log_stream "tail -f $(printf "%q" "$log_file") 2>/dev/null"
     return
   fi
 
   local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
-                     -e VLLM_ENGINE_READY_TIMEOUT_S=3600
+                     -e "VLLM_ENGINE_READY_TIMEOUT_S=${startup_timeout}"
                      -p "${port}:${port}")
   local hf_home=""
   while IFS= read -r kv; do
@@ -59,8 +88,7 @@ start_server() {
   docker exec "$container" pip install -q pytest 2>/dev/null || true
 
   echo "--- :memo: streaming vllm logs"
-  ( docker logs -f "$container" 2>&1 | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
-  VLLM_LOGS_PID=$!
+  start_log_stream "docker logs -f $(printf "%q" "$container") 2>&1"
 }
 
 wait_healthy() {
@@ -94,10 +122,7 @@ wait_healthy() {
 
 stop_server() {
   local container=$1
-  if [[ -n "${VLLM_LOGS_PID:-}" ]]; then
-    kill "$VLLM_LOGS_PID" 2>/dev/null || true
-    wait "$VLLM_LOGS_PID" 2>/dev/null || true
-  fi
+  stop_log_stream
   if [[ -n "${VLLM_SERVER_PID:-}" ]]; then
     kill "$VLLM_SERVER_PID" 2>/dev/null || true
     wait "$VLLM_SERVER_PID" 2>/dev/null || true
