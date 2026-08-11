@@ -1,0 +1,12 @@
+# Applied Compute GLM-5.2 NVFP4 ablation arms A-E on exactly one 8xB300 node.
+name: ac-glm52-b300-ablation-current
+gpu: B300
+num_gpus: 8
+nightly: false
+timeout_in_minutes: 420
+custom_script: manual/ac_glm52_b300_ablation.sh
+custom_group: current
+
+vllm:
+  image: inferactinc/public:glm52-ll-8d407ae@sha256:3ea9431a2298950a1aa2b4c07786b18396c756ee6f21b6cb49984620d1ab5413
+  model: /raid/inf-simon/models/nvidia/GLM-5.2-NVFP4

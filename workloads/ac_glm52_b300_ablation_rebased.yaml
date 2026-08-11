@@ -1,0 +1,12 @@
+# Applied Compute arm F and the conditional two-TP4 arm G on one 8xB300 node.
+name: ac-glm52-b300-ablation-rebased
+gpu: B300
+num_gpus: 8
+nightly: false
+timeout_in_minutes: 240
+custom_script: manual/ac_glm52_b300_ablation.sh
+custom_group: rebased
+
+vllm:
+  image: inferactinc/dev:glm52-ll-pr51425-e7709dc
+  model: /raid/inf-simon/models/nvidia/GLM-5.2-NVFP4

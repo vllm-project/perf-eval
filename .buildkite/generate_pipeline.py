@@ -25,9 +25,10 @@ import sys
 
 import yaml
 
-def setup_command(packages):
+def setup_command(packages, *, system_site_packages=False):
+    venv_flag = " --system-site-packages" if system_site_packages else ""
     return (
-        "if python3 -m venv .venv; then\n"
+        f"if python3 -m venv{venv_flag} .venv; then\n"
         "  . .venv/bin/activate\n"
         "  (python -m ensurepip --upgrade --default-pip 2>/dev/null"
         " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python)\n"
@@ -44,6 +45,8 @@ def setup_command(packages):
 FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
+
+CUSTOM_SETUP_COMMANDS = [setup_command("pyyaml", system_site_packages=True)]
 
 RUN_TEMPLATE = (
     # Double-dollar escapes Buildkite pipeline-upload interpolation so the
@@ -311,17 +314,31 @@ def make_step(path, data, profiles):
         data.get("bench_only")
     )
     has_bfcl = bool(data.get("bfcl"))
-    if bench_only:
+    custom_script = (data.get("custom_script") or "").strip()
+    if custom_script:
+        if not custom_script.startswith("manual/") or not os.path.isfile(custom_script):
+            sys.exit(
+                f"{path}: custom_script must name an existing file under manual/"
+            )
+        setup_commands = CUSTOM_SETUP_COMMANDS
+    elif bench_only:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
     elif has_bfcl:
         setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
     else:
         setup_commands = FULL_SETUP_COMMANDS
+    run_command = (
+        'export HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"'
+        ' PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+        f" && bash {custom_script} {path}"
+        if custom_script
+        else RUN_TEMPLATE.format(path=path)
+    )
     step = {
         "label": f"{emoji} {name}",
         "agents": {"queue": queue},
         "timeout_in_minutes": timeout,
-        "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
+        "commands": setup_commands + [run_command],
         "artifact_paths": ["results/**/*"],
     }
     if profile.get("server_runtime") == "native":

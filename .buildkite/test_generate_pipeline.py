@@ -125,10 +125,7 @@ def test_b300_profile_uses_standalone_docker_plugin():
     assert "HF_HOME=/raid/buildkite/hf-cache" in docker["environment"]
     assert "HOME=/raid/buildkite/home" in docker["environment"]
     assert "XDG_CACHE_HOME=/raid/buildkite/cache" in docker["environment"]
-    assert (
-        "/raid/buildkite/flashinfer-cubins:"
-        "/usr/local/lib/python3.12/dist-packages/flashinfer_cubin/cubins"
-    ) in docker["volumes"]
+    assert not any("flashinfer-cubins" in volume for volume in docker["volumes"])
 
 
 def test_b300_workload_renders_docker_plugin_step():
@@ -147,6 +144,24 @@ def test_b300_workload_renders_docker_plugin_step():
     )
     assert step["agents"] == {"queue": "b300-8"}
     assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
+
+
+def test_custom_ablation_workload_uses_system_packages_and_script():
+    profiles = g.load_profiles()
+    path = "workloads/ac_glm52_b300_ablation_current.yaml"
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    step = g.make_step(path, data, profiles)
+    assert "--system-site-packages" in step["commands"][0]
+    assert (
+        "bash manual/ac_glm52_b300_ablation.sh "
+        "workloads/ac_glm52_b300_ablation_current.yaml"
+    ) in step["commands"][-1]
+    assert 'HF_HOME="$${HF_HOME:-$(pwd)/.hf-cache}"' in step["commands"][-1]
+    docker = step["plugins"][0]["docker#v5.2.0"]
+    assert docker["image"].endswith(
+        "@sha256:3ea9431a2298950a1aa2b4c07786b18396c756ee6f21b6cb49984620d1ab5413"
+    )
 
 
 def test_glm_b300_vllm_uses_matched_real_spec_shape():
