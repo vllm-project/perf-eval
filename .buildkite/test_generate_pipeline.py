@@ -149,6 +149,46 @@ def test_b300_workload_renders_docker_plugin_step():
     assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
 
 
+def test_kimi_k3_b300_uses_validated_launch_shape():
+    path = os.path.join(os.path.dirname(HERE), "workloads", "kimi_k3_b300.yaml")
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+
+    step = g.make_step(path, data, g.load_profiles())
+    assert step["agents"] == {"queue": "b300-8"}
+    assert "docker#v5.2.0" in step["plugins"][0]
+    assert step["env"]["BENCH_ONLY"] == "1"
+
+    vllm = data["vllm"]
+    assert vllm["model"] == "moonshotai/Kimi-K3"
+    args = vllm["serve_args"]
+    for expected in (
+        "--tensor-parallel-size 8",
+        "--load-format fastsafetensors",
+        "--safetensors-load-strategy lazy",
+        "--language-model-only",
+        "--moe-backend marlin",
+        "--kv-cache-dtype fp8",
+        "--attention-backend FLASHINFER_MLA",
+        "--max-model-len 16384",
+        '"model":"Inferact/Kimi-K3-DSpark"',
+        '"num_speculative_tokens":7',
+    ):
+        assert expected in args
+
+    env = vllm["env"]
+    assert env["NCCL_DMABUF_ENABLE"] == 0
+    assert env["VLLM_ALLREDUCE_USE_FLASHINFER"] == 1
+    assert env["VLLM_USE_RUST_FRONTEND"] == 1
+    assert env["NCCL_NVLS_ENABLE"] == 1
+
+    metadata = data["vllm_bench"]["metadata"]
+    assert metadata == {"device": "b300", "tp": 8, "precision": "mxfp4"}
+    config = data["vllm_bench"]["configs"][0]
+    assert (config["input_len"], config["output_len"]) == (8192, 1024)
+    assert (config["num_prompts"], config["max_concurrency"]) == (256, 64)
+
+
 def test_glm_b300_vllm_uses_matched_real_spec_shape():
     path = os.path.join(
         os.path.dirname(HERE), "workloads", "glm_5_2_b200.yaml"

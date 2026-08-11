@@ -1,0 +1,49 @@
+# Kimi K3 MXFP4 on one standalone 8xB300.
+# Recipe: https://recipes.vllm.ai/moonshotai/Kimi-K3
+name: kimi_k3-b300
+gpu: B300
+num_gpus: 8
+nightly: false
+bench_only: true
+
+vllm:
+  model: moonshotai/Kimi-K3
+  startup_timeout: 3600
+  env:
+    NCCL_DMABUF_ENABLE: 0
+    VLLM_ALLREDUCE_USE_FLASHINFER: 1
+    VLLM_USE_RUST_FRONTEND: 1
+    NCCL_NVLS_ENABLE: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+    --load-format fastsafetensors
+    --safetensors-load-strategy lazy
+    --language-model-only
+    --enable-prefix-caching
+    --moe-backend marlin
+    --kv-cache-dtype fp8
+    --attention-backend FLASHINFER_MLA
+    --attention-config {"mla_prefill_backend":"FLASHINFER","use_prefill_query_quantization":true}
+    --max-model-len 16384
+    --max-num-seqs 512
+    --gpu-memory-utilization 0.90
+    --max-cudagraph-capture-size 256
+    --speculative-config {"model":"Inferact/Kimi-K3-DSpark","method":"dspark","num_speculative_tokens":7,"attention_backend":"FLASHINFER_MLA","draft_sample_method":"probabilistic","rejection_sample_method":"block"}
+
+vllm_bench:
+  metadata:
+    device: b300
+    tp: 8
+    precision: mxfp4
+  configs:
+    - name: 8k-in-1k-out-conc-64
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 256
+      max_concurrency: 64
+      args:
+        num_warmups: 64
+        disable_tqdm: true
