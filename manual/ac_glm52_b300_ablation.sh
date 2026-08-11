@@ -89,7 +89,7 @@ mix=90% p50 (12500 prompt/10700 intended cached/95 output), 10% p95 (26500/24000
 loads_prompt_tpm=2000000,2500000,3000000,3500000,4000000,4500000,5000000
 duration_s=120
 steady_warmup_fraction=0.2
-seed_policy=stable unique seed per load cell, reused across arms
+seed_policy=seed 4242 for all cells; deterministic 1000000 request-ID offset per load bracket, reused across arms
 EOF
 date -u +%FT%TZ >"$RESULTS/start-time.txt"
 uname -a >"$RESULTS/uname.txt"
@@ -164,17 +164,16 @@ run_sweep() {
   local endpoints=("$@")
   local arm_dir="$RESULTS/$arm"
   local loads=(2000000 2500000 3000000 3500000 4000000 4500000 5000000)
-  local seeds=(424200 424201 424202 424203 424204 424205 424206)
   local endpoint_args=()
-  local endpoint load seed index out
+  local endpoint load index request_id_offset out
   for endpoint in "${endpoints[@]}"; do
     endpoint_args+=(--endpoint "$endpoint")
   done
   for index in "${!loads[@]}"; do
     load=${loads[$index]}
-    seed=${seeds[$index]}
+    request_id_offset=$(( index * 1000000 ))
     out="$arm_dir/load-${load}.json"
-    echo "--- ${arm}: offered prompt TPM ${load}, seed ${seed}"
+    echo "--- ${arm}: offered prompt TPM ${load}, seed 4242, request offset ${request_id_offset}"
     nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,power.draw,temperature.gpu \
       --format=csv -l 1 >"$arm_dir/gpu-${load}.csv" 2>&1 &
     MONITOR_PID=$!
@@ -185,9 +184,11 @@ run_sweep() {
       --duration 120 \
       --warmup-fraction 0.2 \
       --target-prompt-tpm "$load" \
-      --seed "$seed" \
+      --seed 4242 \
+      --request-id-offset "$request_id_offset" \
       --out "$out"; then
-      printf 'harness_failed load=%s seed=%s\n' "$load" "$seed" \
+      printf 'harness_failed load=%s seed=4242 request_id_offset=%s\n' \
+        "$load" "$request_id_offset" \
         >>"$arm_dir/harness-errors.txt"
     fi
     stop_monitor

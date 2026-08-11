@@ -322,7 +322,7 @@ async def main_async(args: argparse.Namespace) -> dict:
                 clients[endpoint_index],
                 endpoint_index=endpoint_index,
                 model=args.model,
-                prompt=factory.prompt(shape, request_id),
+                prompt=factory.prompt(shape, args.request_id_offset + request_id),
                 output_tokens=shape.output_tokens,
                 request_id=request_id,
                 shape=shape,
@@ -394,6 +394,7 @@ async def main_async(args: argparse.Namespace) -> dict:
             "mix_period": args.mix_period,
             "long_per_period": args.long_per_period,
             "seed": args.seed,
+            "request_id_offset": args.request_id_offset,
             "shapes": [asdict(shape) | {"new_tokens": shape.new_tokens} for shape in shapes],
         },
         "server_models": [[item.id for item in listing.data] for listing in model_lists],
@@ -445,6 +446,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mix-period", type=int, default=20)
     parser.add_argument("--long-per-period", type=int, default=2)
     parser.add_argument("--seed", type=int, required=True)
+    parser.add_argument("--request-id-offset", type=int, default=0)
     parser.add_argument("--timeout", type=float, default=900.0)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
