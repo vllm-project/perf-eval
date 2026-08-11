@@ -223,6 +223,7 @@ def test_glm_b300_sglang_uses_matched_real_eagle_shape():
     for expected in (
         "--tp 8",
         "--dp 8",
+        "--ep-size 8",
         "--enable-dp-attention",
         "--moe-a2a-backend none",
         "--moe-runner-backend triton",
