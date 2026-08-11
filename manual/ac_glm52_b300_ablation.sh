@@ -3,12 +3,16 @@ set -euo pipefail
 
 WORKLOAD=${1:?usage: $0 <workload.yaml>}
 ROOT=$(git rev-parse --show-toplevel)
-GROUP=$(python3 - "$WORKLOAD" <<'PY'
+mapfile -t WORKLOAD_CONFIG < <(python3 - "$WORKLOAD" <<'PY'
 import sys, yaml
 with open(sys.argv[1]) as f:
-    print(yaml.safe_load(f)["custom_group"])
+    data = yaml.safe_load(f)
+print(data["custom_group"])
+print(data["vllm"]["image"])
 PY
 )
+GROUP=${WORKLOAD_CONFIG[0]}
+IMAGE=${WORKLOAD_CONFIG[1]}
 MODEL=/raid/inf-simon/models/nvidia/GLM-5.2-NVFP4
 SERVED_MODEL=nvidia/GLM-5.2-NVFP4
 RUN_ID=${BUILDKITE_BUILD_NUMBER:-manual}-$(date -u +%Y%m%dT%H%M%SZ)
@@ -76,7 +80,7 @@ group=$GROUP
 run_id=$RUN_ID
 git_commit=$(git rev-parse HEAD)
 build_url=${BUILDKITE_BUILD_URL:-manual}
-image=${VLLM_IMAGE:-from-workload}
+image=$IMAGE
 remote_evidence=$PERSIST
 model=$MODEL
 served_model=$SERVED_MODEL
@@ -171,6 +175,9 @@ run_sweep() {
     seed=${seeds[$index]}
     out="$arm_dir/load-${load}.json"
     echo "--- ${arm}: offered prompt TPM ${load}, seed ${seed}"
+    nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,power.draw,temperature.gpu \
+      --format=csv -l 1 >"$arm_dir/gpu-${load}.csv" 2>&1 &
+    MONITOR_PID=$!
     if ! python3 "$HARNESS" \
       "${endpoint_args[@]}" \
       --model "$SERVED_MODEL" \
@@ -183,6 +190,7 @@ run_sweep() {
       printf 'harness_failed load=%s seed=%s\n' "$load" "$seed" \
         >>"$arm_dir/harness-errors.txt"
     fi
+    stop_monitor
     for endpoint in "${endpoints[@]}"; do
       local port=${endpoint#http://127.0.0.1:}
       port=${port%%/*}
@@ -213,9 +221,6 @@ run_arm() {
   fi
   echo "healthy" >"$arm_dir/status.txt"
   curl -fsS "http://127.0.0.1:${port}/v1/models" >"$arm_dir/models.json"
-  nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,power.draw,temperature.gpu \
-    --format=csv -l 1 >"$arm_dir/gpu-telemetry.csv" 2>&1 &
-  MONITOR_PID=$!
   run_sweep "$arm" "http://127.0.0.1:${port}/v1"
   stop_servers
   grep -Eai 'traceback|engine.*error|out of memory|oom|nan|corrupt|spec.*accept|prefix.*cache|cache.*hit' \
@@ -226,11 +231,23 @@ run_arm() {
 run_two_tp4() {
   local arm=G-two-tp4
   local arm_dir="$RESULTS/$arm"
+  local spec devices port
   mkdir -p "$arm_dir"
   stop_servers
   snapshot_processes >"$arm_dir/compute-processes-before.txt"
   # Match arm E's global scheduler envelope: each logical TP4 engine receives
   # half the sequence and token budget, with deterministic client round-robin.
+  for spec in '0,1,2,3 8000' '4,5,6,7 8001'; do
+    read -r devices port <<<"$spec"
+    printf '%q ' env CUDA_VISIBLE_DEVICES="$devices" vllm serve "$MODEL" \
+      "${COMMON_ARGS[@]}" --port "$port" --tensor-parallel-size 4 \
+      --max-num-seqs 16 --max-num-batched-tokens 4096 \
+      --gpu-memory-utilization 0.95 --enable-expert-parallel \
+      --enable-ep-weight-filter \
+      --speculative-config '{"method":"mtp","num_speculative_tokens":3}' \
+      >"$arm_dir/command-${port}.sh"
+    printf '\n' >>"$arm_dir/command-${port}.sh"
+  done
   launch_server "$arm_dir" 0,1,2,3 8000 4 16 4096 0.95 \
     --enable-expert-parallel --enable-ep-weight-filter \
     --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
@@ -245,9 +262,6 @@ run_two_tp4() {
   echo "healthy" >"$arm_dir/status.txt"
   curl -fsS http://127.0.0.1:8000/v1/models >"$arm_dir/models-8000.json"
   curl -fsS http://127.0.0.1:8001/v1/models >"$arm_dir/models-8001.json"
-  nvidia-smi --query-gpu=timestamp,index,utilization.gpu,memory.used,power.draw,temperature.gpu \
-    --format=csv -l 1 >"$arm_dir/gpu-telemetry.csv" 2>&1 &
-  MONITOR_PID=$!
   run_sweep "$arm" http://127.0.0.1:8000/v1 http://127.0.0.1:8001/v1
   stop_servers
   grep -Eai 'traceback|engine.*error|out of memory|oom|nan|corrupt|spec.*accept|prefix.*cache|cache.*hit' \
