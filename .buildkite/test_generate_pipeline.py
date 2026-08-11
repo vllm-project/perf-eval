@@ -164,6 +164,17 @@ def test_custom_ablation_workload_uses_system_packages_and_script():
     )
 
 
+def test_host_diagnostic_omits_docker_plugin():
+    profiles = g.load_profiles()
+    path = "workloads/b300_host_diagnostic.yaml"
+    with open(path) as f:
+        data = g.yaml.safe_load(f)
+    step = g.make_step(path, data, profiles)
+    assert step["agents"] == {"queue": "b300-8"}
+    assert "plugins" not in step
+    assert "bash manual/b300_host_diagnostic.sh" in step["commands"][-1]
+
+
 def test_glm_b300_vllm_uses_matched_real_spec_shape():
     path = os.path.join(
         os.path.dirname(HERE), "workloads", "glm_5_2_b200.yaml"

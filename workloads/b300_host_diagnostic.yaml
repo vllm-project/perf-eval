@@ -1,0 +1,13 @@
+# Host-level probe for the standalone B300 runner when the NVIDIA container
+# prestart hook fails before a workload container can launch.
+name: b300-host-diagnostic
+gpu: B300
+num_gpus: 8
+nightly: false
+timeout_in_minutes: 15
+custom_script: manual/b300_host_diagnostic.sh
+host_runtime: true
+
+vllm:
+  image: inferactinc/public:glm52-ll-8d407ae@sha256:3ea9431a2298950a1aa2b4c07786b18396c756ee6f21b6cb49984620d1ab5413
+  model: /raid/inf-simon/models/nvidia/GLM-5.2-NVFP4

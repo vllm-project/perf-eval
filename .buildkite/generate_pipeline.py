@@ -341,7 +341,8 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [run_command],
         "artifact_paths": ["results/**/*"],
     }
-    if profile.get("server_runtime") == "native":
+    host_runtime = is_truthy(data.get("host_runtime"))
+    if profile.get("server_runtime") == "native" and not host_runtime:
         k8s_kind = profile.get("k8s_plugin")
         docker_kind = profile.get("docker_plugin")
         if bool(k8s_kind) == bool(docker_kind):
