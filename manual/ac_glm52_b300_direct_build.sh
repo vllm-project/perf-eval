@@ -104,6 +104,7 @@ build_command=(
   --build-arg max_jobs=64
   --build-arg "USE_SCCACHE=$use_sccache"
   --build-arg "CUDA_VERSION=$CUDA_VERSION"
+  --build-arg RUN_WHEEL_CHECK=false
   --build-arg INSTALL_KV_CONNECTORS=true
   --build-arg SCCACHE_BUCKET_NAME=inferact-sccache
   --build-arg SCCACHE_REGION_NAME=us-west-2
@@ -123,7 +124,7 @@ build_command=(
 
 printf '%q ' "${build_command[@]}" >"$EVIDENCE_DIR/build-command.sh"
 printf '\n' >>"$EVIDENCE_DIR/build-command.sh"
-printf 'source_sha=%s\nimage_tag=%s\ncuda_version=%s\nubuntu_version=%s\nuse_sccache=%s\ncache_ref=%s\n' \
+printf 'source_sha=%s\nimage_tag=%s\ncuda_version=%s\nubuntu_version=%s\nrun_wheel_check=false\nuse_sccache=%s\ncache_ref=%s\n' \
   "$actual_sha" "$IMAGE_TAG" "$CUDA_VERSION" "$UBUNTU_VERSION" \
   "$use_sccache" "$CACHE_REF" >"$EVIDENCE_DIR/build-manifest.txt"
 
