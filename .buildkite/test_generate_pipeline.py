@@ -114,6 +114,7 @@ def test_b300_profile_uses_standalone_docker_plugin():
     plugin = g.nvidia_docker_plugin("example/vllm:test", 8, profile, "B300")
     docker = plugin["docker#v5.2.0"]
     assert profile["queue"] == "b300-8"
+    assert profile["ecr_pull_through_cache"] is False
     assert docker["entrypoint"] == ""
     assert docker["shell"] == ["/bin/sh", "-e", "-c"]
     assert docker["propagate-uid-gid"] is True
@@ -147,6 +148,36 @@ def test_b300_workload_renders_docker_plugin_step():
     )
     assert step["agents"] == {"queue": "b300-8"}
     assert step["plugins"][0]["docker#v5.2.0"]["image"] == "example/vllm:test"
+
+
+def test_b300_public_ecr_image_bypasses_private_pull_through_cache():
+    image = (
+        "public.ecr.aws/q9t5s3a7/vllm-release-repo:"
+        "7ce42a9bb874a3491819807870e3efebde2845bd-x86_64"
+    )
+    previous = os.environ.get("VLLM_IMAGE")
+    os.environ["VLLM_IMAGE"] = image
+    try:
+        step = g.make_step(
+            "workloads/kimi_k3_b300.yaml",
+            {
+                "name": "kimi_k3-b300",
+                "gpu": "B300",
+                "num_gpus": 8,
+                "bench_only": True,
+                "vllm": {"model": "moonshotai/Kimi-K3"},
+                "vllm_bench": {"configs": []},
+            },
+            g.load_profiles(),
+        )
+    finally:
+        if previous is None:
+            os.environ.pop("VLLM_IMAGE", None)
+        else:
+            os.environ["VLLM_IMAGE"] = previous
+
+    docker = step["plugins"][0]["docker#v5.2.0"]
+    assert docker["image"] == image
 
 
 def test_kimi_k3_b300_uses_validated_launch_shape():
