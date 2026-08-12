@@ -371,15 +371,15 @@ run_two_tp4() {
 }
 
 date -u +%FT%TZ >"$RESULTS/start-time-utc.txt"
+run_arm E-combined "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 32 8192 0.95 \
+  --enable-expert-parallel --enable-ep-weight-filter \
+  --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
 run_arm A-live "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 64 16384 0.85
 run_arm B-mtp3 "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 64 16384 0.85 \
   --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
 run_arm C-seq32-tokens8192 "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 32 8192 0.85
 run_arm D-ep "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 64 16384 0.85 \
   --enable-expert-parallel --enable-ep-weight-filter
-run_arm E-combined "$CURRENT_IMAGE" 0,1,2,3,4,5,6,7 8000 8 32 8192 0.95 \
-  --enable-expert-parallel --enable-ep-weight-filter \
-  --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
 run_arm F-pr51425 "$REBASED_IMAGE" 0,1,2,3,4,5,6,7 8000 8 32 8192 0.95 \
   --enable-expert-parallel --enable-ep-weight-filter \
   --speculative-config '{"method":"mtp","num_speculative_tokens":3}'
