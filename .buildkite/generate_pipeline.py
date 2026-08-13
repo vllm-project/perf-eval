@@ -46,7 +46,9 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
 RUN_TEMPLATE = (
-    'export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+    'INGEST_BEARER_TOKEN="$(buildkite-agent secret get INGEST_BEARER_TOKEN)"'
+    " && export INGEST_BEARER_TOKEN"
+    ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
 

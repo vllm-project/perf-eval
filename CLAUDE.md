@@ -40,6 +40,13 @@ exec(open('lib/parse_workload.py').read())
 bash -n lib/run.sh && bash -n lib/server.sh && bash -n lib/run_lm_eval.sh
 ```
 
+**Ingestion auth and pipeline generation:**
+
+```bash
+python3 -m unittest discover -s tests -p 'test_ingest_auth.py'
+python3 .buildkite/test_generate_pipeline.py
+```
+
 If you actually need real validation (parser hitting lm-eval's task registry rather than a stub), `pip install 'lm-eval[api]' pyyaml` first. Without it the parser exits with `cannot validate task names: lm_eval not importable` — that's intentional, never silently skip validation.
 
 ## Launching a Buildkite build

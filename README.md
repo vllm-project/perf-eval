@@ -147,6 +147,11 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
+Result uploads authenticate with `Authorization: Bearer ...`. Buildkite jobs
+retrieve `INGEST_BEARER_TOKEN` from the CI cluster's secret store immediately
+before running the workload; do not put the token in build environment settings
+or workload YAML. Local runs that upload results must export the same variable.
+
 **Example — trigger a build from the Buildkite UI:**
 
 1. Open the `vllm/perf-eval` pipeline → **New Build**.

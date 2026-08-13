@@ -25,15 +25,23 @@ import urllib.error
 import urllib.request
 
 DEFAULT_ENDPOINT = "https://vllm-perf-data-ingest-224810116257.us-central1.run.app/"
+AUTH_TOKEN_ENV = "INGEST_BEARER_TOKEN"
 TIMEOUT = 30
 
 
 def post(endpoint: str, payload: dict) -> None:
+    token = (os.environ.get(AUTH_TOKEN_ENV) or "").strip()
+    if not token:
+        raise RuntimeError(f"{AUTH_TOKEN_ENV} is required for result ingestion")
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         endpoint,
         data=body,
-        headers={"Content-Type": "application/json", "X-Source": "perf-eval"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "X-Source": "perf-eval",
+        },
         method="POST",
     )
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
