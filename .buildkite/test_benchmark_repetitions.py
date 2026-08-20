@@ -202,6 +202,8 @@ def test_glm_b200_workloads_limit_cuda_graph_batch_size():
             workload = yaml.safe_load(f)
         serve_args = workload.get("vllm", {}).get("serve_args", "")
         assert "--max-num-seqs 128" in serve_args, path
+        if name == "glm_5_2_dspark_b200.yaml":
+            assert "--max-cudagraph-capture-size 128" in serve_args, path
 
 
 def main():

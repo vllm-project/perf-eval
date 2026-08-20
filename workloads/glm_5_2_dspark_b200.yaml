@@ -14,6 +14,7 @@ vllm:
     --tensor-parallel-size 8
     --enable-expert-parallel
     --max-num-seqs 128
+    --max-cudagraph-capture-size 128
     --kv-cache-dtype fp8_e4m3
     --speculative-config.method dspark
     --speculative-config.model RedHatAI/GLM-5.2-speculator.dspark
