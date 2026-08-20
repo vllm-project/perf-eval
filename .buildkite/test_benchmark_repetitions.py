@@ -167,6 +167,27 @@ def test_long_workloads_allow_three_hours():
         assert workload.get("timeout_in_minutes") == 180, path
 
 
+def test_long_b200_workloads_allow_one_hour_for_engine_startup():
+    import yaml
+
+    workload_dir = os.path.join(ROOT, "workloads")
+    names = (
+        "deepseek_v4_flash_0731_b200.yaml",
+        "glm_5_2_b200.yaml",
+        "glm_5_2_dspark_b200.yaml",
+    )
+    for name in names:
+        path = os.path.join(workload_dir, name)
+        with open(path) as f:
+            workload = yaml.safe_load(f)
+        assert (
+            workload.get("vllm", {}).get("env", {}).get(
+                "VLLM_ENGINE_READY_TIMEOUT_S"
+            )
+            == 3600
+        ), path
+
+
 def main():
     tests = [value for key, value in sorted(globals().items()) if key.startswith("test_")]
     failed = 0

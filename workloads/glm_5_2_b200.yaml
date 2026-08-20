@@ -8,6 +8,8 @@ timeout_in_minutes: 180
 
 vllm:
   model: nvidia/GLM-5.2-NVFP4
+  env:
+    VLLM_ENGINE_READY_TIMEOUT_S: 3600
   serve_args: >-
     --tensor-parallel-size 8
     --enable-expert-parallel
