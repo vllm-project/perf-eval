@@ -2,7 +2,7 @@
 #
 # Functions:
 #   start_server <container> <port> <image> <model> <serve_args> <env> [runtime]
-#   wait_healthy <port> [timeout_s=1500]
+#   wait_healthy <port> [timeout_s=3600]
 #   stop_server  <container>
 #
 # `env` is a newline-separated list of KEY=VALUE pairs. For Docker runtime,
@@ -20,6 +20,9 @@ start_server() {
   echo "--- :rocket: starting vllm: $model"
 
   if [[ "$runtime" == "native" ]]; then
+    # Match the Docker runtime's startup allowance for large models. Workload
+    # env values below can still override this default.
+    export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-3600}"
     while IFS= read -r kv; do
       [[ -z "$kv" ]] && continue
       export "$kv"
