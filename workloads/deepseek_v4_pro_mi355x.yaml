@@ -8,6 +8,8 @@ vllm:
   model: deepseek-ai/DeepSeek-V4-Pro
   env:
     VLLM_ROCM_USE_AITER: 1
+    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
+    OMP_NUM_THREADS: 1
   serve_args: >-
     --tensor-parallel-size 8
     --kv-cache-dtype fp8

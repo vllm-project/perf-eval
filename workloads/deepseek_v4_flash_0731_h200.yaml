@@ -3,6 +3,7 @@ name: deepseek_v4_flash_0731-h200
 gpu: H200
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 180
 
 vllm:
   model: deepseek-ai/DeepSeek-V4-Flash-0731
@@ -14,6 +15,7 @@ vllm:
     --tensor-parallel-size 2
     --data-parallel-size 4
     --enable-expert-parallel
+    --max-model-len 32768
     --kv-cache-dtype fp8
     --block-size 256
     --tokenizer-mode deepseek_v4

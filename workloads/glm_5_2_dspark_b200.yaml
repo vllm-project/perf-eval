@@ -4,6 +4,7 @@ name: glm_5_2_dspark-b200
 gpu: B200
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 180
 
 vllm:
   model: nvidia/GLM-5.2-NVFP4

@@ -3,6 +3,7 @@ name: deepseek_v4_pro-h200
 gpu: H200
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 180
 
 vllm:
   model: deepseek-ai/DeepSeek-V4-Pro
