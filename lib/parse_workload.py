@@ -38,6 +38,11 @@ BENCH_RESERVED_ARGS = {
     "speed-bench-category", "skip-tokenizer-init", "save-result",
     "result-filename",
 }
+AIPERF_FIELDS = {"name", "args"}
+AIPERF_REQUIRED = ("name",)
+AIPERF_RESERVED_ARGS = {
+    "model", "tokenizer", "url", "api-key", "output-artifact-dir",
+}
 BFCL_FIELDS = {
     "test_categories", "num_threads", "temperature",
     "maximum_step_limit", "max_test_cases",
@@ -190,31 +195,42 @@ def normalize_bench_arg_name(name: str) -> str:
     return name.lstrip("-").replace("_", "-")
 
 
-def encode_bench_args(args: object, config_name: str, path: str) -> str:
+def encode_arg_map(
+    args: object, config_name: str, path: str, reserved: set, kind: str
+) -> str:
+    """Normalize a config `args` map to `--kebab-case` keys and base64-encode it.
+
+    Shared by vllm_bench and aiperf; each passes its own set of wrapper-owned
+    reserved options that a workload must not override.
+    """
     if args is None:
         args = {}
     if not isinstance(args, dict):
-        sys.exit(f"{path}: vllm_bench config {config_name!r} args must be a map")
+        sys.exit(f"{path}: {kind} config {config_name!r} args must be a map")
     normalized = {}
     for name, value in args.items():
         if not isinstance(name, str) or not normalize_bench_arg_name(name):
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args keys must be non-empty strings"
+                f"{path}: {kind} config {config_name!r} args keys must be non-empty strings"
             )
         normalized_name = normalize_bench_arg_name(name)
-        if normalized_name in BENCH_RESERVED_ARGS:
+        if normalized_name in reserved:
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args cannot override "
+                f"{path}: {kind} config {config_name!r} args cannot override "
                 f"wrapper-owned option --{normalized_name}"
             )
         if normalized_name in normalized:
             sys.exit(
-                f"{path}: vllm_bench config {config_name!r} args contains duplicate "
+                f"{path}: {kind} config {config_name!r} args contains duplicate "
                 f"option --{normalized_name} after normalization"
             )
         normalized[normalized_name] = value
     payload = json.dumps(normalized, separators=(",", ":")).encode()
     return base64.b64encode(payload).decode()
+
+
+def encode_bench_args(args: object, config_name: str, path: str) -> str:
+    return encode_arg_map(args, config_name, path, BENCH_RESERVED_ARGS, "vllm_bench")
 
 
 def expand_bench_config(c: dict, path: str) -> list:
@@ -319,6 +335,40 @@ def bench_tsv(configs: list, path: str) -> str:
     return "\n".join(lines)
 
 
+def aiperf_tsv(configs: list, path: str) -> str:
+    """Emit one row per aiperf config: name plus base64-encoded arg map.
+
+    The wrapper owns --model, --tokenizer, --url, --api-key, and
+    --output-artifact-dir; everything else the profile needs goes under `args`.
+    """
+    seen = set()
+    lines = []
+    for c in configs:
+        extra = set(c) - AIPERF_FIELDS
+        if extra:
+            sys.exit(
+                f"{path}: aiperf config {c.get('name')!r} has unsupported "
+                f"fields {sorted(extra)}; allowed: {sorted(AIPERF_FIELDS)}"
+            )
+        for k in AIPERF_REQUIRED:
+            if c.get(k) is None:
+                sys.exit(f"{path}: aiperf config {c.get('name')!r} missing required field {k!r}")
+        if c["name"] in seen:
+            sys.exit(f"{path}: duplicate aiperf config name {c['name']!r}")
+        seen.add(c["name"])
+        lines.append(
+            "\t".join(
+                [
+                    c["name"],
+                    encode_arg_map(
+                        c.get("args"), c["name"], path, AIPERF_RESERVED_ARGS, "aiperf"
+                    ),
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
 def _validate_bfcl_limits(bfcl: dict, path: str) -> None:
     limit = bfcl.get("maximum_step_limit")
     if limit is not None and (not isinstance(limit, int) or limit < 1):
@@ -406,13 +456,17 @@ def main(path: str) -> None:
     lm_eval = data.get("lm_eval") or {}
     bench = data.get("vllm_bench") or {}
 
+    aiperf = data.get("aiperf") or {}
+
     tasks = lm_eval.get("tasks") or []
     bfcl = data.get("bfcl") or {}
     bench_configs = bench.get("configs") or []
+    aiperf_configs = aiperf.get("configs") or []
 
-    if not tasks and not bench_configs and not bfcl:
+    if not tasks and not bench_configs and not bfcl and not aiperf_configs:
         sys.exit(
-            f"{path}: workload must define at least one of lm_eval, vllm_bench, or bfcl"
+            f"{path}: workload must define at least one of lm_eval, vllm_bench, "
+            f"aiperf, or bfcl"
         )
 
     if tasks:
@@ -441,6 +495,7 @@ def main(path: str) -> None:
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
+    emit("AIPERF_TSV", aiperf_tsv(aiperf_configs, path))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)

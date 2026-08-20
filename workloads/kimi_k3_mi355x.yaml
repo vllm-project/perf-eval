@@ -1,0 +1,50 @@
+# Kimi-K3 on AMD MI355X (aiperf perf run)
+name: kimi_k3-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: moonshotai/Kimi-K3
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    AITER_SITUV2_A8W4: 1
+    AITER_BF16_FP8_MOE_BOUND: 0
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 0
+    OMP_NUM_THREADS: 1
+  serve_args: >-
+    --trust-remote-code
+    --tensor-parallel-size 8
+    --gpu-memory-utilization 0.95
+    --mm-encoder-tp-mode data
+    --max-num-batched-tokens 4096
+    --enable-auto-tool-choice
+    --tool-call-parser kimi_k3
+    --reasoning-parser kimi_k3
+    --max-num-seqs 128
+    --enable-prefix-caching
+
+aiperf:
+  configs:
+    - name: prefix63k-in4760-out350-conc16-24
+      args:
+        endpoint-type: chat
+        streaming: true
+        use-server-token-count: true
+        tokenizer-trust-remote-code: true
+        num-prefix-prompts: 8
+        prompt-prefix-length: 63240
+        synthetic-input-tokens-mean: 4760
+        synthetic-input-tokens-stddev: 0
+        output-tokens-mean: 350
+        output-tokens-stddev: 0
+        extra-inputs:
+          - "ignore_eos:true"
+          - "min_tokens:350"
+          - "max_tokens:350"
+        warmup-request-count: 3
+        sweep-type: zip
+        concurrency: "16,24"
+        request-count: "80,120"
+        random-seed: 42
+        ui: simple

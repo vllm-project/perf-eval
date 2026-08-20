@@ -15,6 +15,8 @@ source "$DIR/server.sh"
 source "$DIR/run_lm_eval.sh"
 # shellcheck disable=SC1091
 source "$DIR/run_vllm_bench.sh"
+# shellcheck disable=SC1091
+source "$DIR/run_aiperf.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
@@ -57,6 +59,14 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions 
     --image "$WORKLOAD_IMAGE" \
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
+
+# aiperf profile runs (perf, like vllm_bench). Artifacts are uploaded via the
+# Buildkite artifact_paths glob; there is no dashboard ingest for aiperf yet.
+while IFS=$'\t' read -r aname aargs; do
+  [[ -z "$aname" ]] && continue
+  run_aiperf "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
+             "$aname" "$aargs" "$RESULTS_DIR"
+done <<< "$WORKLOAD_AIPERF_TSV"
 
 if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
   echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"

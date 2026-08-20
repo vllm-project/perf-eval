@@ -27,14 +27,15 @@ GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
 ### Recipe schema
 
-A recipe has top-level metadata plus up to three eval blocks:
+A recipe has top-level metadata plus up to four eval blocks:
 
 - **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
+- **`aiperf:`** — *what perf to measure with [aiperf](https://pypi.org/project/aiperf/).* Lists `aiperf profile` configs for scenarios `vllm bench serve` doesn't cover (e.g. prefix-cache sweeps, server-side token counting). aiperf is pip-installed at run time because the vLLM images don't ship it. Artifacts are saved under `results/<name>/aiperf-<config>/` and uploaded as Buildkite artifacts; there is no dashboard ingest yet. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
 
-Include one or more of `lm_eval:` / `vllm_bench:` / `bfcl:` depending on what you want out of this recipe.
+Include one or more of `lm_eval:` / `vllm_bench:` / `aiperf:` / `bfcl:` depending on what you want out of this recipe.
 
 ```yaml
 name: qwen3_5-h200       # used in container name and results/<name>/
@@ -89,6 +90,18 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
       args:                             # optional vllm bench serve arguments
         num_warmups: 256                # one warmup wave before every measured run
         disable_tqdm: true              # becomes --disable-tqdm
+
+aiperf:                 # perf runs via the aiperf CLI (optional)
+  configs:
+    - name: prefix63k-in4760-out350-conc16-24
+      args:                             # everything except model/tokenizer/url/api-key/output-artifact-dir
+        endpoint-type: chat             # becomes --endpoint-type chat
+        streaming: true                 # becomes --streaming
+        concurrency: "16,24"            # comma lists stay strings: --concurrency 16,24
+        request-count: "80,120"
+        extra-inputs:                   # a list repeats the flag
+          - "ignore_eos:true"           # --extra-inputs ignore_eos:true
+          - "max_tokens:350"
 ```
 
 A few things worth knowing:
@@ -102,6 +115,7 @@ A few things worth knowing:
 - **`vllm_bench.configs[].max_concurrency` may be a single value or a list.** Each run's name is always `<name>-conc-<value>`, so the config `name` is the shape description *without* the concurrency (e.g. `name: 8k-in-1k-out`). A scalar (`max_concurrency: 128`) produces one run (`8k-in-1k-out-conc-128`); a list (`max_concurrency: [1, 64, 128]`) sweeps concurrency and fans out into one run per value, so you don't have to copy a config per concurrency. `num_prompts` can stay a single value (applied to every run) or, when `max_concurrency` is a list, be a list of the same length to set a per-concurrency request count (e.g. to keep `num_prompts` proportional to concurrency).
 - **`vllm_bench.configs[].args` forwards additional options to `vllm bench serve`.** Keys may use underscores, hyphens, or a leading `--`; they are normalized to `--kebab-case`. A `true` value emits a standalone flag, `false` and `null` omit it, scalar values emit a flag/value pair, and lists repeat the flag. Options managed by perf-eval itself, including the model, endpoint, dataset, request counts, lengths, concurrency, and result path, remain top-level config fields and cannot be overridden through `args`.
 - **`vllm_bench.configs[].repetitions` repeats the complete benchmark on the same server and median-aggregates every numeric scalar before ingestion.** It defaults to `1` and must be a positive odd integer. For repeated configs, every raw run is retained as `bench-<run-name>-run-<n>.json`; the median aggregate remains `bench-<run-name>.json`, where `<run-name>` is the `-conc-<value>` suffixed name. Repetitions apply to every concurrency in a sweep, so a 3-value sweep with `repetitions: 3` is nine measured runs. `args.num_warmups` applies independently to every repetition; it is a single value shared by the whole sweep, so pick it for the highest concurrency you sweep to.
+- **`aiperf` is a client-side load generator** run against the live server (`http://127.0.0.1:<port>`). The wrapper owns `--model`, `--tokenizer` (defaults to the served model), `--url`, `--api-key EMPTY`, and `--output-artifact-dir`; every other flag goes under `args` and follows the same normalization as `vllm_bench.configs[].args` (underscores/hyphens/`--` prefix accepted, `true` emits a bare flag, lists repeat the flag, comma-separated sweep values like `concurrency: "16,24"` should stay quoted strings). Because the vLLM images don't ship aiperf, it is `pip install`ed on first use (into the container for Docker runtime, into the job Python for native runtime).
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
