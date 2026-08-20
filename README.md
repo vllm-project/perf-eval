@@ -200,7 +200,7 @@ results/<workload>/
 └── bfcl-<category>/
 ```
 
-The manifest records the exact workload and its checksum, resolved image ID and available repository digests, runtime, sanitized workload environment, and, for locally built images, the Dockerfile, sanitized build arguments, source repository, commit, build-context subdirectory, and `dirty` source-tree flag. Source patches and secret values are never captured. A dirty run remains usable, but the manifest explicitly marks that it cannot be reproduced exactly from the recorded commit alone.
+The manifest records the exact workload and its checksum, resolved image ID and available repository digests, runtime, sanitized workload environment, and, for locally built images, the Dockerfile, sanitized build arguments, source repository, commit, and build-context subdirectory. Source patches, source-tree status, and secret values are never captured.
 
 Buildkite already uploads `results/**/*`, so the bundle is retained with raw results. Both accuracy and performance ingestion payloads also include the same provenance object, allowing a database row to retain the experiment definition with its result.
 
@@ -210,7 +210,7 @@ Replay a locally built experiment with:
 ./lib/replay.sh results/<workload>/provenance/manifest.json
 ```
 
-Replay clones the recorded repository and commit, restores the recorded build-context subdirectory, builds the captured Dockerfile, and runs the captured workload. It warns for dirty source trees and refuses unattended replay when a required build argument was redacted.
+Replay clones the recorded repository and commit, restores the recorded build-context subdirectory, builds the captured Dockerfile, and runs the captured workload. It refuses unattended replay when a required build argument was redacted.
 
 ## Agents
 

@@ -27,11 +27,10 @@ class ProvenanceTests(unittest.TestCase):
     def setUpClass(cls):
         cls.provenance = load_module("provenance", ROOT / "lib" / "provenance.py")
 
-    def test_source_metadata_records_clean_state_without_diff(self):
+    def test_source_metadata_records_repository_without_inspecting_worktree(self):
         completed = {
             ("config", "--get", "remote.origin.url"): "git@example.test:vllm.git\n",
             ("rev-parse", "HEAD"): "abc123\n",
-            ("status", "--porcelain"): " M vllm/config.py\n",
             ("rev-parse", "--show-toplevel"): "/src\n",
         }
 
@@ -43,8 +42,8 @@ class ProvenanceTests(unittest.TestCase):
 
         self.assertEqual(source["repository"], "git@example.test:vllm.git")
         self.assertEqual(source["commit"], "abc123")
-        self.assertTrue(source["dirty"])
-        self.assertNotIn("diff", source)
+        self.assertEqual(source["context_subdirectory"], "vllm")
+        self.assertNotIn("dirty", source)
 
     def test_native_image_metadata_does_not_require_docker(self):
         with mock.patch.object(self.provenance.subprocess, "run") as run:
@@ -82,7 +81,7 @@ class ProvenanceTests(unittest.TestCase):
             with mock.patch.object(
                 self.provenance,
                 "source_metadata",
-                return_value={"repository": "repo", "commit": "abc", "dirty": False},
+                return_value={"repository": "repo", "commit": "abc"},
             ), mock.patch.object(
                 self.provenance,
                 "image_metadata",
@@ -107,7 +106,7 @@ class ProvenanceTests(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text())
             self.assertEqual(manifest["schema_version"], 1)
             self.assertEqual(manifest["image"]["id"], "sha256:123")
-            self.assertEqual(manifest["source"]["dirty"], False)
+            self.assertNotIn("dirty", manifest["source"])
             self.assertEqual(manifest["environment"]["CUDA_VISIBLE_DEVICES"], "0")
             self.assertEqual(manifest["environment"]["HF_TOKEN"], "<redacted>")
             self.assertEqual(manifest["build"]["dockerfile"], "docker/Dockerfile")

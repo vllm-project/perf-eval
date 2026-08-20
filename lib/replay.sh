@@ -16,24 +16,19 @@ source = manifest.get("source") or {}
 build = manifest.get("build") or {}
 print(source.get("repository", ""))
 print(source.get("commit", ""))
-print("1" if source.get("dirty") else "0")
 print(json.dumps(build.get("args") or {}, separators=(",", ":")))
 print(source.get("context_subdirectory", "."))
 PY
 )
 REPOSITORY="${FIELDS[0]}"
 COMMIT="${FIELDS[1]}"
-DIRTY="${FIELDS[2]}"
-BUILD_ARGS_JSON="${FIELDS[3]}"
-CONTEXT_SUBDIRECTORY="${FIELDS[4]}"
+BUILD_ARGS_JSON="${FIELDS[2]}"
+CONTEXT_SUBDIRECTORY="${FIELDS[3]}"
 
 [[ -n "$REPOSITORY" && -n "$COMMIT" ]] || {
   echo "manifest does not contain build source metadata" >&2
   exit 2
 }
-if [[ "$DIRTY" == "1" ]]; then
-  echo "warning: the original source tree was dirty; this replay may not match it exactly" >&2
-fi
 if [[ "$BUILD_ARGS_JSON" == *'"<redacted>"'* ]]; then
   echo "manifest contains redacted build arguments and cannot be replayed unattended" >&2
   exit 2

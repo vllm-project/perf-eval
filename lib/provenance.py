@@ -28,7 +28,6 @@ def source_metadata(path: Path) -> dict:
     try:
         repository = run_git(path, "config", "--get", "remote.origin.url").strip()
         commit = run_git(path, "rev-parse", "HEAD").strip()
-        dirty = bool(run_git(path, "status", "--porcelain").strip())
         root = Path(run_git(path, "rev-parse", "--show-toplevel").strip())
         subdirectory = str(path.resolve().relative_to(root.resolve()))
     except (subprocess.CalledProcessError, ValueError) as error:
@@ -36,7 +35,6 @@ def source_metadata(path: Path) -> dict:
     return {
         "repository": repository,
         "commit": commit,
-        "dirty": dirty,
         "context_subdirectory": subdirectory or ".",
     }
 
