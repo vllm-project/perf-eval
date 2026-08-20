@@ -5,6 +5,7 @@ name: glm_5_1-h200
 gpu: H200
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 180
 
 vllm:
   model: zai-org/GLM-5.1-FP8
