@@ -76,7 +76,7 @@ Pipeline metadata:
    - `commit: "<full SHA>"`
    - `branch: "<branch name>"` (use the actual branch, not `main`, when testing a feature branch)
    - `message: "<short description of what this tests>"` — match the existing convention: short, action-oriented (e.g. "Add gpqa diamond", "Writable HF_HOME for lm_eval datasets cache"). No emoji unless the user asks.
-   - `environment`: always pass both `VLLM_COMMIT` (the vLLM SHA being tested) and `VLLM_IMAGE` (the full Docker image URI). Optionally pass `WORKLOADS` for an explicit workload list; omit it to run all `nightly: true` workloads.
+   - `environment`: always pass both `VLLM_COMMIT` (the vLLM SHA being tested) and `VLLM_IMAGE` (the full Docker image URI). When CUDA and ROCm are unrelated artifacts, pass `VLLM_IMAGE_CUDA` / `VLLM_IMAGE_ROCM` instead — each overrides all other image selection for its platform, and a platform with neither its own pin nor `VLLM_IMAGE` has its workloads skipped. Optionally pass `WORKLOADS` for an explicit workload list; omit it to run all `nightly: true` workloads.
 
    With `bk` (run `bk auth status` first):
 

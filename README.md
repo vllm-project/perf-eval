@@ -142,10 +142,20 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 **Required env vars** — both must be set on every build:
 
 - `VLLM_COMMIT` — vLLM commit SHA being tested. Used to tag results and track which vLLM version produced them.
-- `VLLM_IMAGE` — full Docker image URI (e.g. `vllm/vllm-openai:nightly-abc1234`). This is the image that gets pulled and run.
+- `VLLM_IMAGE` — full Docker image URI (e.g. `vllm/vllm-openai:nightly-abc1234`). This is the image that gets pulled and run. AMD workloads use it only if the ref names a ROCm image; otherwise they fall back to `vllm/vllm-openai-rocm:nightly-<VLLM_COMMIT>`.
 
 **Optional env vars:**
 
+- `VLLM_IMAGE_CUDA` / `VLLM_IMAGE_ROCM` — that platform's image URI, for a build whose CUDA and ROCm images are unrelated artifacts (a release candidate tagged `myrepo/vllm:v0.12.0rc2` on CUDA and `myrepo/amd-vllm:rc2-final` on ROCm, say). Each one overrides every other image choice for the workloads on its platform — `VLLM_IMAGE`, `VLLM_COMMIT`, and the workload's own `vllm.image`.
+
+  Pin one platform and the other's workloads are **skipped** (`no ROCM image: set VLLM_IMAGE_ROCM`), on the grounds that a build naming its images per platform names every platform it wants run: benchmarking whatever else was lying around and labelling it with this build's commit is worse than not running. Set `VLLM_IMAGE` alongside the pin to cover the rest, or pin both platforms. Skipped steps are hidden in the build view until you toggle *Skipped jobs*.
+
+  To check what a build settled on, read the **generate steps** job log: it names the image each platform resolved to, and the workload count behind it, before any GPU is booked. Each workload's own log then opens with the image and commit that job resolved (AMD and B200 pods pull the ECR mirror of that ref).
+
+  ```
+  CUDA: myrepo/vllm:v0.12.0rc2 (12 workloads)
+  ROCM: skipped, set VLLM_IMAGE_ROCM (8 workloads)
+  ```
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 

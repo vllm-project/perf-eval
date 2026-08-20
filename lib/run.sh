@@ -18,6 +18,7 @@ source "$DIR/run_vllm_bench.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
+echo "image: $WORKLOAD_IMAGE  commit: ${WORKLOAD_VLLM_COMMIT:-unknown}"
 
 PORT=8000
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
