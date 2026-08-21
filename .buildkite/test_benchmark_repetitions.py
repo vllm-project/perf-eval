@@ -145,20 +145,20 @@ def test_all_h200_benchmarks_use_saturated_warmups_and_three_runs():
             ), path
 
 
-def test_long_h200_workloads_allow_three_hours():
+def test_long_h200_workloads_have_explicit_timeouts():
     import yaml
 
     workload_dir = os.path.join(ROOT, "workloads")
-    names = (
-        "deepseek_v4_pro_5_h200.yaml",
-        "gemma_4_31b_it_h200.yaml",
-        "glm_5_1_h200.yaml",
-    )
-    for name in names:
+    expected_timeouts = {
+        "deepseek_v4_pro_5_h200.yaml": 180,
+        "gemma_4_31b_it_h200.yaml": 360,
+        "glm_5_1_h200.yaml": 180,
+    }
+    for name, expected_timeout in expected_timeouts.items():
         path = os.path.join(workload_dir, name)
         with open(path) as f:
             workload = yaml.safe_load(f)
-        assert workload.get("timeout_in_minutes") == 180, path
+        assert workload.get("timeout_in_minutes") == expected_timeout, path
 
 
 def main():
