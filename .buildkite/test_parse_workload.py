@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 import yaml
 
-
 ROOT = Path(__file__).parents[1]
 SPEC = importlib.util.spec_from_file_location(
     "parse_workload", ROOT / "lib" / "parse_workload.py"
@@ -17,9 +16,7 @@ SPEC.loader.exec_module(parse_workload)
 def write_workload(tmp_path: Path, startup_timeout_s: object) -> Path:
     (tmp_path / "lib").mkdir()
     (tmp_path / "workloads").mkdir()
-    (tmp_path / "lib" / "gpu_profiles.yaml").write_text(
-        yaml.safe_dump({"H200": {}})
-    )
+    (tmp_path / "lib" / "gpu_profiles.yaml").write_text(yaml.safe_dump({"H200": {}}))
     workload = tmp_path / "workloads" / "workload.yaml"
     workload.write_text(
         yaml.safe_dump(
