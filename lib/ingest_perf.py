@@ -27,6 +27,15 @@ import urllib.request
 DEFAULT_ENDPOINT = "https://vllm-perf-data-ingest-224810116257.us-central1.run.app/"
 AUTH_TOKEN_ENV = "INGEST_BEARER_TOKEN"
 TIMEOUT = 30
+PROVENANCE_ENV = "WORKLOAD_PROVENANCE_FILE"
+
+
+def load_provenance() -> dict | None:
+    path = (os.environ.get(PROVENANCE_ENV) or "").strip()
+    if not path:
+        return None
+    with open(path) as file:
+        return json.load(file)
 
 
 def post(endpoint: str, payload: dict) -> None:
@@ -79,6 +88,9 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
 
     if os.environ.get("NIGHTLY") == "1":
         data["nightly"] = True
+    provenance = load_provenance()
+    if provenance:
+        data["provenance"] = provenance
 
     # Convert *_ms fields to seconds and emit interactivity (1000/tpot_ms).
     for key, value in raw.items():

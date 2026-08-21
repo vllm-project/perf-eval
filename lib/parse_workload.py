@@ -43,6 +43,7 @@ BFCL_FIELDS = {
     "maximum_step_limit", "max_test_cases",
 }
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
+BUILD_FIELDS = {"dockerfile", "context", "args"}
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
     "multiple", "parallel", "parallel_multiple", "irrelevance",
@@ -122,6 +123,35 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
 
     image = vllm.get("image", f"{repo}:nightly")
     return image, commit_from_image(str(image))
+
+
+def validate_build(vllm: dict, profile: dict, path: str) -> dict:
+    build = vllm.get("build") or {}
+    if not build:
+        return {}
+    if not isinstance(build, dict):
+        sys.exit(f"{path}: vllm.build must be a map")
+    extra = set(build) - BUILD_FIELDS
+    if extra:
+        sys.exit(f"{path}: vllm.build has unsupported fields {sorted(extra)}")
+    if not vllm.get("image"):
+        sys.exit(f"{path}: vllm.build requires an explicit vllm.image tag")
+    if os.environ.get("VLLM_IMAGE") or os.environ.get("VLLM_COMMIT"):
+        sys.exit(f"{path}: vllm.build cannot be combined with VLLM_IMAGE or VLLM_COMMIT")
+    if profile.get("server_runtime", "docker") != "docker":
+        sys.exit(f"{path}: vllm.build requires a docker server runtime")
+    dockerfile = build.get("dockerfile")
+    context = build.get("context", ".")
+    args = build.get("args") or {}
+    if not isinstance(dockerfile, str) or not dockerfile.strip():
+        sys.exit(f"{path}: vllm.build.dockerfile must be a non-empty path")
+    if not isinstance(context, str) or not context.strip():
+        sys.exit(f"{path}: vllm.build.context must be a non-empty path")
+    if not isinstance(args, dict):
+        sys.exit(f"{path}: vllm.build.args must be a map")
+    if any(not isinstance(name, str) or not name for name in args):
+        sys.exit(f"{path}: vllm.build.args keys must be non-empty strings")
+    return {"dockerfile": dockerfile, "context": context, "args": args}
 
 
 def parse_tp(serve_args: str) -> int:
@@ -421,6 +451,7 @@ def main(path: str) -> None:
     serve_args = vllm.get("serve_args") or ""
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
+    build = validate_build(vllm, profile, path)
 
     image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
@@ -438,6 +469,9 @@ def main(path: str) -> None:
     emit("MODEL", vllm.get("model", ""))
     emit("SERVE_ARGS", serve_args)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
+    emit("BUILD_DOCKERFILE", build.get("dockerfile", ""))
+    emit("BUILD_CONTEXT", build.get("context", ""))
+    emit("BUILD_ARGS_JSON", json.dumps(build.get("args", {}), separators=(",", ":")))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))

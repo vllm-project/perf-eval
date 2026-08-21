@@ -8,7 +8,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 
 ```
 workloads/        one YAML per (model, hardware) recipe
-lib/              orchestrator (run.sh), helpers, GPU profiles
+lib/              orchestrator, provenance/replay tools, helpers, GPU profiles
 .buildkite/       pipeline bootstrap, step generator, and its tests
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
@@ -45,7 +45,12 @@ timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
-  image: vllm/vllm-openai:nightly      # optional; falls back to VLLM_IMAGE / VLLM_COMMIT / latest
+  image: vllm/vllm-openai:nightly      # optional unless build is set; falls back to overrides/latest
+  build:                                # optional; build a local image before the run
+    dockerfile: docker/Dockerfile
+    context: .
+    args:
+      CUDA_ARCH: "90"
   env:                                  # optional; merged over the GPU profile's env
     SOME_VAR: value
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
@@ -94,6 +99,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 A few things worth knowing:
 
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
+- **`vllm.build` builds a local Docker image before the workload runs.** It requires an explicit `vllm.image` tag and Docker runtime, accepts `dockerfile`, `context`, and optional `args`, and cannot be combined with `VLLM_IMAGE` or `VLLM_COMMIT`. Paths are resolved from the command's working directory. Build-argument names containing token, secret, password, credential, or API-key terms are redacted from provenance; a replay that needs a redacted value stops and asks for a manually rebuilt image instead of silently changing the experiment.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`timeout_in_minutes`** overrides the Buildkite step timeout (default: `120`). This is separate from `lm_eval.model_args.timeout`, which controls individual API requests.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
@@ -180,6 +186,33 @@ A real run needs a GPU host with Docker, vLLM, and lm-eval available:
 ```
 
 Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for the parser stub and shell-syntax checks.
+
+### Experiment provenance and replay
+
+Every run writes a self-contained provenance bundle beside its results:
+
+```text
+results/<workload>/
+├── provenance/
+│   ├── manifest.json
+│   ├── workload.yaml
+│   └── docker/Dockerfile       # present when vllm.build was used
+├── bench-*.json
+├── <lm-eval-task>/
+└── bfcl-<category>/
+```
+
+The manifest records the exact workload and its checksum, resolved image ID and available repository digests, runtime, sanitized workload environment, and, for locally built images, the Dockerfile, sanitized build arguments, source repository, commit, and build-context subdirectory. Source patches, source-tree status, and secret values are never captured.
+
+Buildkite already uploads `results/**/*`, so the bundle is retained with raw results. Both accuracy and performance ingestion payloads also include the same provenance object, allowing a database row to retain the experiment definition with its result.
+
+Replay a locally built experiment with:
+
+```bash
+./lib/replay.sh results/<workload>/provenance/manifest.json
+```
+
+Replay clones the recorded repository and commit, restores the recorded build-context subdirectory, builds the captured Dockerfile, and runs the captured workload. It refuses unattended replay when a required build argument was redacted.
 
 ## Agents
 

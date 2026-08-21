@@ -30,6 +30,39 @@ if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$
 fi
 mkdir -p "$RESULTS_DIR"
 
+BUILD_IMAGE_ID=""
+PROVENANCE_ARGS=(
+  capture
+  --workload "$WORKLOAD"
+  --results-dir "$RESULTS_DIR"
+  --image "$WORKLOAD_IMAGE"
+  --runtime "$WORKLOAD_SERVER_RUNTIME"
+  --environment "$WORKLOAD_ENV"
+)
+if [[ -n "$WORKLOAD_BUILD_DOCKERFILE" ]]; then
+  BUILD_CONTEXT="$(realpath "$WORKLOAD_BUILD_CONTEXT")"
+  BUILD_DOCKERFILE="$WORKLOAD_BUILD_DOCKERFILE"
+  if [[ "$BUILD_DOCKERFILE" != /* ]]; then
+    BUILD_DOCKERFILE="${BUILD_CONTEXT}/${BUILD_DOCKERFILE}"
+  fi
+  [[ -d "$BUILD_CONTEXT" ]] || { echo "build context not found: $BUILD_CONTEXT" >&2; exit 2; }
+  [[ -f "$BUILD_DOCKERFILE" ]] || { echo "Dockerfile not found: $BUILD_DOCKERFILE" >&2; exit 2; }
+  BUILD_IMAGE_ID="$(python3 "$DIR/provenance.py" build \
+    --image "$WORKLOAD_IMAGE" \
+    --dockerfile "$BUILD_DOCKERFILE" \
+    --context "$BUILD_CONTEXT" \
+    --args-json "$WORKLOAD_BUILD_ARGS_JSON")"
+  PROVENANCE_ARGS+=(
+    --image-id "$BUILD_IMAGE_ID"
+    --dockerfile "$BUILD_DOCKERFILE"
+    --context "$BUILD_CONTEXT"
+    --args-json "$WORKLOAD_BUILD_ARGS_JSON"
+  )
+fi
+python3 "$DIR/provenance.py" "${PROVENANCE_ARGS[@]}"
+WORKLOAD_PROVENANCE_FILE="${RESULTS_DIR}/provenance/manifest.json"
+export WORKLOAD_PROVENANCE_FILE
+
 trap 'stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
