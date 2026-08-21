@@ -15,7 +15,7 @@ vllm:
     --tensor-parallel-size 2
     --data-parallel-size 4
     --enable-expert-parallel
-    --max-model-len 131072
+    --max-model-len 1048576
     --kv-cache-dtype fp8
     --block-size 256
     --moe-backend deep_gemm_mega_moe
