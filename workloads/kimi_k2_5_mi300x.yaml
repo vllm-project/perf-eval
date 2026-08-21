@@ -6,8 +6,10 @@ nightly: true
 
 vllm:
   model: moonshotai/Kimi-K2.5
+  startup_timeout_s: 7200
   env:
     VLLM_ROCM_USE_AITER: 1
+    VLLM_ENGINE_READY_TIMEOUT_S: 7200
     # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
     OMP_NUM_THREADS: 1
   serve_args: >-

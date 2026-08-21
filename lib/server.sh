@@ -2,7 +2,7 @@
 #
 # Functions:
 #   start_server <container> <port> <image> <model> <serve_args> <env> [runtime]
-#   wait_healthy <port> [timeout_s=1500]
+#   wait_healthy <port> [timeout_s=3600]
 #   stop_server  <container>
 #
 # `env` is a newline-separated list of KEY=VALUE pairs. For Docker runtime,

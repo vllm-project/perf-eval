@@ -419,6 +419,13 @@ def main(path: str) -> None:
         validate_tasks(tasks, path)
 
     serve_args = vllm.get("serve_args") or ""
+    startup_timeout_s = vllm.get("startup_timeout_s", 3600)
+    if (
+        isinstance(startup_timeout_s, bool)
+        or not isinstance(startup_timeout_s, int)
+        or startup_timeout_s < 1
+    ):
+        sys.exit(f"{path}: vllm.startup_timeout_s must be a positive integer")
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
@@ -437,6 +444,7 @@ def main(path: str) -> None:
     emit("VLLM_COMMIT", vllm_commit)
     emit("MODEL", vllm.get("model", ""))
     emit("SERVE_ARGS", serve_args)
+    emit("SERVER_STARTUP_TIMEOUT", startup_timeout_s)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))

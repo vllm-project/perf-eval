@@ -46,6 +46,7 @@ timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
   image: vllm/vllm-openai:nightly      # optional; falls back to VLLM_IMAGE / VLLM_COMMIT / latest
+  startup_timeout_s: 3600               # optional; /health wait (default: 3600)
   env:                                  # optional; merged over the GPU profile's env
     SOME_VAR: value
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
