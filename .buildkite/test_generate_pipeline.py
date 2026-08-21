@@ -107,6 +107,20 @@ def test_run_command_fetches_ingest_token_before_workload():
     assert command.index(get_secret) < command.index("./lib/run.sh")
 
 
+def test_shipped_amd_profiles_pull_public_ecr_directly():
+    image = "public.ecr.aws/example/release:rocm"
+    profiles = g.load_profiles()
+    for gpu in ("MI300X", "MI355X"):
+        assert g.route_ecr_image(image, profiles[gpu]) == image
+
+
+def test_ecr_pull_through_remains_default():
+    image = "public.ecr.aws/example/release:cuda"
+    assert g.route_ecr_image(image, {}) == (
+        f"{g.ECR_PULL_THROUGH_CACHE}example/release:cuda"
+    )
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

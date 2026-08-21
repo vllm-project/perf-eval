@@ -77,6 +77,13 @@ def ecr_pull_through(image):
     return image
 
 
+def route_ecr_image(image, profile):
+    """Use the pull-through cache only on clusters configured for it."""
+    if profile.get("ecr_pull_through_cache", True):
+        return ecr_pull_through(image)
+    return image
+
+
 def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
 
@@ -292,7 +299,7 @@ def make_step(path, data, profiles):
         builder = K8S_PLUGINS.get(kind)
         if builder is None:
             sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
-        image = ecr_pull_through(resolved_image(data, profile))
+        image = route_ecr_image(resolved_image(data, profile), profile)
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
     step_env = {
         k: os.environ[k]
