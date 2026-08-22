@@ -213,7 +213,7 @@ def test_glm_dspark_h200_uses_attention_compatible_kv_cache_dtype():
     with open(path) as f:
         workload = yaml.safe_load(f)
     serve_args = workload.get("vllm", {}).get("serve_args", "")
-    assert "--kv-cache-dtype fp8_e4m3" in serve_args, path
+    assert "--kv-cache-dtype bfloat16" in serve_args, path
 
 
 def main():
