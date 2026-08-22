@@ -19,7 +19,14 @@ WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
 
-PORT=8000
+if [[ -n "${VLLM_PORT:-}" ]]; then
+  PORT="$VLLM_PORT"
+elif [[ -n "${BUILDKITE_JOB_ID:-}" ]]; then
+  read -r port_hash _ < <(printf '%s' "$BUILDKITE_JOB_ID" | cksum)
+  PORT=$((20000 + port_hash % 40000))
+else
+  PORT=8000
+fi
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
 RESULTS_DIR="results/${WORKLOAD_NAME}"
 BASE_URL="http://localhost:${PORT}"
