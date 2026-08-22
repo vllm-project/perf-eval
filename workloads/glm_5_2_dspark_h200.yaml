@@ -9,7 +9,7 @@ timeout_in_minutes: 180
 vllm:
   model: zai-org/GLM-5.2-FP8
   serve_args: >-
-    --kv-cache-dtype fp8
+    --kv-cache-dtype fp8_e4m3
     --tensor-parallel-size 8
     --speculative-config.method dspark
     --speculative-config.model RedHatAI/GLM-5.2-speculator.dspark
