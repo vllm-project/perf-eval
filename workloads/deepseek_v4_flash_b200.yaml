@@ -10,11 +10,12 @@ vllm:
     # Keep TileLang's compiler and CUDA headers on the image's matched toolkit.
     CUDA_HOME: /usr/local/cuda
     TRITON_PTXAS_PATH: /usr/local/cuda/bin/ptxas
+    VLLM_ENGINE_READY_TIMEOUT_S: "1800"
   serve_args: >-
     --tensor-parallel-size 2
     --data-parallel-size 4
     --enable-expert-parallel
-    --max-model-len 32768
+    --max-model-len 1048576
     --kv-cache-dtype fp8
     --block-size 256
     --moe-backend deep_gemm_mega_moe

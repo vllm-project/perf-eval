@@ -44,7 +44,7 @@ bfcl:
 vllm_bench:
   configs:
     - name: 8k-in-1k-out
-      backend: openai
+      backend: openai-chat
       dataset: random
       input_len: 8192
       output_len: 1024

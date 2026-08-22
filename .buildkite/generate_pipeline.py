@@ -77,6 +77,13 @@ def ecr_pull_through(image):
     return image
 
 
+def route_ecr_image(image, profile):
+    """Use the pull-through cache only on clusters configured for it."""
+    if profile.get("ecr_pull_through_cache", True):
+        return ecr_pull_through(image)
+    return image
+
+
 def is_truthy(value):
     return str(value or "").lower() in {"1", "true", "yes"}
 
@@ -98,10 +105,15 @@ def resolved_image(data, profile):
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or DEFAULT_IMAGE_REPO
-    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
-    if override_image and (not custom_repo or "rocm" in override_image.lower()):
-        return override_image
-    commit = override_commit or commit_from_image(override_image)
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
+    # A CUDA release image may embed a commit in its tag, but that must not
+    # implicitly select an unrelated ROCm nightly for AMD jobs.
+    if override_image:
+        if not custom_repo or "rocm" in override_image.lower():
+            return override_image
+        if not override_commit:
+            return vllm.get("image", f"{repo}:nightly")
+    commit = override_commit
     if commit:
         return f"{repo}:nightly-{commit}"
     return vllm.get("image", f"{repo}:nightly")
@@ -292,7 +304,7 @@ def make_step(path, data, profiles):
         builder = K8S_PLUGINS.get(kind)
         if builder is None:
             sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
-        image = ecr_pull_through(resolved_image(data, profile))
+        image = route_ecr_image(resolved_image(data, profile), profile)
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
     step_env = {
         k: os.environ[k]

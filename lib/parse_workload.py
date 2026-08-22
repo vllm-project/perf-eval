@@ -112,11 +112,17 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     # images (CUDA) are stored at vllm/vllm-openai
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or "vllm/vllm-openai"
-    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
-    if override_image and (not custom_repo or "rocm" in override_image.lower()):
-        return override_image, override_commit or commit_from_image(override_image)
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
+    # A CUDA release image may embed a commit in its tag, but that must not
+    # implicitly select an unrelated ROCm nightly for AMD jobs.
+    if override_image:
+        if not custom_repo or "rocm" in override_image.lower():
+            return override_image, override_commit or commit_from_image(override_image)
+        if not override_commit:
+            image = vllm.get("image", f"{repo}:nightly")
+            return image, commit_from_image(str(image))
 
-    commit = override_commit or commit_from_image(override_image)
+    commit = override_commit
     if commit:
         return f"{repo}:nightly-{commit}", commit
 
@@ -419,6 +425,13 @@ def main(path: str) -> None:
         validate_tasks(tasks, path)
 
     serve_args = vllm.get("serve_args") or ""
+    startup_timeout_s = vllm.get("startup_timeout_s", 3600)
+    if (
+        isinstance(startup_timeout_s, bool)
+        or not isinstance(startup_timeout_s, int)
+        or startup_timeout_s < 1
+    ):
+        sys.exit(f"{path}: vllm.startup_timeout_s must be a positive integer")
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
 
@@ -437,6 +450,7 @@ def main(path: str) -> None:
     emit("VLLM_COMMIT", vllm_commit)
     emit("MODEL", vllm.get("model", ""))
     emit("SERVE_ARGS", serve_args)
+    emit("SERVER_STARTUP_TIMEOUT", startup_timeout_s)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))

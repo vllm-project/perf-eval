@@ -46,6 +46,7 @@ timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
   image: vllm/vllm-openai:nightly      # optional; falls back to VLLM_IMAGE / VLLM_COMMIT / latest
+  startup_timeout_s: 3600               # optional; /health wait (default: 3600)
   env:                                  # optional; merged over the GPU profile's env
     SOME_VAR: value
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
@@ -148,6 +149,10 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
 
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
+
+GPU profiles can set `ecr_pull_through_cache: false` when their cluster pulls
+public ECR images directly. Profiles use the private ECR pull-through cache by
+default.
 
 Result uploads authenticate with `Authorization: Bearer ...`. Buildkite jobs
 retrieve `INGEST_BEARER_TOKEN` from the CI cluster's secret store immediately
