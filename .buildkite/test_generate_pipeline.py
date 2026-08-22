@@ -121,6 +121,27 @@ def test_ecr_pull_through_remains_default():
     )
 
 
+def test_cuda_release_image_does_not_select_rocm_commit():
+    image_key = "VLLM_IMAGE"
+    commit_key = "VLLM_COMMIT"
+    previous_image = os.environ.get(image_key)
+    previous_commit = os.environ.get(commit_key)
+    os.environ[image_key] = "public.ecr.aws/example/release:abc123def456-x86_64"
+    os.environ.pop(commit_key, None)
+    try:
+        image = g.resolved_image({}, {"image_repo": "vllm/vllm-openai-rocm"})
+    finally:
+        if previous_image is None:
+            os.environ.pop(image_key, None)
+        else:
+            os.environ[image_key] = previous_image
+        if previous_commit is None:
+            os.environ.pop(commit_key, None)
+        else:
+            os.environ[commit_key] = previous_commit
+    assert image == "vllm/vllm-openai-rocm:nightly"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

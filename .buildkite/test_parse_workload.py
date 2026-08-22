@@ -54,3 +54,17 @@ def test_emits_server_startup_timeout(tmp_path, capsys):
 def test_rejects_invalid_server_startup_timeout(tmp_path, value):
     with pytest.raises(SystemExit, match="must be a positive integer"):
         parse_workload.main(str(write_workload(tmp_path, value)))
+
+
+def test_cuda_release_image_does_not_select_rocm_commit(monkeypatch):
+    monkeypatch.setenv(
+        "VLLM_IMAGE", "public.ecr.aws/example/release:abc123def456-x86_64"
+    )
+    monkeypatch.delenv("VLLM_COMMIT", raising=False)
+
+    image, commit = parse_workload.resolve_image(
+        {}, {"image_repo": "vllm/vllm-openai-rocm"}
+    )
+
+    assert image == "vllm/vllm-openai-rocm:nightly"
+    assert commit == ""

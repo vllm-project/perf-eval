@@ -105,10 +105,15 @@ def resolved_image(data, profile):
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or DEFAULT_IMAGE_REPO
-    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
-    if override_image and (not custom_repo or "rocm" in override_image.lower()):
-        return override_image
-    commit = override_commit or commit_from_image(override_image)
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
+    # A CUDA release image may embed a commit in its tag, but that must not
+    # implicitly select an unrelated ROCm nightly for AMD jobs.
+    if override_image:
+        if not custom_repo or "rocm" in override_image.lower():
+            return override_image
+        if not override_commit:
+            return vllm.get("image", f"{repo}:nightly")
+    commit = override_commit
     if commit:
         return f"{repo}:nightly-{commit}"
     return vllm.get("image", f"{repo}:nightly")

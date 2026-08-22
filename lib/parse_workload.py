@@ -112,11 +112,17 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     # images (CUDA) are stored at vllm/vllm-openai
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or "vllm/vllm-openai"
-    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
-    if override_image and (not custom_repo or "rocm" in override_image.lower()):
-        return override_image, override_commit or commit_from_image(override_image)
+    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
+    # A CUDA release image may embed a commit in its tag, but that must not
+    # implicitly select an unrelated ROCm nightly for AMD jobs.
+    if override_image:
+        if not custom_repo or "rocm" in override_image.lower():
+            return override_image, override_commit or commit_from_image(override_image)
+        if not override_commit:
+            image = vllm.get("image", f"{repo}:nightly")
+            return image, commit_from_image(str(image))
 
-    commit = override_commit or commit_from_image(override_image)
+    commit = override_commit
     if commit:
         return f"{repo}:nightly-{commit}", commit
 
