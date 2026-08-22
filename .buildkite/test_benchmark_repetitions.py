@@ -145,20 +145,75 @@ def test_all_h200_benchmarks_use_saturated_warmups_and_three_runs():
             ), path
 
 
-def test_long_h200_workloads_allow_three_hours():
+def test_long_workloads_allow_three_hours():
     import yaml
 
     workload_dir = os.path.join(ROOT, "workloads")
     names = (
+        "deepseek_v4_flash_0731_b200.yaml",
+        "deepseek_v4_flash_0731_h200.yaml",
+        "deepseek_v4_flash_h200.yaml",
         "deepseek_v4_pro_5_h200.yaml",
         "gemma_4_31b_it_h200.yaml",
-        "glm_5_1_h200.yaml",
+        "glm_5_2_b200.yaml",
+        "glm_5_2_dspark_b200.yaml",
+        "glm_5_2_dspark_h200.yaml",
+        "glm_5_2_h200.yaml",
     )
     for name in names:
         path = os.path.join(workload_dir, name)
         with open(path) as f:
             workload = yaml.safe_load(f)
         assert workload.get("timeout_in_minutes") == 180, path
+
+
+def test_long_b200_workloads_allow_one_hour_for_engine_startup():
+    import yaml
+
+    workload_dir = os.path.join(ROOT, "workloads")
+    names = (
+        "deepseek_v4_flash_0731_b200.yaml",
+        "glm_5_2_b200.yaml",
+        "glm_5_2_dspark_b200.yaml",
+    )
+    for name in names:
+        path = os.path.join(workload_dir, name)
+        with open(path) as f:
+            workload = yaml.safe_load(f)
+        assert (
+            workload.get("vllm", {}).get("env", {}).get(
+                "VLLM_ENGINE_READY_TIMEOUT_S"
+            )
+            == 3600
+        ), path
+
+
+def test_glm_b200_workloads_limit_cuda_graph_batch_size():
+    import yaml
+
+    workload_dir = os.path.join(ROOT, "workloads")
+    names = (
+        "glm_5_2_b200.yaml",
+        "glm_5_2_dspark_b200.yaml",
+    )
+    for name in names:
+        path = os.path.join(workload_dir, name)
+        with open(path) as f:
+            workload = yaml.safe_load(f)
+        serve_args = workload.get("vllm", {}).get("serve_args", "")
+        assert "--max-num-seqs 128" in serve_args, path
+        if name == "glm_5_2_dspark_b200.yaml":
+            assert "--max-cudagraph-capture-size 128" in serve_args, path
+
+
+def test_glm_dspark_h200_uses_attention_compatible_kv_cache_dtype():
+    import yaml
+
+    path = os.path.join(ROOT, "workloads", "glm_5_2_dspark_h200.yaml")
+    with open(path) as f:
+        workload = yaml.safe_load(f)
+    serve_args = workload.get("vllm", {}).get("serve_args", "")
+    assert "--kv-cache-dtype fp8_e4m3" in serve_args, path
 
 
 def main():

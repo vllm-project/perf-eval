@@ -1,18 +1,24 @@
-# GLM-5.1 (FP8) on H200
-# Recipe recommends the glm51-cu130 image when CUDA >= 13.
-# MTP speculative decoding is part of the recommended config.
-name: glm_5_1-h200
-gpu: H200
+# GLM-5.2 (NVFP4, modelopt re-quant) on B200 with DSpark spec-decode
+# (RedHatAI speculator, 7 tokens). TP=8 + EP, FP8 KV cache
+name: glm_5_2_dspark-b200
+gpu: B200
 num_gpus: 8
 nightly: true
 timeout_in_minutes: 180
 
 vllm:
-  model: zai-org/GLM-5.1-FP8
+  model: nvidia/GLM-5.2-NVFP4
+  env:
+    VLLM_ENGINE_READY_TIMEOUT_S: 3600
   serve_args: >-
     --tensor-parallel-size 8
-    --speculative-config.method mtp
-    --speculative-config.num_speculative_tokens 3
+    --enable-expert-parallel
+    --max-num-seqs 128
+    --max-cudagraph-capture-size 128
+    --kv-cache-dtype fp8_e4m3
+    --speculative-config.method dspark
+    --speculative-config.model RedHatAI/GLM-5.2-speculator.dspark
+    --speculative-config.num_speculative_tokens 7
     --tool-call-parser glm47
     --reasoning-parser glm45
     --enable-auto-tool-choice
