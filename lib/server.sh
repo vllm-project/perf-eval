@@ -49,11 +49,17 @@ start_server() {
   fi
 
   # shellcheck disable=SC2086  # serve_args intentionally word-split
-  # vllm/vllm-openai's entrypoint takes the model as the first positional
-  # arg; do not prepend `vllm` or `serve`.
-  docker run -d --rm --name "$container" "${docker_args[@]}" \
-    "$image" \
-    "$model" --port "$port" $serve_args
+  if [[ "$image" == *"/vllm-ci-test-repo:"* ]]; then
+    docker run -d --rm --name "$container" "${docker_args[@]}" \
+      --entrypoint vllm "$image" \
+      serve "$model" --port "$port" $serve_args
+  else
+    # vllm/vllm-openai's entrypoint takes the model as the first positional
+    # arg; do not prepend `vllm` or `serve`.
+    docker run -d --rm --name "$container" "${docker_args[@]}" \
+      "$image" \
+      "$model" --port "$port" $serve_args
+  fi
 
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true
