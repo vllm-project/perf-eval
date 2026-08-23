@@ -206,7 +206,7 @@ def test_glm_b200_workloads_limit_cuda_graph_batch_size():
             assert "--max-cudagraph-capture-size 128" in serve_args, path
 
 
-def test_glm_dspark_h200_uses_attention_compatible_kv_cache_dtype():
+def test_glm_dspark_h200_uses_compatible_kv_cache_config():
     import yaml
 
     path = os.path.join(ROOT, "workloads", "glm_5_2_dspark_h200.yaml")
@@ -214,6 +214,7 @@ def test_glm_dspark_h200_uses_attention_compatible_kv_cache_dtype():
         workload = yaml.safe_load(f)
     serve_args = workload.get("vllm", {}).get("serve_args", "")
     assert "--kv-cache-dtype bfloat16" in serve_args, path
+    assert "--max-model-len 32768" in serve_args, path
 
 
 def test_glm_h200_limits_model_length_to_fit_kv_cache():

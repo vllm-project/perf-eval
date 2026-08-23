@@ -10,6 +10,7 @@ vllm:
   model: zai-org/GLM-5.2-FP8
   serve_args: >-
     --kv-cache-dtype bfloat16
+    --max-model-len 32768
     --tensor-parallel-size 8
     --speculative-config.method dspark
     --speculative-config.model RedHatAI/GLM-5.2-speculator.dspark
