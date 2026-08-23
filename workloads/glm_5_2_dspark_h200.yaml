@@ -31,7 +31,7 @@ lm_eval:
       model_args:
         num_concurrent: 64
         max_length: 40960
-        max_gen_toks: 32768
+        max_gen_toks: 8192
 
 bfcl:
   test_categories:

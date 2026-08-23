@@ -220,11 +220,15 @@ def test_glm_dspark_h200_uses_compatible_kv_cache_config():
 def test_glm_h200_limits_model_length_to_fit_kv_cache():
     import yaml
 
-    path = os.path.join(ROOT, "workloads", "glm_5_2_h200.yaml")
-    with open(path) as f:
-        workload = yaml.safe_load(f)
-    serve_args = workload.get("vllm", {}).get("serve_args", "")
-    assert "--max-model-len 32768" in serve_args, path
+    for name in ("glm_5_2_h200.yaml", "glm_5_2_dspark_h200.yaml"):
+        path = os.path.join(ROOT, "workloads", name)
+        with open(path) as f:
+            workload = yaml.safe_load(f)
+        serve_args = workload.get("vllm", {}).get("serve_args", "")
+        assert "--max-model-len 32768" in serve_args, path
+        tasks = workload.get("lm_eval", {}).get("tasks", [])
+        gsm8k = next(task for task in tasks if task.get("name") == "gsm8k")
+        assert gsm8k.get("model_args", {}).get("max_gen_toks") == 8192, path
 
 
 def main():
