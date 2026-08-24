@@ -1,5 +1,10 @@
 # Qwen3.5-397B-A17B NVFP4 on B200
 # Recipe: https://recipes.vllm.ai/Qwen/Qwen3.5-397B-A17B
+#
+# EXPERIMENT BRANCH -- do not merge as-is. serve_args pins
+# --max-num-batched-tokens 8192 (the pre-#51726 default) to test whether the
+# Aug 11 -> Aug 12 P99 ITL step (0.094s -> 0.163s) is explained by vLLM
+# raising the _max_num_batched_tokens default from 8192 to 16384.
 name: qwen3_5-b200
 gpu: B200
 num_gpus: 8
@@ -21,6 +26,7 @@ vllm:
     --enable-prefix-caching
     --trust-remote-code
     --max-num-seqs 256
+    --max-num-batched-tokens 8192
     --max-model-len auto
 
 lm_eval:
