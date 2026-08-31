@@ -35,6 +35,8 @@ start_server() {
     return
   fi
 
+  reap_stale_servers "$port"
+
   local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
                      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
@@ -90,6 +92,26 @@ wait_healthy() {
   done
   echo "server never came up" >&2
   return 1
+}
+
+# Remove any leftover perf-eval vLLM container before starting a new one.
+# A job killed with SIGKILL (e.g. the Buildkite step timeout) never runs its
+# EXIT trap, so its container survives and squats on the GPUs and port 8000,
+# wedging every later run on the host with "Bind for 0.0.0.0:8000 failed: port
+# is already allocated". Container names are PID-based and unique, so a normal
+# run's own cleanup never reaps a previous run's orphan. The server port is
+# fixed, so two perf-eval runs can't share a host -- any existing perf-eval
+# container is therefore stale and safe to remove.
+reap_stale_servers() {
+  local port=$1 stale on_port
+  stale=$(docker ps -aq --filter "name=perf-eval-" 2>/dev/null || true)
+  on_port=$(docker ps -q --filter "publish=${port}" 2>/dev/null || true)
+  stale=$(printf '%s\n%s\n' "$stale" "$on_port" | sort -u | grep -v '^$' || true)
+  if [[ -n "$stale" ]]; then
+    echo "--- :broom: removing stale container(s) holding GPUs/port ${port}"
+    # shellcheck disable=SC2086  # word-split intended: one or more container ids
+    docker rm -f $stale >/dev/null 2>&1 || true
+  fi
 }
 
 stop_server() {
