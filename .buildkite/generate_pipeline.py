@@ -102,12 +102,16 @@ def resolved_image(data, profile):
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or DEFAULT_IMAGE_REPO
-    # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
-    if override_image and (not custom_repo or "rocm" in override_image.lower()):
-        return override_image
-    commit = override_commit or commit_from_image(override_image)
-    if commit:
-        return f"{repo}:nightly-{commit}"
+    # A workload that sets pin_image: true keeps its own vllm.image even when
+    # VLLM_IMAGE / VLLM_COMMIT are set (the model only exists in that image).
+    pinned = vllm.get("pin_image") is True and vllm.get("image")
+    if not pinned:
+        # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image
+        if override_image and (not custom_repo or "rocm" in override_image.lower()):
+            return override_image
+        commit = override_commit or commit_from_image(override_image)
+        if commit:
+            return f"{repo}:nightly-{commit}"
     return vllm.get("image", f"{repo}:nightly")
 
 
