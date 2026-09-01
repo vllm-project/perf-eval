@@ -1,0 +1,50 @@
+# Kimi-K3 on AMD MI355X
+# Recipe: https://recipes.vllm.ai/moonshotai/Kimi-K3
+# K3 needs at least 8x MI355X/MI350X on ROCm (8x GB300 on NVIDIA) — there is
+# no H200 profile, the 2.8T model does not fit on Hopper. Requires the
+# dedicated kimi-k3 image; support is not in a stable release yet.
+# AITER_SITUV2_A8W4=0 selects the aiter a16w4 MoE path on gfx950 (set to 1
+# for the a8w4 path).
+name: kimi_k3-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: moonshotai/Kimi-K3
+  # K3 support is only in this dedicated image, not in any stable/nightly
+  # build — pin it so the VLLM_IMAGE / VLLM_COMMIT trigger override cannot
+  # swap in a nightly that cannot serve the model.
+  image: vllm/vllm-openai_rocm:kimi-k3
+  pin_image: true
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    AITER_SITUV2_A8W4: 0
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

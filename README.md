@@ -46,6 +46,7 @@ timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
   image: vllm/vllm-openai:nightly      # optional; falls back to VLLM_IMAGE / VLLM_COMMIT / latest
+  pin_image: true                       # optional; keep `image` even when VLLM_IMAGE / VLLM_COMMIT are set
   env:                                  # optional; merged over the GPU profile's env
     SOME_VAR: value
   serve_args: >-                        # appended to `vllm serve <model>`; word-split
@@ -94,6 +95,7 @@ vllm_bench:              # perf runs (optional) — fed to the perf dashboard
 A few things worth knowing:
 
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
+- **`vllm.image` is normally just a fallback.** The `VLLM_IMAGE` / `VLLM_COMMIT` build-time env vars override it, which is what you want for nightly perf tracking across a specific vLLM commit. Set **`pin_image: true`** to make a workload keep its own `image` regardless — required for models that only exist in a dedicated image (e.g. `kimi-k3`, `minimax-m3`), where the nightly override would pull an image that cannot serve the model.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`timeout_in_minutes`** overrides the Buildkite step timeout (default: `120`). This is separate from `lm_eval.model_args.timeout`, which controls individual API requests.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
