@@ -19,11 +19,10 @@ timeout_in_minutes: 240
 
 vllm:
   model: /model
-  # K3 support is not in a stable vLLM release; use the dedicated image
-  # (CUDA 13 / cu130 only, needs r580+ driver). Pin it so the VLLM_IMAGE /
-  # VLLM_COMMIT trigger override cannot swap in a nightly lacking K3 support.
+  # K3 support is in current nightlies; this dedicated image (CUDA 13 / cu130,
+  # needs r580+ driver) is the fallback when no VLLM_IMAGE / VLLM_COMMIT
+  # override is set. The override is free to swap in a nightly — no pin needed.
   image: vllm/vllm-openai:kimi-k3
-  pin_image: true
   env:
     # First startup on GB300 can spend tens of minutes autotuning FlashInfer's
     # kernels. Keep vLLM's internal wait aligned with role health checks.
