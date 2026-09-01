@@ -10,7 +10,11 @@ nightly: true
 
 vllm:
   model: nvidia/MiniMax-M3-NVFP4
+  # M3 support is only in this dedicated image, not in any stable/nightly
+  # build — pin it so the VLLM_IMAGE / VLLM_COMMIT trigger override cannot
+  # swap in a nightly that cannot serve the model.
   image: vllm/vllm-openai:minimax-m3
+  pin_image: true
   env:
     VLLM_FLOAT32_MATMUL_PRECISION: high
   serve_args: >-

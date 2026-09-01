@@ -18,7 +18,6 @@ vllm:
     --tool-call-parser glm47
     --reasoning-parser glm45
     --enable-auto-tool-choice
-    --served-model-name glm-5.3
 
 lm_eval:
   model_args:
@@ -47,7 +46,7 @@ vllm_bench:
     # The native-FP8 checkpoint has no precision marker in its repo name.
     precision: fp8
   configs:
-    - name: 8k-in-1k-out-conc-128
+    - name: 8k-in-1k-out
       backend: openai
       dataset: random
       input_len: 8192
