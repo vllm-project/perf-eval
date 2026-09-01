@@ -3,6 +3,10 @@
 # NVIDIA baseline is single-node TP=8 on 8x H200/H20. --block-size 128 is
 # mandatory on every platform (MSA sparse/index cache). Support has not
 # shipped in a stable vLLM release yet — use the dedicated image.
+# BF16 weights (~795 GiB) leave only ~5 GiB of KV cache per 8xH200 node, far
+# short of the ~44 GiB the native 1M context needs. --max-model-len 65536 caps
+# the window so the engine fits (covers the 40960 lm_eval length and the 8k/1k
+# bench with headroom); the full 1M window needs multi-node TP per the recipe.
 name: minimax_m3-h200
 gpu: H200
 num_gpus: 8
@@ -18,6 +22,7 @@ vllm:
   serve_args: >-
     --tensor-parallel-size 8
     --block-size 128
+    --max-model-len 65536
     --tool-call-parser minimax_m3
     --reasoning-parser minimax_m3
     --enable-auto-tool-choice
