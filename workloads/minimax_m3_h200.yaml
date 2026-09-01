@@ -14,11 +14,8 @@ nightly: true
 
 vllm:
   model: MiniMaxAI/MiniMax-M3
-  # M3 support is only in this dedicated image, not in any stable/nightly
-  # build — pin it so the VLLM_IMAGE / VLLM_COMMIT trigger override cannot
-  # swap in a nightly that cannot serve the model.
-  image: vllm/vllm-openai:minimax-m3
-  pin_image: true
+  # No image: like the other workloads, default to the nightly under test
+  # (M3 support is in current nightlies).
   serve_args: >-
     --tensor-parallel-size 8
     --block-size 128

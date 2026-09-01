@@ -13,11 +13,8 @@ nightly: true
 
 vllm:
   model: moonshotai/Kimi-K3
-  # K3 support is only in this dedicated image, not in any stable/nightly
-  # build — pin it so the VLLM_IMAGE / VLLM_COMMIT trigger override cannot
-  # swap in a nightly that cannot serve the model.
-  image: vllm/vllm-openai_rocm:kimi-k3
-  pin_image: true
+  # No image: like the other workloads, default to the nightly under test
+  # (K3 support is in current nightlies).
   env:
     VLLM_ROCM_USE_AITER: 1
     VLLM_USE_BREAKABLE_CUDAGRAPH: 0
