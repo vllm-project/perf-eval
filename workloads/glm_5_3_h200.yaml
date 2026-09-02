@@ -1,0 +1,58 @@
+# GLM-5.3 (native FP8) on H200
+# Recipe: https://recipes.vllm.ai/zai-org/GLM-5.3 (requires vLLM 0.28.0+)
+# The default zai-org/GLM-5.3 checkpoint is native FP8 (BF16 lives in
+# zai-org/GLM-5.3-BF16). MTP speculative decoding is part of the recommended
+# config; the recipe bumped num_speculative_tokens from 3 (GLM-5.1) to 5.
+name: glm_5_3-h200
+gpu: H200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: zai-org/GLM-5.3
+  serve_args: >-
+    --tensor-parallel-size 8
+    --kv-cache-dtype fp8
+    --speculative-config.method mtp
+    --speculative-config.num_speculative_tokens 5
+    --tool-call-parser glm47
+    --reasoning-parser glm45
+    --enable-auto-tool-choice
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+    - multi_turn
+  num_threads: 8
+
+vllm_bench:
+  metadata:
+    # The native-FP8 checkpoint has no precision marker in its repo name.
+    precision: fp8
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      repetitions: 3
+      args:
+        num_warmups: 128

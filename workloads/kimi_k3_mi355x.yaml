@@ -1,4 +1,11 @@
-# Kimi-K3 on AMD MI355X (aiperf perf run)
+# Kimi-K3 on AMD MI355X
+# Recipe: https://recipes.vllm.ai/moonshotai/Kimi-K3
+# K3 needs at least 8x MI355X/MI350X on ROCm (8x GB300 on NVIDIA) — there is
+# no H200 profile, the 2.8T model does not fit on Hopper. Requires the
+# dedicated kimi-k3 image; support is not in a stable release yet.
+# Env matches the verified MI355X profile: VLLM_USE_BREAKABLE_CUDAGRAPH=0 is
+# required, and VLLM_ROCM_USE_AITER_MOE_SITUV2_A8W4=1 selects the aiter a8w4
+# MoE path on gfx950 (CDNA4).
 name: kimi_k3-mi355x
 gpu: MI355X
 num_gpus: 8
@@ -6,23 +13,43 @@ nightly: true
 
 vllm:
   model: moonshotai/Kimi-K3
+  # No image: like the other workloads, default to the nightly under test
+  # (K3 support is in current nightlies).
   env:
     VLLM_ROCM_USE_AITER: 1
-    AITER_SITUV2_A8W4: 1
-    AITER_BF16_FP8_MOE_BOUND: 0
     VLLM_USE_BREAKABLE_CUDAGRAPH: 0
+    VLLM_ROCM_USE_AITER_MOE_SITUV2_A8W4: 1
+    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
     OMP_NUM_THREADS: 1
   serve_args: >-
-    --trust-remote-code
     --tensor-parallel-size 8
-    --gpu-memory-utilization 0.95
-    --mm-encoder-tp-mode data
-    --max-num-batched-tokens 4096
-    --enable-auto-tool-choice
-    --tool-call-parser kimi_k3
-    --reasoning-parser kimi_k3
-    --max-num-seqs 128
-    --enable-prefix-caching
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+vllm_bench:
+  metadata:
+    # The default K3 checkpoint is MXFP4; the repo name has no precision marker.
+    precision: mxfp4
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
 
 aiperf:
   configs:

@@ -3,7 +3,7 @@ name: gemma_4_31b_it_h200
 gpu: H200
 num_gpus: 8
 nightly: true
-timeout_in_minutes: 180
+timeout_in_minutes: 240
 
 vllm:
   model: RedHatAI/gemma-4-31B-it-FP8-dynamic

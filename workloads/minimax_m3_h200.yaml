@@ -1,0 +1,60 @@
+# MiniMax-M3 (BF16) on H200
+# Recipe: https://recipes.vllm.ai/MiniMaxAI/MiniMax-M3
+# NVIDIA baseline is single-node TP=8 on 8x H200/H20. --block-size 128 is
+# mandatory on every platform (MSA sparse/index cache). Support has not
+# shipped in a stable vLLM release yet — use the dedicated image.
+# BF16 weights (~795 GiB) leave only ~5 GiB of KV cache per 8xH200 node, far
+# short of the ~44 GiB the native 1M context needs. --max-model-len 65536 caps
+# the window so the engine fits (covers the 40960 lm_eval length and the 8k/1k
+# bench with headroom); the full 1M window needs multi-node TP per the recipe.
+name: minimax_m3-h200
+gpu: H200
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: MiniMaxAI/MiniMax-M3
+  # No image: like the other workloads, default to the nightly under test
+  # (M3 support is in current nightlies).
+  serve_args: >-
+    --tensor-parallel-size 8
+    --block-size 128
+    --max-model-len 65536
+    --tool-call-parser minimax_m3
+    --reasoning-parser minimax_m3
+    --enable-auto-tool-choice
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+    - multi_turn
+  num_threads: 8
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      repetitions: 3
+      args:
+        num_warmups: 128

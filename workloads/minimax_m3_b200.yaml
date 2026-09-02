@@ -10,7 +10,8 @@ nightly: true
 
 vllm:
   model: nvidia/MiniMax-M3-NVFP4
-  image: vllm/vllm-openai:minimax-m3
+  # No image: like the other workloads, default to the nightly under test
+  # (M3 NVFP4 support is in current nightlies, vllm-project/vllm#46380).
   env:
     VLLM_FLOAT32_MATMUL_PRECISION: high
   serve_args: >-

@@ -107,6 +107,41 @@ def test_run_command_fetches_ingest_token_before_workload():
     assert command.index(get_secret) < command.index("./lib/run.sh")
 
 
+def test_shipped_amd_profiles_pull_public_ecr_directly():
+    image = "public.ecr.aws/example/release:rocm"
+    profiles = g.load_profiles()
+    for gpu in ("MI300X", "MI355X"):
+        assert g.route_ecr_image(image, profiles[gpu]) == image
+
+
+def test_ecr_pull_through_remains_default():
+    image = "public.ecr.aws/example/release:cuda"
+    assert g.route_ecr_image(image, {}) == (
+        f"{g.ECR_PULL_THROUGH_CACHE}example/release:cuda"
+    )
+
+
+def test_cuda_release_image_does_not_select_rocm_commit():
+    image_key = "VLLM_IMAGE"
+    commit_key = "VLLM_COMMIT"
+    previous_image = os.environ.get(image_key)
+    previous_commit = os.environ.get(commit_key)
+    os.environ[image_key] = "public.ecr.aws/example/release:abc123def456-x86_64"
+    os.environ.pop(commit_key, None)
+    try:
+        image = g.resolved_image({}, {"image_repo": "vllm/vllm-openai-rocm"})
+    finally:
+        if previous_image is None:
+            os.environ.pop(image_key, None)
+        else:
+            os.environ[image_key] = previous_image
+        if previous_commit is None:
+            os.environ.pop(commit_key, None)
+        else:
+            os.environ[commit_key] = previous_commit
+    assert image == "vllm/vllm-openai-rocm:nightly"
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
