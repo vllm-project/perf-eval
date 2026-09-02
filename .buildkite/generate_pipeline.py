@@ -51,7 +51,11 @@ BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 # Dynamic pipeline uploads interpolate environment variables on the bootstrap
 # agent.  Escape these so HOME and PATH resolve on the GPU agent at job runtime.
 RUN_TEMPLATE = (
-    'INGEST_BEARER_TOKEN="$(buildkite-agent secret get INGEST_BEARER_TOKEN)"'
+    # Fetch the ingest token only where the agent CLI is on PATH. On the Slurm
+    # login node it is not, and a hard failure here would abort the step before
+    # run.sh starts; ingestion is best-effort, so an empty token is fine.
+    'INGEST_BEARER_TOKEN="$(command -v buildkite-agent >/dev/null 2>&1'
+    ' && buildkite-agent secret get INGEST_BEARER_TOKEN || true)"'
     " && export INGEST_BEARER_TOKEN"
     ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$$HOME/.local/bin:$$PATH"'
     " && ./lib/run.sh {path}"
