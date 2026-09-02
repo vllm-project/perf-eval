@@ -8,10 +8,10 @@
 #                  <repetitions> <extra_args_base64> <trust_remote_code> \
 #                  <output_dir>
 #
-# Docker runtime invokes `vllm bench serve` inside the vllm/vllm-openai
-# container via `docker exec`; native runtime invokes it directly. The raw
-# JSON lands in "<output_dir>/bench-<name>.json" so ingest_perf.py can pick
-# it up.
+# Docker runtime invokes `vllm bench serve` via `docker exec`; native runtime
+# invokes it directly. Slurm PD runtime delegates to slurm_pd_launcher.py so
+# the client runs in the serving allocation and Pyxis image. The raw JSON
+# lands in "<output_dir>/bench-<name>.json" so ingest_perf.py can pick it up.
 
 # vLLM's SpeedBench class expects a local <subset>.jsonl file built by
 # NeMo's prepare.py — the bench CLI does not download the dataset itself.
@@ -26,12 +26,9 @@ pip_install_quiet() {
   fi
 }
 
-append_bench_args() {
+decode_bench_args() {
   local encoded=$1
-  local -n command_ref=$2
-  local extra_args=()
-  mapfile -d '' -t extra_args < <(
-    python3 - "$encoded" <<'PY'
+  python3 - "$encoded" <<'PY'
 import base64
 import json
 import sys
@@ -58,8 +55,6 @@ for name, value in args.items():
         emit(flag)
         emit(json.dumps(value, separators=(",", ":")) if isinstance(value, dict) else value)
 PY
-  )
-  command_ref+=("${extra_args[@]}")
 }
 
 prepare_speed_bench_dataset() {
@@ -95,9 +90,14 @@ PY
   fi
   test -s "${data_dir}/${subset}.jsonl"
 
+  if [[ "$runtime" == "slurm" ]]; then
+    echo "SPEED-Bench is not yet supported by the Slurm client executor; use the random dataset" >&2
+    return 2
+  fi
+
   # Docker runtime: ship the data into the container and make sure pandas is
   # available there (vLLM's SpeedBench loads the JSONL via pandas).
-  if [[ "$runtime" != "native" ]]; then
+  if [[ "$runtime" == "docker" ]]; then
     docker exec "$container" mkdir -p "$data_dir"
     docker cp "${data_dir}/." "${container}:${data_dir}/"
     if ! docker exec "$container" python3 -c 'import pandas' 2>/dev/null; then
@@ -112,10 +112,20 @@ PY
 validate_bench_result() {
   local result_path=$1 expected=$2
   python3 - "$result_path" "$expected" <<'PY'
-import json, sys
+import json, sys, time
 path, expected = sys.argv[1], int(sys.argv[2])
-with open(path) as f:
-    result = json.load(f)
+# The client and validator may be different NFS clients. Allow one typical
+# attribute-cache window for the new file (or its completed contents) to show.
+deadline = time.monotonic() + 60
+while True:
+    try:
+        with open(path) as f:
+            result = json.load(f)
+        break
+    except (FileNotFoundError, json.JSONDecodeError):
+        if time.monotonic() >= deadline:
+            raise
+        time.sleep(1)
 def read_int(*keys, default=None):
     for k in keys:
         v = result.get(k)
@@ -139,7 +149,6 @@ run_vllm_bench() {
   local repetitions=${13} extra_args_base64=${14} trust_remote_code=${15}
   local outdir=${16}
   local runtime="${WORKLOAD_SERVER_RUNTIME:-docker}"
-  local host_json="${outdir}/bench-${name}.json"
 
   [[ "$backend" == "-" ]] && backend=""
   [[ "$speed_bench_dataset_subset" == "-" ]] && speed_bench_dataset_subset=""
@@ -147,13 +156,44 @@ run_vllm_bench() {
 
   echo "--- :stopwatch: vllm bench serve ${name} (dataset=${dataset} isl=${input_len} osl=${output_len} conc=${max_concurrency} n=${num_prompts} repetitions=${repetitions})"
   mkdir -p "$outdir"
+  local host_json
+  host_json="$(cd "$outdir" && pwd)/bench-${name}.json"
+  # Results can live on a shared filesystem. Never let a delayed writer from
+  # the current run race with a valid-looking result left by an earlier run.
+  rm -f "$host_json"
 
   local cmd=(vllm bench serve)
-  [[ "$runtime" != "native" ]] && cmd=(docker exec "$container" "${cmd[@]}")
+  case "$runtime" in
+    docker)
+      cmd=(docker exec "$container" "${cmd[@]}")
+      ;;
+    native)
+      ;;
+    slurm)
+      : "${PD_LAUNCHER:?PD_LAUNCHER is required for Slurm serving}"
+      : "${PD_SERVING_STATE_FILE:?PD_SERVING_STATE_FILE is required for Slurm serving}"
+      : "${WORKLOAD_SERVING_JSON:?WORKLOAD_SERVING_JSON is required for Slurm serving}"
+      cmd=(
+        python3 "$PD_LAUNCHER"
+        --config "$WORKLOAD_SERVING_JSON"
+        --state-file "$PD_SERVING_STATE_FILE"
+        exec-client --
+        "${cmd[@]}"
+      )
+      ;;
+    *)
+      echo "unsupported server runtime for vllm bench: $runtime" >&2
+      return 2
+      ;;
+  esac
 
   if [[ -n "$backend" ]]; then
-    cmd+=(--backend "$backend" --base-url "http://127.0.0.1:${port}")
+    local bench_base_url="${WORKLOAD_BENCH_BASE_URL:-http://127.0.0.1:${port}}"
+    cmd+=(--backend "$backend" --base-url "$bench_base_url")
     [[ "$backend" == "openai-chat" ]] && cmd+=(--endpoint /v1/chat/completions)
+  elif [[ "$runtime" == "slurm" ]]; then
+    # exec-client resolves these placeholders from allocation_router_url.
+    cmd+=(--host '{router_host}' --port '{router_port}')
   else
     cmd+=(--host 127.0.0.1 --port "$port")
   fi
@@ -195,30 +235,36 @@ run_vllm_bench() {
       ;;
   esac
 
-  append_bench_args "$extra_args_base64" cmd
+  local extra_arg
+  while IFS= read -r -d '' extra_arg; do
+    cmd+=("$extra_arg")
+  done < <(decode_bench_args "$extra_args_base64")
 
   local result_files=()
-  local repetition run_host_json run_container_json
+  local repetition run_host_json
   for ((repetition = 1; repetition <= repetitions; repetition++)); do
     if ((repetitions == 1)); then
       run_host_json="$host_json"
-      run_container_json="/tmp/bench-${name}.json"
     else
       run_host_json="${outdir}/bench-${name}-run-${repetition}.json"
-      run_container_json="/tmp/bench-${name}-run-${repetition}.json"
       echo "  repetition ${repetition}/${repetitions}"
     fi
 
     local run_cmd=("${cmd[@]}")
-    if [[ "$runtime" == "native" ]]; then
-      run_cmd+=(--save-result --result-filename "$run_host_json")
-    else
-      run_cmd+=(--save-result --result-filename "$run_container_json")
-    fi
+    case "$runtime" in
+      native|slurm)
+        # Native and Slurm run the client on the workload host, so it can
+        # write the result JSON straight into the results directory.
+        run_cmd+=(--save-result --result-filename "$run_host_json")
+        ;;
+      docker)
+        run_cmd+=(--save-result --result-filename "/tmp/bench-${name}-run-${repetition}.json")
+        ;;
+    esac
     "${run_cmd[@]}"
 
-    if [[ "$runtime" != "native" ]]; then
-      docker cp "${container}:${run_container_json}" "$run_host_json"
+    if [[ "$runtime" == "docker" ]]; then
+      docker cp "${container}:/tmp/bench-${name}-run-${repetition}.json" "$run_host_json"
     fi
     validate_bench_result "$run_host_json" "$num_prompts"
     result_files+=("$run_host_json")

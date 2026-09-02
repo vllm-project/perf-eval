@@ -15,6 +15,13 @@ B200:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
 
+# Opt-in multi-node Slurm workloads. The queue is intentionally isolated from
+# the Kubernetes-backed B200 profile; set GB300_QUEUE only when targeting an
+# alternate cluster or canary agent queue.
+GB300:
+  queue: gb300-slurm
+  server_runtime: slurm
+
 MI300X:
   queue: mi300_perf_eval
   image_repo: vllm/vllm-openai-rocm
