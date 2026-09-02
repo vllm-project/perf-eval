@@ -12,6 +12,15 @@ assert SPEC and SPEC.loader
 parse_workload = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(parse_workload)
 
+IMAGE_VARS = ("VLLM_IMAGE", "VLLM_IMAGE_CUDA", "VLLM_IMAGE_ROCM", "VLLM_COMMIT")
+
+
+@pytest.fixture(autouse=True)
+def build_env(monkeypatch):
+    """Resolve images from what the test sets, not what the build's env pins."""
+    for var in IMAGE_VARS:
+        monkeypatch.delenv(var, raising=False)
+
 
 def write_workload(tmp_path: Path, startup_timeout_s: object) -> Path:
     (tmp_path / "lib").mkdir()
@@ -57,10 +66,12 @@ def test_rejects_invalid_server_startup_timeout(tmp_path, value):
 
 
 def test_cuda_release_image_does_not_select_rocm_commit(monkeypatch):
+    """A CUDA release image embeds a commit, but AMD has no build of it: fall
+    back to the ROCm nightly rather than a same-commit image that never existed.
+    """
     monkeypatch.setenv(
         "VLLM_IMAGE", "public.ecr.aws/example/release:abc123def456-x86_64"
     )
-    monkeypatch.delenv("VLLM_COMMIT", raising=False)
 
     image, commit = parse_workload.resolve_image(
         {}, {"image_repo": "vllm/vllm-openai-rocm"}

@@ -287,24 +287,11 @@ def test_ecr_pull_through_remains_default():
 
 
 def test_cuda_release_image_does_not_select_rocm_commit():
-    image_key = "VLLM_IMAGE"
-    commit_key = "VLLM_COMMIT"
-    previous_image = os.environ.get(image_key)
-    previous_commit = os.environ.get(commit_key)
-    os.environ[image_key] = "public.ecr.aws/example/release:abc123def456-x86_64"
-    os.environ.pop(commit_key, None)
-    try:
-        image = g.resolved_image({}, {"image_repo": "vllm/vllm-openai-rocm"})
-    finally:
-        if previous_image is None:
-            os.environ.pop(image_key, None)
-        else:
-            os.environ[image_key] = previous_image
-        if previous_commit is None:
-            os.environ.pop(commit_key, None)
-        else:
-            os.environ[commit_key] = previous_commit
-    assert image == "vllm/vllm-openai-rocm:nightly"
+    """A CUDA release image embeds a commit, but AMD has no build of it: fall
+    back to the ROCm nightly rather than a same-commit image that never existed.
+    """
+    with build_env(VLLM_IMAGE="public.ecr.aws/example/release:abc123def456-x86_64"):
+        assert g.resolved_image({}, ROCM) == "vllm/vllm-openai-rocm:nightly"
 
 
 def main():
