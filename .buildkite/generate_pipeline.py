@@ -34,8 +34,11 @@ def setup_command(packages):
         f"  python -m pip install --upgrade {packages}\n"
         "else\n"
         "  rm -rf .venv\n"
-        "  (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
-        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py | python3 - --user)\n"
+        "  if ! python3 -m pip --version >/dev/null 2>&1; then\n"
+        "    (python3 -m ensurepip --user --upgrade --default-pip 2>/dev/null"
+        " || curl -fsSL https://bootstrap.pypa.io/get-pip.py"
+        " | python3 - --user --break-system-packages)\n"
+        "  fi\n"
         f"  PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --upgrade {packages}\n"
         "fi"
     )
@@ -45,10 +48,16 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
+# Dynamic pipeline uploads interpolate environment variables on the bootstrap
+# agent.  Escape these so HOME and PATH resolve on the GPU agent at job runtime.
 RUN_TEMPLATE = (
-    'INGEST_BEARER_TOKEN="$(buildkite-agent secret get INGEST_BEARER_TOKEN)"'
+    # Fetch the ingest token only where the agent CLI is on PATH. On the Slurm
+    # login node it is not, and a hard failure here would abort the step before
+    # run.sh starts; ingestion is best-effort, so an empty token is fine.
+    'INGEST_BEARER_TOKEN="$(command -v buildkite-agent >/dev/null 2>&1'
+    ' && buildkite-agent secret get INGEST_BEARER_TOKEN || true)"'
     " && export INGEST_BEARER_TOKEN"
-    ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
+    ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$$HOME/.local/bin:$$PATH"'
     " && ./lib/run.sh {path}"
 )
 
@@ -59,6 +68,7 @@ DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
 GPU_EMOJI = {
     "H200": ":h200:",
     "B200": ":b200:",
+    "GB300": ":b300:",
     "A100": ":a100:",
     "MI355X": ":amd:",
     "MI300X": ":amd:",
@@ -286,7 +296,8 @@ def make_step(path, data, profiles):
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
     }
-    if profile.get("server_runtime") == "native":
+    server_runtime = profile.get("server_runtime")
+    if server_runtime == "native":
         kind = profile.get("k8s_plugin")
         if not kind:
             sys.exit(
@@ -298,6 +309,17 @@ def make_step(path, data, profiles):
             sys.exit(f"{path}: unknown k8s_plugin {kind!r} (have {', '.join(K8S_PLUGINS)})")
         image = ecr_pull_through(resolved_image(data, profile))
         step["plugins"] = [builder(image, data.get("num_gpus", 1), profile, gpu)]
+    elif server_runtime == "slurm":
+        # The login-node router and several vLLM control-plane ports are fixed,
+        # so only one Slurm workload may target a queue at a time. Deriving the
+        # group from the resolved queue preserves isolation for queue overrides.
+        step.update(
+            {
+                "concurrency": 1,
+                "concurrency_group": f"perf-eval/{queue}",
+                "concurrency_method": "eager",
+            }
+        )
     step_env = {
         k: os.environ[k]
         for k in ("VLLM_IMAGE", "VLLM_COMMIT", "BENCH_ONLY")
