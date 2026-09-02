@@ -105,13 +105,24 @@ def load_profile(gpu: str, workload_path: str) -> dict:
 
 
 def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
-    """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload."""
+    """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload.
+
+    A workload that sets ``pin_image: true`` keeps its own ``vllm.image`` even
+    when VLLM_IMAGE / VLLM_COMMIT are set. Use it for models that only exist in
+    a dedicated image (e.g. kimi-k3, minimax-m3) where the nightly override
+    would pull an image that cannot serve the model.
+    """
     override_image = (os.environ.get("VLLM_IMAGE") or "").strip()
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     # ROCm images are located at vllm/vllm-openai-rocm. The default
     # images (CUDA) are stored at vllm/vllm-openai
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or "vllm/vllm-openai"
+    pinned = vllm.get("pin_image") is True and vllm.get("image")
+    if pinned:
+        image = vllm["image"]
+        return image, commit_from_image(str(image))
+
     # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
     # A CUDA release image may embed a commit in its tag, but that must not
     # implicitly select an unrelated ROCm nightly for AMD jobs.

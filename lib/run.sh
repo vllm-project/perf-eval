@@ -19,14 +19,7 @@ WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
 
-if [[ -n "${VLLM_PORT:-}" ]]; then
-  PORT="$VLLM_PORT"
-elif [[ -n "${BUILDKITE_JOB_ID:-}" ]]; then
-  read -r port_hash _ < <(printf '%s' "$BUILDKITE_JOB_ID" | cksum)
-  PORT=$((20000 + port_hash % 40000))
-else
-  PORT=8000
-fi
+PORT="${PERF_EVAL_SERVER_PORT:-$(pick_server_port)}"
 CONTAINER="perf-eval-${WORKLOAD_NAME}-$$"
 RESULTS_DIR="results/${WORKLOAD_NAME}"
 BASE_URL="http://localhost:${PORT}"
@@ -41,7 +34,7 @@ trap 'stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
              "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
-wait_healthy "$PORT" "$WORKLOAD_SERVER_STARTUP_TIMEOUT"
+wait_healthy "$PORT" "$WORKLOAD_SERVER_STARTUP_TIMEOUT" "$WORKLOAD_MODEL"
 
 # vllm bench serve runs first so we can validate perf flow without waiting
 # on a full lm_eval pass. Each config's raw json lands in

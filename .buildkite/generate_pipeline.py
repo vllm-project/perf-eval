@@ -105,6 +105,12 @@ def resolved_image(data, profile):
     override_commit = (os.environ.get("VLLM_COMMIT") or "").strip()
     custom_repo = (profile.get("image_repo") or "").strip()
     repo = custom_repo or DEFAULT_IMAGE_REPO
+    # A workload that sets pin_image: true keeps its own vllm.image even when
+    # VLLM_IMAGE / VLLM_COMMIT are set (the model only exists in that image).
+    pinned = vllm.get("pin_image") is True and vllm.get("image")
+    if pinned:
+        return vllm["image"]
+
     # Don't use VLLM_IMAGE for AMD workloads unless it is a ROCm image.
     # A CUDA release image may embed a commit in its tag, but that must not
     # implicitly select an unrelated ROCm nightly for AMD jobs.
