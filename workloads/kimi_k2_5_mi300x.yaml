@@ -10,8 +10,6 @@ vllm:
   env:
     VLLM_ROCM_USE_AITER: 1
     VLLM_ENGINE_READY_TIMEOUT_S: 7200
-    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
-    OMP_NUM_THREADS: 1
   serve_args: >-
     --tensor-parallel-size 8
     --trust-remote-code
