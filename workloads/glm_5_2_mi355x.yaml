@@ -8,8 +8,6 @@ vllm:
   model: zai-org/GLM-5.2-FP8
   env:
     VLLM_ROCM_USE_AITER: 1
-    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
-    OMP_NUM_THREADS: 1
   serve_args: >-
     --tensor-parallel-size 8
     --trust-remote-code
