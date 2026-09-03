@@ -21,6 +21,9 @@ MI300X:
   ecr_pull_through_cache: false
   server_runtime: native
   k8s_plugin: amd
+  env:
+    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
+    OMP_NUM_THREADS: 1
   # HF cache lives in the container default and is backed by an emptyDir volume
   # (reclaimed when the pod exits). A cluster with fast shared storage can point
   # this at a PVC/hostPath via the MI300X_HF_CACHE_VOLUME override; do NOT set an
@@ -33,5 +36,8 @@ MI355X:
   ecr_pull_through_cache: false
   server_runtime: native
   k8s_plugin: amd
+  env:
+    # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
+    OMP_NUM_THREADS: 1
   # See MI300X — HF cache defaults to an emptyDir-backed container path; override
   # the volume source per-cluster with MI355X_HF_CACHE_VOLUME.
