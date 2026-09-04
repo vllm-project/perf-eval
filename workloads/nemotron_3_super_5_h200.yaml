@@ -8,6 +8,10 @@ nightly: true
 
 vllm:
   model: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+  env:
+    # Candidate default 0 keeps only semantic Mamba checkpoints. Retain one
+    # checkpoint per aligned 2,128-token scheduler block for this isolation run.
+    VLLM_PREFIX_CACHE_RETENTION_INTERVAL: 2128
   serve_args: >-
     --tensor-parallel-size 8
     --enable-expert-parallel
