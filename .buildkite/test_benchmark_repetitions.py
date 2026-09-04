@@ -161,6 +161,21 @@ def test_long_h200_workloads_have_expected_timeouts():
         assert workload.get("timeout_in_minutes") == timeout, path
 
 
+def test_gpt_oss_b200_fixed_length_benchmark_uses_raw_completions():
+    import yaml
+
+    path = os.path.join(ROOT, "workloads", "gpt_oss_120b_b200.yaml")
+    with open(path) as f:
+        workload = yaml.safe_load(f)
+
+    configs = (workload.get("vllm_bench") or {}).get("configs") or []
+    fixed_length = [
+        config for config in configs if config.get("name") == "8k-in-1k-out"
+    ]
+    assert len(fixed_length) == 1, path
+    assert fixed_length[0].get("backend") == "openai", path
+
+
 def main():
     tests = [value for key, value in sorted(globals().items()) if key.startswith("test_")]
     failed = 0
