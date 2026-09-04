@@ -44,7 +44,10 @@ bfcl:
 vllm_bench:
   configs:
     - name: 8k-in-1k-out
-      backend: openai-chat
+      # Use raw completions for this fixed-length synthetic benchmark. The
+      # GPT-OSS chat/Harmony path can stop before output_len, which makes its
+      # throughput and TPOT results incomparable with true 8k-in/1k-out runs.
+      backend: openai
       dataset: random
       input_len: 8192
       output_len: 1024
