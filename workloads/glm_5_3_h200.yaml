@@ -3,16 +3,21 @@
 # The default zai-org/GLM-5.3 checkpoint is native FP8 (BF16 lives in
 # zai-org/GLM-5.3-BF16). MTP speculative decoding is part of the recommended
 # config; the recipe bumped num_speculative_tokens from 3 (GLM-5.1) to 5.
+# The native 1M context needs ~53 GiB of KV cache, while this 8xH200 setup has
+# ~20 GiB available after loading the model. Cap the context at 64k so startup
+# fits while still covering the 40960-token lm_eval and 8k/1k benchmark cases.
 name: glm_5_3-h200
 gpu: H200
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 180
 
 vllm:
   model: zai-org/GLM-5.3
   serve_args: >-
     --tensor-parallel-size 8
     --kv-cache-dtype fp8
+    --max-model-len 65536
     --speculative-config.method mtp
     --speculative-config.num_speculative_tokens 5
     --tool-call-parser glm47

@@ -153,6 +153,7 @@ def test_long_h200_workloads_have_expected_timeouts():
         "deepseek_v4_pro_5_h200.yaml": 180,
         "gemma_4_31b_it_h200.yaml": 240,
         "glm_5_1_h200.yaml": 180,
+        "glm_5_3_h200.yaml": 180,
     }
     for name, timeout in expected_timeouts.items():
         path = os.path.join(workload_dir, name)
