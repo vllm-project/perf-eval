@@ -51,6 +51,18 @@ vllm_bench:
       num_prompts: 512
       max_concurrency: 128
 
+vllm_bench:
+  configs:
+    - name: 1k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: [10, 256, 512]
+      max_concurrency: [1, 64, 128]
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
+
 aiperf:
   configs:
     - name: prefix63k-in4760-out350-conc16-24
