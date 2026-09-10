@@ -51,3 +51,4 @@ vllm_bench:
       max_concurrency: [1, 64, 128]
       speed_bench_dataset_subset: throughput_8k
       speed_bench_category: low_entropy
+      
