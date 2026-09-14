@@ -125,6 +125,51 @@ A few things worth knowing:
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
+
+### Optional benchmark metric assertions
+
+Add `assertions` to a `vllm_bench.configs[]` entry to enforce absolute metric
+bounds. These example values are illustrative, not recommended targets:
+
+```yaml
+    assertions:
+      mean_tpot_ms:
+        max: 2.5
+      output_throughput:
+        min: 100
+```
+
+- Bounds are inclusive, finite numeric `min` and/or `max` values. Configs with
+  assertions must specify their benchmark `backend` explicitly. Omit
+  `assertions` to retain the existing behavior.
+- With `repetitions`, assertions use the existing median of run-level metrics,
+  not pooled request percentiles. Each raw run is validated first: asserted
+  metrics must be present and finite, request counts must be complete, and run
+  metadata must match. An invalid repetition cannot hide inside a passing median.
+- Concurrency sweeps apply the same bounds to each expanded run. Use separately
+  named configs when different concurrency levels need different thresholds.
+- Raw results and `results/<workload>/assertions-<run>.json` reports are retained.
+  Valid but over-threshold results remain eligible for dashboard ingestion;
+  invalid assertion inputs or unexpected checker errors skip ingestion.
+- Assertion failures do not suppress later benchmark, aiperf, lm_eval or BFCL
+  tasks. After the workload finishes, exit status is `1` for unmet bounds or
+  `2` for invalid assertion inputs; unexpected checker exit codes propagate.
+  `BENCH_ONLY` still skips quality tasks and preserves the assertion status.
+  Existing command/request-completion failures remain immediately fatal.
+- This initial interface covers `vllm_bench` metrics only. Threshold calibration
+  must pin hardware, software, workload and generation settings externally.
+  Assertions do not provide automatic baselines, statistical significance tests,
+  or a watermark-on/off comparison.
+
+CPU regression tests require pytest and PyYAML and use fake evaluation/upload
+processes; they do not start a model or contact the dashboard:
+
+```bash
+python3 -m pytest tests .buildkite/test_parse_workload.py \
+  .buildkite/test_benchmark_repetitions.py .buildkite/test_generate_pipeline.py \
+  .buildkite/test_server_lifecycle.py -q
+```
+
 ### HF cache volume (Kubernetes profiles)
 
 For profiles that run in-pod on Kubernetes (`server_runtime: native` with a `k8s_plugin`), the HuggingFace cache is a named `hf-cache` volume mounted at the profile's `hf_home`. **By default it is an `emptyDir`** — scoped to the benchmark pod, so the cache is reclaimed when the pod exits and can never accumulate on the node's disk.
