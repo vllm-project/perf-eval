@@ -128,8 +128,7 @@ For everything else (the full set of supported fields, defaults, validation rule
 
 ### Optional benchmark metric assertions
 
-Add `assertions` to a `vllm_bench.configs[]` entry to enforce absolute metric
-bounds. These example values are illustrative, not recommended targets:
+Add `assertions` to a `vllm_bench.configs[]` entry (example bounds, not recommended targets):
 
 ```yaml
     assertions:
@@ -139,31 +138,27 @@ bounds. These example values are illustrative, not recommended targets:
         min: 100
 ```
 
-- Bounds are inclusive, finite numeric `min` and/or `max` values. Configs with
-  assertions must specify their benchmark `backend` explicitly. Omit
-  `assertions` to retain the existing behavior.
-- With `repetitions`, assertions use the existing median of run-level metrics,
-  not pooled request percentiles. Each raw run is validated first: asserted
-  metrics must be present and finite, request counts must be complete, and run
-  metadata must match. An invalid repetition cannot hide inside a passing median.
-- Concurrency sweeps apply the same bounds to each expanded run. Use separately
-  named configs when different concurrency levels need different thresholds.
-- Raw results and `results/<workload>/assertions-<run>.json` reports are retained.
-  Valid but over-threshold results remain eligible for dashboard ingestion;
-  invalid assertion inputs or unexpected checker errors skip ingestion.
-- Assertion failures do not suppress later benchmark, aiperf, lm_eval or BFCL
-  tasks. After the workload finishes, exit status is `1` for unmet bounds or
-  `2` for invalid assertion inputs; unexpected checker exit codes propagate.
-  `BENCH_ONLY` still skips quality tasks and preserves the assertion status.
-  Existing command/request-completion failures remain immediately fatal.
-- This initial interface covers `vllm_bench` metrics only. Threshold calibration
-  must pin hardware, software, workload and generation settings externally.
-  Assertions do not provide automatic baselines, statistical significance tests,
-  or a watermark-on/off comparison.
+Bounds are inclusive finite numeric `min` and/or `max`. Omit `assertions` for
+unchanged behavior. Concurrency sweeps share bounds; use separate configs for
+different bounds.
 
-CPU regression tests require pytest and PyYAML and use fake evaluation/upload
-processes; they do not start a model or contact the dashboard:
+The existing benchmark helper still validates request completion and produces
+the run-level median. Assertions check that summary against the bounds, also
+checking every raw repetition for missing/non-finite asserted metrics. This is
+not a separate request or metadata audit. Raw results and
+`results/<workload>/assertions-<run>.json` reports are retained. Valid over-threshold
+runs remain eligible for ingestion; invalid metrics or checker exit codes greater
+than 1 skip ingestion.
 
+Assertions return failure **after** later evaluations finish: exit `1` for unmet
+bounds, `2` for invalid inputs; other checker exit codes propagate. An exit `1`
+without a matching, valid bound-failure report is treated as a checker error
+(exit `2`, no benchmark upload).
+`BENCH_ONLY` preserves that status. Existing command failures remain immediately
+fatal. This covers only `vllm_bench`; hardware/software pinning and threshold
+calibration remain external. There is no automatic baseline or watermark A/B test.
+
+CPU tests (pytest and PyYAML required; evaluation and upload processes are mocked):
 ```bash
 python3 -m pytest tests .buildkite/test_parse_workload.py \
   .buildkite/test_benchmark_repetitions.py .buildkite/test_generate_pipeline.py \

@@ -333,7 +333,7 @@ def expand_bench_config(c: dict, path: str) -> list:
     ]
 
 
-def bench_tsv(configs: list, path: str, model: str | None = None) -> str:
+def bench_tsv(configs: list, path: str) -> str:
     seen = set()
     lines = []
     for c in configs:
@@ -363,30 +363,23 @@ def bench_tsv(configs: list, path: str, model: str | None = None) -> str:
             v = c.get(key)  # noqa: B023
             return str(v) if v not in (None, "") else "-"
 
+        encoded_assertions = "-"
+        if "assertions" in c:
+            from check_perf_assertions import validate_assertions
+
+            try:
+                validate_assertions(c["assertions"])
+            except ValueError as exc:
+                sys.exit(f"{path}: vllm_bench config {c['name']!r}: {exc}")
+            encoded_assertions = base64.b64encode(
+                json.dumps(c["assertions"], allow_nan=False).encode()
+            ).decode()
+
         encoded_args = encode_bench_args(c.get("args"), c["name"], path)
         for run_name, nprompts, conc in expand_bench_config(c, path):
             if run_name in seen:
                 sys.exit(f"{path}: duplicate vllm_bench config name {run_name!r}")
             seen.add(run_name)
-            assertion_spec = "-"
-            if "assertions" in c:
-                # Share the offline checker's contract. Validate before starting
-                # a server; every expanded concurrency gets its own bound spec.
-                from check_perf_assertions import validate_spec
-
-                spec = {
-                    "name": run_name, "model_id": model,
-                    "backend": c.get("backend"), "max_concurrency": conc,
-                    "num_prompts": nprompts, "repetitions": repetitions,
-                    "assertions": c["assertions"],
-                }
-                try:
-                    validate_spec(spec)
-                except ValueError as exc:
-                    sys.exit(f"{path}: vllm_bench config {run_name!r}: {exc}")
-                assertion_spec = base64.b64encode(
-                    json.dumps(spec, allow_nan=False).encode()
-                ).decode()
             lines.append(
                 "\t".join(
                     [
@@ -401,7 +394,7 @@ def bench_tsv(configs: list, path: str, model: str | None = None) -> str:
                         opt("speed_bench_dataset_subset"),
                         opt("speed_bench_category"),
                         encoded_args,
-                        assertion_spec,
+                        encoded_assertions,
                     ]
                 )
             )
@@ -575,7 +568,7 @@ def main(path: str) -> None:
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
-    emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path, vllm.get("model")))
+    emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
     emit("AIPERF_TSV", aiperf_tsv(aiperf_configs, path))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())

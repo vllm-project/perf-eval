@@ -44,7 +44,7 @@ wait_healthy "$PORT" "$WORKLOAD_SERVER_STARTUP_TIMEOUT" "$WORKLOAD_MODEL"
 # $RESULTS_DIR/bench-<name>.json and is then transformed and POSTed to the
 # perf dashboard ingest endpoint.
 BENCH_ASSERTION_STATUS=0
-while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions speed_subset speed_category extra_args assertion_spec; do
+while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions speed_subset speed_category extra_args encoded_assertions; do
   [[ -z "$bname" ]] && continue
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
                  "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
@@ -55,12 +55,22 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions 
   # Do not put run_vllm_bench in an if/|| condition: that would disable
   # Bash errexit inside the function and could hide a failed benchmark.
   assertion_status=0
-  if [[ -n "$assertion_spec" && "$assertion_spec" != "-" ]]; then
+  if [[ -n "$encoded_assertions" && "$encoded_assertions" != "-" ]]; then
     assertion_report="$RESULTS_DIR/assertions-$bname.json"
     python3 "$DIR/check_perf_assertions.py" \
-      --spec-base64 "$assertion_spec" --results-dir "$RESULTS_DIR" \
+      --assertions-base64 "$encoded_assertions" \
+      --result "$RESULTS_DIR/bench-$bname.json" --repetitions "$repetitions" \
       > "$assertion_report" || assertion_status=$?
     cat "$assertion_report"
+    # Python crashes also exit 1; only a valid bound-failure report may upload.
+    if ((assertion_status == 1)) && ! PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -c 'import sys
+from check_perf_assertions import is_failure_report
+sys.exit(not is_failure_report(*sys.argv[1:]))' \
+        "$assertion_report" "$RESULTS_DIR/bench-$bname.json" "$encoded_assertions"; then
+      echo "Checker exited 1 without a valid bound-failure report for $bname." >&2
+      assertion_status=2
+    fi
     if ((assertion_status > BENCH_ASSERTION_STATUS)); then
       BENCH_ASSERTION_STATUS=$assertion_status
     fi
