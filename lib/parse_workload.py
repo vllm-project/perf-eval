@@ -30,7 +30,7 @@ TASK_FIELDS = {"name", "num_fewshot", "model_args"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency", "repetitions", "args",
-    "speed_bench_dataset_subset", "speed_bench_category",
+    "speed_bench_dataset_subset", "speed_bench_category", "assertions",
 }
 BENCH_REQUIRED = ("name", "input_len", "output_len", "num_prompts", "max_concurrency")
 BENCH_RESERVED_ARGS = {
@@ -363,6 +363,18 @@ def bench_tsv(configs: list, path: str) -> str:
             v = c.get(key)  # noqa: B023
             return str(v) if v not in (None, "") else "-"
 
+        encoded_assertions = "-"
+        if "assertions" in c:
+            from check_perf_assertions import validate_assertions
+
+            try:
+                validate_assertions(c["assertions"])
+            except ValueError as exc:
+                sys.exit(f"{path}: vllm_bench config {c['name']!r}: {exc}")
+            encoded_assertions = base64.b64encode(
+                json.dumps(c["assertions"], allow_nan=False).encode()
+            ).decode()
+
         encoded_args = encode_bench_args(c.get("args"), c["name"], path)
         for run_name, nprompts, conc in expand_bench_config(c, path):
             if run_name in seen:
@@ -382,6 +394,7 @@ def bench_tsv(configs: list, path: str) -> str:
                         opt("speed_bench_dataset_subset"),
                         opt("speed_bench_category"),
                         encoded_args,
+                        encoded_assertions,
                     ]
                 )
             )
