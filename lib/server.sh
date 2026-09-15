@@ -45,6 +45,9 @@ PY
 
 start_server() {
   local container=$1 port=$2 image=$3 model=$4 serve_args=$5 env=$6 runtime=${7:-docker}
+  VLLM_SERVER_PID=""
+  VLLM_SERVER_CONTAINER=""
+  VLLM_LOG_FILE=""
   echo "--- :rocket: starting vllm: $model"
 
   if [[ "$runtime" == "native" ]]; then
@@ -90,6 +93,8 @@ start_server() {
       "$model" --port "$port" $serve_args
   fi
 
+  VLLM_SERVER_CONTAINER="$container"
+
   # Install pytest to avoid cupy.testing import failure during torch.compile
   docker exec "$container" pip install -q pytest 2>/dev/null || true
 
@@ -116,7 +121,7 @@ raise SystemExit(0 if any(model.get("id") == expected for model in models) else 
 wait_healthy() {
   local port=$1 timeout=${2:-3600} expected_model=${3:-}
   echo "+++ :hourglass: waiting for /health (timeout ${timeout}s)"
-  local now start deadline next_status elapsed
+  local now start deadline next_status elapsed container_running
   start=$(date +%s)
   deadline=$(( start + timeout ))
   next_status=$(( start + 60 ))
@@ -129,6 +134,16 @@ wait_healthy() {
       echo "vLLM server exited before becoming healthy" >&2
       [[ -n "${VLLM_LOG_FILE:-}" ]] && tail -n 80 "$VLLM_LOG_FILE" >&2 || true
       return 1
+    fi
+    if [[ -n "${VLLM_SERVER_CONTAINER:-}" ]]; then
+      # Docker servers have no local PID. With --rm, a crashed container can
+      # disappear entirely; neither case should consume the readiness timeout.
+      if ! container_running=$(docker inspect --format '{{.State.Running}}' "$VLLM_SERVER_CONTAINER" 2>/dev/null) ||
+          [[ "$container_running" != "true" ]]; then
+        echo "vLLM container $VLLM_SERVER_CONTAINER stopped or became unavailable before becoming healthy" >&2
+        docker logs --tail 80 "$VLLM_SERVER_CONTAINER" >&2 || true
+        return 1
+      fi
     fi
     now=$(date +%s)
     if (( now >= next_status )); then

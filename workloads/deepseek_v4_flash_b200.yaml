@@ -19,7 +19,7 @@ vllm:
     --kv-cache-dtype fp8
     --block-size 256
     --moe-backend deep_gemm_mega_moe
-    --attention_config.use_fp4_indexer_cache=True
+    --attention-config.indexer_kv_dtype=mxfp4
     --tokenizer-mode deepseek_v4
     --tool-call-parser deepseek_v4
     --reasoning-parser deepseek_v4

@@ -10,8 +10,11 @@ nightly: true
 
 vllm:
   model: zai-org/GLM-5.3
+  # The default 1M context exceeds the KV cache available on 8x H200.
+  # 64K covers the 9K perf requests and the configured GSM8K sequence length.
   serve_args: >-
     --tensor-parallel-size 8
+    --max-model-len 65536
     --kv-cache-dtype fp8
     --speculative-config.method mtp
     --speculative-config.num_speculative_tokens 5
