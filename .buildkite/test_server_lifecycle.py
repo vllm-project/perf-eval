@@ -93,6 +93,54 @@ def test_stop_process_is_bounded_when_term_is_ignored():
     assert time.monotonic() - started < 3
 
 
+def test_readiness_fails_promptly_for_stopped_or_removed_docker_container():
+    for inspect_result in ("echo false", "return 1"):
+        result = run_bash(
+            "set -euo pipefail; "
+            "VLLM_SERVER_CONTAINER=failed-server; "
+            "server_is_healthy() { return 1; }; "
+            "docker() { case $1 in "
+            f"inspect) {inspect_result} ;; "
+            "logs) echo 'engine initialization failed'; return 1 ;; "
+            "esac; }; "
+            "wait_healthy 8000 3600 expected-model",
+            timeout=3,
+        )
+        assert result.returncode == 1, result.stderr
+        assert "stopped or became unavailable" in result.stderr
+        assert "engine initialization failed" in result.stderr
+        assert "server never came up" not in result.stderr
+
+
+def test_readiness_waits_for_running_docker_container_to_become_healthy():
+    result = run_bash(
+        "set -euo pipefail; "
+        "VLLM_SERVER_CONTAINER=starting-server; attempts=0; "
+        "server_is_healthy() { attempts=$((attempts + 1)); (( attempts >= 2 )); }; "
+        "docker() { [[ $1 == inspect ]] && echo true; }; "
+        "sleep() { :; }; "
+        "wait_healthy 8000 3600 expected-model; "
+        '[[ $attempts == 2 ]]',
+        timeout=3,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "server healthy" in result.stdout
+
+
+def test_native_readiness_does_not_require_docker():
+    result = run_bash(
+        "set -euo pipefail; "
+        "VLLM_SERVER_PID=$$; VLLM_SERVER_CONTAINER=; attempts=0; "
+        "server_is_healthy() { attempts=$((attempts + 1)); (( attempts >= 2 )); }; "
+        "docker() { echo 'unexpected Docker call' >&2; return 1; }; "
+        "sleep() { :; }; "
+        "wait_healthy 8000 3600 expected-model",
+        timeout=3,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "unexpected Docker call" not in result.stderr
+
+
 def main():
     tests = [value for name, value in sorted(globals().items()) if name.startswith("test_")]
     failed = 0

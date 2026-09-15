@@ -7,4 +7,5 @@ steps:
       - python3 -m pip install --user pyyaml
       - python3 .buildkite/test_generate_pipeline.py
       - python3 .buildkite/test_benchmark_repetitions.py
+      - python3 .buildkite/test_server_lifecycle.py
       - export PATH="$HOME/.local/bin:$PATH" && python3 .buildkite/generate_pipeline.py | buildkite-agent pipeline upload
