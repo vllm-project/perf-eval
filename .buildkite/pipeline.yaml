@@ -2,6 +2,7 @@ steps:
   - label: "DeepSeek-V4-Pro #50175 parent/merge A-B-B-A"
     key: dsv4-pro-ab-50175
     agents:
+      queue: "${H200_QUEUE}"
       name: h200-ci-1-1
     timeout_in_minutes: 360
     command: bash .buildkite/experiments/dsv4-pro-50175/run.sh

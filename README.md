@@ -233,5 +233,6 @@ and without each session's first repetition. Results are Buildkite artifacts;
 they are not ingested into normal release/nightly dashboards. The runner refuses
 to start if another GPU process is present and cleans up only its own containers.
 
-Launch this branch through the existing `vllm/perf-eval` pipeline. The branch is
+Launch this branch through the existing `vllm/perf-eval` pipeline, setting
+`H200_QUEUE` to the H200 queue from `lib/gpu_profiles.yaml`. The branch is
 an experiment, not a proposed production harness change. AI-assisted with Codex.
