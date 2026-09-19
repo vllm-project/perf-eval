@@ -216,3 +216,22 @@ Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for
 ## Agents
 
 `CLAUDE.md` has conventions for AI agents working in this repo: smoke-testing changes, launching Buildkite builds for a chosen branch/commit, and the AI-assistance disclosure rule for PRs and commits.
+# Temporary DeepSeek-V4-Pro #50175 A/B branch
+
+This experiment branch replaces the normal pipeline with one six-hour job pinned
+to `h200-ci-1-1`. It compares exact Python sources at `188716ace7` (A) and
+`e16b5e518d` (B), the parent and merge of #50175, on identical native libraries
+and dependencies from the digest-pinned `7c5dc571cb` image. Source overlays are
+hash-checked before application. Dependencies and native-extension hashes are
+checked equal across both arms and the fixed client image.
+
+The job uses fresh servers in A-B-B-A order, five repetitions per session,
+512 random prompts, ISL 8192, OSL 1024, concurrency 128 and 128 warmup requests
+per repetition. It pins the model/tokenizer revision and retains raw per-request
+results, server logs, GPU telemetry, image/source identities and a summary with
+and without each session's first repetition. Results are Buildkite artifacts;
+they are not ingested into normal release/nightly dashboards. The runner refuses
+to start if another GPU process is present and cleans up only its own containers.
+
+Launch this branch through the existing `vllm/perf-eval` pipeline. The branch is
+an experiment, not a proposed production harness change. AI-assisted with Codex.
