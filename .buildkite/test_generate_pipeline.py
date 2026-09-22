@@ -294,6 +294,34 @@ def test_cuda_release_image_does_not_select_rocm_commit():
         assert g.resolved_image({}, ROCM) == "vllm/vllm-openai-rocm:nightly"
 
 
+def test_step_has_automatic_retry_by_default():
+    """Every step gets automatic retry with limit 2 unless the workload overrides it."""
+    step = g.make_step(
+        "workloads/test.yaml", {"name": "t", "gpu": "H200"}, g.load_profiles()
+    )
+    assert step["retry"] == {"automatic": {"limit": 2}}
+
+
+def test_step_retry_is_configurable_per_workload():
+    """A workload can override the retry policy, e.g. to disable it or change the limit."""
+    step = g.make_step(
+        "workloads/test.yaml",
+        {"name": "t", "gpu": "H200", "retry": {"automatic": {"limit": 3}}},
+        g.load_profiles(),
+    )
+    assert step["retry"] == {"automatic": {"limit": 3}}
+
+
+def test_step_retry_can_be_disabled():
+    """A workload can disable retry entirely by setting it to None or False."""
+    step = g.make_step(
+        "workloads/test.yaml",
+        {"name": "t", "gpu": "H200", "retry": None},
+        g.load_profiles(),
+    )
+    assert step["retry"] is None
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0

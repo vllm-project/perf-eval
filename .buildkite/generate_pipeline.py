@@ -332,6 +332,7 @@ def make_step(path, data, profiles):
         "timeout_in_minutes": timeout,
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
         "artifact_paths": ["results/**/*"],
+        "retry": data.get("retry", {"automatic": {"limit": 2}}),
     }
     image = resolved_image(data, profile)
     if not image:
