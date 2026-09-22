@@ -81,18 +81,18 @@ def test_cuda_release_image_does_not_select_rocm_commit(monkeypatch):
     assert commit == ""
 
 
-def test_sweep_expands_shapes_by_concurrency_ladder():
+def test_sweep_expands_shapes_by_concurrency():
     configs = parse_workload.expand_sweep(
         {
             "shapes": [{"isl": 8192, "osl": 1024}, {"isl": 1024, "osl": 1024}],
-            "concurrency": {"start": 4, "end": 100},
+            "concurrency": [4, 8, 16, 32, 64, 100],
             "prompts_per_concurrency": 4,
             "min_prompts": 32,
         },
         "w.yaml",
     )
 
-    # Ladder: 4, 8, 16, 32, 64 then the exact end value 100; two shapes.
+    # Every listed concurrency, for each of the two shapes.
     assert [c["max_concurrency"] for c in configs] == [4, 8, 16, 32, 64, 100] * 2
     assert {c["name"] for c in configs} == {"sweep-8k-in-1k-out", "sweep-1k-in-1k-out"}
     assert [c["num_prompts"] for c in configs[:6]] == [32, 32, 64, 128, 256, 400]
@@ -127,7 +127,8 @@ def test_sweep_explicit_list_and_shared_warmups():
     "sweep",
     [
         {"shapes": [], "concurrency": [1]},
-        {"shapes": [{"isl": 1, "osl": 1}], "concurrency": {"start": 8, "end": 4}},
+        {"shapes": [{"isl": 1, "osl": 1}], "concurrency": {"start": 4, "end": 128}},
+        {"shapes": [{"isl": 1, "osl": 1}], "concurrency": []},
         {"shapes": [{"isl": 1, "osl": 1}], "concurrency": [4, 4]},
         {"shapes": [{"isl": 1}], "concurrency": [4]},
         {"shapes": [{"isl": 1, "osl": 1}], "concurrency": [4], "bogus": 1},

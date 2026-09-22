@@ -1,7 +1,7 @@
 # GPT-OSS 120B on H200 (TP=4) — Pareto sweep smoke test.
 #
 # Exercises `vllm_bench.sweep`: every (isl, osl) shape is measured across a
-# x2 concurrency ladder on one server, so the dashboard rows can be plotted
+# list of concurrencies on one server, so the dashboard rows can be plotted
 # as tput_per_gpu vs interactivity (tok/s/user), InferenceX-style. Not
 # nightly yet; bench_only skips the lm_eval/bfcl accuracy passes.
 name: gpt_oss_120b-h200-sweep
@@ -22,6 +22,6 @@ vllm_bench:
     shapes:
       - {isl: 8192, osl: 1024}
       - {isl: 1024, osl: 1024}
-    concurrency: {start: 4, end: 128}   # 4, 8, 16, 32, 64, 128
+    concurrency: [4, 8, 16, 32, 64, 128]
     prompts_per_concurrency: 4          # num_prompts = max(min_prompts, 4 x conc)
     min_prompts: 32

@@ -350,39 +350,15 @@ def fmt_len(n: int) -> str:
 
 
 def sweep_concurrencies(spec: object, path: str) -> list:
-    """`concurrency` is either an explicit list or a {start, end, factor} ladder.
-
-    The ladder mirrors InferenceX's `conc-start`/`conc-end` search space: it
-    multiplies by `factor` (default 2) until it passes `end`, and always
-    includes `end` itself so the top of the curve is measured exactly.
-    """
-    if isinstance(spec, list):
-        concs = spec
-    elif isinstance(spec, dict):
-        extra = set(spec) - {"start", "end", "factor"}
-        if extra:
-            sys.exit(f"{path}: vllm_bench.sweep.concurrency has unsupported keys {sorted(extra)}")
-        start, end, factor = spec.get("start"), spec.get("end"), spec.get("factor", 2)
-        for k, v in (("start", start), ("end", end), ("factor", factor)):
-            if isinstance(v, bool) or not isinstance(v, int) or v < 1:
-                sys.exit(f"{path}: vllm_bench.sweep.concurrency.{k} must be a positive integer")
-        if factor < 2 or start > end:
-            sys.exit(f"{path}: vllm_bench.sweep.concurrency needs start <= end and factor >= 2")
-        concs, c = [], start
-        while c < end:
-            concs.append(c)
-            c *= factor
-        concs.append(end)
-    else:
-        sys.exit(f"{path}: vllm_bench.sweep.concurrency must be a list or {{start, end, factor}}")
-    if not concs:
-        sys.exit(f"{path}: vllm_bench.sweep.concurrency is empty")
-    for c in concs:
+    """`concurrency` is the explicit list of concurrencies to measure."""
+    if not isinstance(spec, list) or not spec:
+        sys.exit(f"{path}: vllm_bench.sweep.concurrency must be a non-empty list of integers")
+    for c in spec:
         if isinstance(c, bool) or not isinstance(c, int) or c < 1:
             sys.exit(f"{path}: vllm_bench.sweep.concurrency values must be positive integers")
-    if len(set(concs)) != len(concs):
+    if len(set(spec)) != len(spec):
         sys.exit(f"{path}: vllm_bench.sweep.concurrency has duplicate values")
-    return concs
+    return spec
 
 
 def expand_sweep(sweep: object, path: str) -> list:
@@ -390,7 +366,7 @@ def expand_sweep(sweep: object, path: str) -> list:
 
     Each (isl, osl, concurrency) point becomes its own config so that
     `num_prompts` and `num_warmups` scale with the concurrency instead of
-    being pinned to the largest value in the ladder. Config names are
+    being pinned to the largest value in the list. Config names are
     `<name>-<isl>-in-<osl>-out`; the usual `-conc-<n>` suffix is appended by
     expand_bench_config, so a point lands as e.g. `sweep-8k-in-1k-out-conc-32`.
     """
