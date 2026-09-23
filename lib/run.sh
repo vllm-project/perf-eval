@@ -43,13 +43,45 @@ wait_healthy "$PORT" "$WORKLOAD_SERVER_STARTUP_TIMEOUT" "$WORKLOAD_MODEL"
 # on a full lm_eval pass. Each config's raw json lands in
 # $RESULTS_DIR/bench-<name>.json and is then transformed and POSTed to the
 # perf dashboard ingest endpoint.
-while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions speed_subset speed_category extra_args; do
+BENCH_ASSERTION_STATUS=0
+while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions speed_subset speed_category extra_args encoded_assertions; do
   [[ -z "$bname" ]] && continue
   run_vllm_bench "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" \
                  "$bname" "$backend" "$dataset" "$isl" "$osl" "$nprompts" \
                  "$conc" "$speed_subset" "$speed_category" "$repetitions" \
                  "$extra_args" \
                  "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
+
+  # Do not put run_vllm_bench in an if/|| condition: that would disable
+  # Bash errexit inside the function and could hide a failed benchmark.
+  assertion_status=0
+  if [[ -n "$encoded_assertions" && "$encoded_assertions" != "-" ]]; then
+    assertion_report="$RESULTS_DIR/assertions-$bname.json"
+    python3 "$DIR/check_perf_assertions.py" \
+      --assertions-base64 "$encoded_assertions" \
+      --result "$RESULTS_DIR/bench-$bname.json" --repetitions "$repetitions" \
+      > "$assertion_report" || assertion_status=$?
+    cat "$assertion_report"
+    # Python crashes also exit 1; only a valid bound-failure report may upload.
+    if ((assertion_status == 1)) && ! PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}" \
+      python3 -c 'import sys
+from check_perf_assertions import is_failure_report
+sys.exit(not is_failure_report(*sys.argv[1:]))' \
+        "$assertion_report" "$RESULTS_DIR/bench-$bname.json" "$encoded_assertions"; then
+      echo "Checker exited 1 without a valid bound-failure report for $bname." >&2
+      assertion_status=2
+    fi
+    if ((assertion_status > BENCH_ASSERTION_STATUS)); then
+      BENCH_ASSERTION_STATUS=$assertion_status
+    fi
+  fi
+
+  # Valid results remain useful even when they exceed the configured bounds.
+  # Invalid inputs or an unexpected checker failure must not enter the dashboard.
+  if ((assertion_status > 1)); then
+    echo "Skipping dashboard upload for $bname: assertion validation failed (exit $assertion_status); results retained in $RESULTS_DIR." >&2
+    continue
+  fi
 
   python3 "$DIR/ingest_perf.py" \
     --raw-result "${RESULTS_DIR}/bench-${bname}.json" \
@@ -71,7 +103,7 @@ done <<< "$WORKLOAD_AIPERF_TSV"
 
 if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
   echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"
-  exit 0
+  exit "$BENCH_ASSERTION_STATUS"
 fi
 
 while IFS=$'\t' read -r task fewshot model_args; do
@@ -112,3 +144,7 @@ while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_
       --no-samples || true
   fi
 done <<< "$WORKLOAD_BFCL_TSV"
+
+# Assertion failures must not suppress later evaluation results. Command
+# failures above retain their existing immediate-exit behavior via errexit.
+exit "$BENCH_ASSERTION_STATUS"
