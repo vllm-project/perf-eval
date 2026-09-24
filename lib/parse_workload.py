@@ -41,6 +41,17 @@ BENCH_RESERVED_ARGS = {
     "speed-bench-category", "skip-tokenizer-init", "save-result",
     "result-filename",
 }
+SWEEP_FIELDS = {
+    "name", "shapes", "concurrency", "prompts_per_concurrency", "min_prompts",
+    "repetitions", "backend", "args",
+}
+SWEEP_DEFAULTS = {
+    "name": "sweep",
+    "prompts_per_concurrency": 4,
+    "min_prompts": 32,
+    "repetitions": 1,
+    "backend": "openai",
+}
 AIPERF_FIELDS = {"name", "args"}
 AIPERF_REQUIRED = ("name",)
 AIPERF_RESERVED_ARGS = {
@@ -333,6 +344,84 @@ def expand_bench_config(c: dict, path: str) -> list:
     ]
 
 
+def fmt_len(n: int) -> str:
+    """1024 -> '1k', 8192 -> '8k', 512 -> '512'."""
+    return f"{n // 1024}k" if n % 1024 == 0 and n >= 1024 else str(n)
+
+
+def sweep_concurrencies(spec: object, path: str) -> list:
+    """`concurrency` is the explicit list of concurrencies to measure."""
+    if not isinstance(spec, list) or not spec:
+        sys.exit(f"{path}: vllm_bench.sweep.concurrency must be a non-empty list of integers")
+    for c in spec:
+        if isinstance(c, bool) or not isinstance(c, int) or c < 1:
+            sys.exit(f"{path}: vllm_bench.sweep.concurrency values must be positive integers")
+    if len(set(spec)) != len(spec):
+        sys.exit(f"{path}: vllm_bench.sweep.concurrency has duplicate values")
+    return spec
+
+
+def expand_sweep(sweep: object, path: str) -> list:
+    """Expand `vllm_bench.sweep` into ordinary bench configs (shapes x concurrency).
+
+    Each (isl, osl, concurrency) point becomes its own config so that
+    `num_prompts` and `num_warmups` scale with the concurrency instead of
+    being pinned to the largest value in the list. Config names are
+    `<name>-<isl>-in-<osl>-out`; the usual `-conc-<n>` suffix is appended by
+    expand_bench_config, so a point lands as e.g. `sweep-8k-in-1k-out-conc-32`.
+    """
+    if not sweep:
+        return []
+    if not isinstance(sweep, dict):
+        sys.exit(f"{path}: vllm_bench.sweep must be a map")
+    extra = set(sweep) - SWEEP_FIELDS
+    if extra:
+        sys.exit(
+            f"{path}: vllm_bench.sweep has unsupported fields {sorted(extra)}; "
+            f"allowed: {sorted(SWEEP_FIELDS)}"
+        )
+    cfg = {**SWEEP_DEFAULTS, **sweep}
+    shapes = cfg.get("shapes")
+    if not isinstance(shapes, list) or not shapes:
+        sys.exit(f"{path}: vllm_bench.sweep.shapes must be a non-empty list of {{isl, osl}}")
+    for key in ("prompts_per_concurrency", "min_prompts"):
+        v = cfg[key]
+        if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+            sys.exit(f"{path}: vllm_bench.sweep.{key} must be a positive integer")
+    args = cfg.get("args") or {}
+    if not isinstance(args, dict):
+        sys.exit(f"{path}: vllm_bench.sweep.args must be a map")
+    has_warmups = any(normalize_bench_arg_name(k) == "num-warmups" for k in args)
+    concs = sweep_concurrencies(cfg.get("concurrency"), path)
+
+    configs = []
+    for shape in shapes:
+        if not isinstance(shape, dict) or set(shape) != {"isl", "osl"}:
+            sys.exit(f"{path}: vllm_bench.sweep.shapes entries must be {{isl, osl}} maps")
+        isl, osl = shape["isl"], shape["osl"]
+        for v in (isl, osl):
+            if isinstance(v, bool) or not isinstance(v, int) or v < 1:
+                sys.exit(f"{path}: vllm_bench.sweep.shapes isl/osl must be positive integers")
+        for conc in concs:
+            point_args = dict(args)
+            if not has_warmups:
+                # One warmup wave sized to the concurrency: enough to fill the
+                # batch once without spending minutes warming a conc-4 point.
+                point_args["num_warmups"] = conc
+            configs.append({
+                "name": f"{cfg['name']}-{fmt_len(isl)}-in-{fmt_len(osl)}-out",
+                "backend": cfg["backend"],
+                "dataset": "random",
+                "input_len": isl,
+                "output_len": osl,
+                "num_prompts": max(cfg["min_prompts"], cfg["prompts_per_concurrency"] * conc),
+                "max_concurrency": conc,
+                "repetitions": cfg["repetitions"],
+                "args": point_args,
+            })
+    return configs
+
+
 def bench_tsv(configs: list, path: str) -> str:
     seen = set()
     lines = []
@@ -513,7 +602,7 @@ def main(path: str) -> None:
 
     tasks = lm_eval.get("tasks") or []
     bfcl = data.get("bfcl") or {}
-    bench_configs = bench.get("configs") or []
+    bench_configs = list(bench.get("configs") or []) + expand_sweep(bench.get("sweep"), path)
     aiperf_configs = aiperf.get("configs") or []
 
     if not tasks and not bench_configs and not bfcl and not aiperf_configs:
