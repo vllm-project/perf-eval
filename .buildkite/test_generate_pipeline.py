@@ -26,6 +26,11 @@ spec.loader.exec_module(g)
 
 IMAGE_VARS = ("VLLM_IMAGE", "VLLM_IMAGE_CUDA", "VLLM_IMAGE_ROCM", "VLLM_COMMIT")
 
+# A build that pins its GPU steps to one agent (e.g. H200_PIN_AGENT) runs these
+# tests with that env set; it must not change the steps they inspect.
+for _k in [k for k in os.environ if k.endswith("_PIN_AGENT")]:
+    os.environ.pop(_k)
+
 CUDA = {"queue": "H200"}
 ROCM = {"queue": "mi355_perf_eval", "image_repo": "vllm/vllm-openai-rocm"}
 
@@ -320,6 +325,26 @@ def test_step_retry_can_be_disabled():
         g.load_profiles(),
     )
     assert step["retry"] is None
+
+
+def test_pin_agent_bounces_other_agents_and_serializes():
+    """{GPU}_PIN_AGENT gates the step on the agent name and keeps the default retry."""
+    os.environ["H200_PIN_AGENT"] = "h200-ci-1-1"
+    try:
+        step = g.make_step(
+            "workloads/test.yaml", {"name": "t", "gpu": "H200"}, g.load_profiles()
+        )
+    finally:
+        os.environ.pop("H200_PIN_AGENT", None)
+    assert '"$$BUILDKITE_AGENT_NAME" != "h200-ci-1-1"' in step["commands"][0]
+    assert step["concurrency"] == 1
+    assert step["concurrency_group"] == "perf-eval/pin/h200-ci-1-1"
+    assert step["retry"] == {
+        "automatic": [
+            {"exit_status": g.PIN_BOUNCE_EXIT, "limit": g.PIN_BOUNCE_RETRIES},
+            {"limit": 2},
+        ]
+    }
 
 
 def main():
