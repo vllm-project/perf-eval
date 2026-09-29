@@ -16,6 +16,10 @@ Override env vars are propagated to each step:
                on has its workloads emitted as skipped steps.
   VLLM_COMMIT  commit SHA → vllm/vllm-openai:nightly-<sha> (Docker Hub)
   BENCH_ONLY   when truthy, run vllm bench configs and skip lm_eval tasks
+  {GPU}_QUEUE  queue override for that GPU's steps (e.g. H200_QUEUE)
+  {GPU}_PIN_AGENT
+               run that GPU's steps only on this agent name (e.g.
+               H200_PIN_AGENT=h200-ci-1-1), one at a time; see pin_step_to_agent
 
 Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
 without forcing the whole build to skip lm_eval.
@@ -305,6 +309,43 @@ def queue_for_gpu(gpu, profile):
     return override or profile["queue"]
 
 
+# Exit status a pinned step uses to hand itself back to the queue.
+PIN_BOUNCE_EXIT = 97
+PIN_BOUNCE_RETRIES = 10
+
+
+def pin_step_to_agent(step, gpu):
+    """Run this GPU's steps only on the agent named by ``{GPU}_PIN_AGENT``.
+
+    Buildkite targets agents by tag only, and every agent in a queue can share
+    the same tags, so a step cannot name one host. Instead the step checks the
+    agent it landed on, exits PIN_BOUNCE_EXIT anywhere else (before any setup or
+    image pull) and is retried automatically. A per-agent concurrency group runs
+    one pinned step at a time: the others wait without holding an agent or
+    spending retries while the pinned host is busy.
+    """
+    pin = (os.environ.get(f"{gpu.upper()}_PIN_AGENT") or "").strip()
+    if not pin or step.get("skip"):
+        return
+    step["commands"] = [
+        f'if [ "$$BUILDKITE_AGENT_NAME" != "{pin}" ]; then'
+        f' echo "pinned to {pin}, landed on $$BUILDKITE_AGENT_NAME; requeueing";'
+        f" exit {PIN_BOUNCE_EXIT}; fi"
+    ] + step["commands"]
+    step["concurrency"] = 1
+    step["concurrency_group"] = f"perf-eval/pin/{pin}"
+    automatic = (step.get("retry") or {}).get("automatic") or []
+    if isinstance(automatic, dict):
+        automatic = [automatic]
+    elif automatic is True:
+        automatic = [{"limit": 2}]
+    step["retry"] = {
+        **(step.get("retry") or {}),
+        "automatic": [{"exit_status": PIN_BOUNCE_EXIT, "limit": PIN_BOUNCE_RETRIES}]
+        + list(automatic),
+    }
+
+
 def make_step(path, data, profiles):
     name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
     gpu = data.get("gpu")
@@ -365,6 +406,7 @@ def make_step(path, data, profiles):
         step_env["BENCH_ONLY"] = "1"
     if step_env:
         step["env"] = step_env
+    pin_step_to_agent(step, gpu)
     return step
 
 

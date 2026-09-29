@@ -81,7 +81,9 @@ start_server() {
   fi
 
   # shellcheck disable=SC2086  # serve_args intentionally word-split
-  if [[ "$image" == *"/vllm-ci-test-repo:"* ]]; then
+  # CI images (pre-merge test repo and main-branch post-merge repo) have no
+  # `vllm serve` entrypoint, so name it explicitly.
+  if [[ "$image" == *"/vllm-ci-test-repo:"* || "$image" == *"/vllm-ci-postmerge-repo:"* ]]; then
     docker run -d --rm --name "$container" "${docker_args[@]}" \
       --entrypoint vllm "$image" \
       serve "$model" --port "$port" $serve_args
