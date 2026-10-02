@@ -1,6 +1,10 @@
+# nsys: true captures an Nsight Systems trace of one profiled `vllm bench serve`
+# pass and uploads it as a Buildkite artifact (NVIDIA only; see lib/nsys.sh).
+
 H200:
   queue: H200
   hf_home: /mnt/shared/hf-models
+  nsys: true
   env:
     # Skip the multi-minute DeepGEMM warmup; kernels are still available
     # if vLLM decides to use them, we just don't precompile every shape.
@@ -11,6 +15,7 @@ B200:
   hf_home: /mnt/shared/hf_cache
   server_runtime: native
   k8s_plugin: nvidia
+  nsys: true
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
