@@ -175,6 +175,7 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
   ROCM: skipped, set VLLM_IMAGE_ROCM (8 workloads)
   ```
 - `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
+- `NSYS_PROFILE` — `0` to skip Nsight Systems tracing for this build, `1` to force it on for every NVIDIA workload. Unset follows the GPU profile's `nsys:` (see [Nsight Systems traces](#nsight-systems-traces)). `NSYS_MAX_ITERATIONS` (default `100`, `0` = until the run ends) and `NSYS_DELAY_ITERATIONS` (default `0`) set which engine iterations get recorded.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
 GPU profiles can set `ecr_pull_through_cache: false` when their cluster pulls
@@ -202,6 +203,16 @@ This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. 
 
 **From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
 `bk` workflows. Don't make raw Buildkite API calls with `curl`.
+
+### Nsight Systems traces
+
+NVIDIA workloads (GPU profiles with `nsys: true` in `lib/gpu_profiles.yaml`, currently H200 and B200) upload an Nsight Systems trace of the server as a Buildkite artifact: `results/<name>/nsys/<name>-<bench config>.nsys-rep`. Open it in the Nsight Systems GUI or summarize it with `nsys stats <file>`.
+
+How it's captured (`lib/nsys.sh`, `lib/nsys_serve.sh`):
+
+- `vllm serve` runs under `nsys profile --capture-range=cudaProfilerApi`, with `--profiler-config.profiler cuda` and `VLLM_WORKER_MULTIPROC_METHOD=spawn`. nsys is installed into the server container/pod from the CUDA apt repo at startup (~450 MB, the vLLM images don't ship it). If that fails the server starts unprofiled and the workload carries on.
+- Nothing is recorded during the measured `vllm_bench` runs. After them, one extra `vllm bench serve --profile` pass reuses the first `vllm_bench` config at one wave (`num_prompts` = `max_concurrency`, 1 repetition, not ingested) and records `NSYS_MAX_ITERATIONS` engine iterations. A workload with no `vllm_bench` configs isn't traced.
+- A failed profiling pass logs a warning instead of failing the step.
 
 ### Run a recipe end-to-end
 

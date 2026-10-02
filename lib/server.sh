@@ -13,9 +13,14 @@
 # on the host is visible to vLLM. For native runtime, values are exported before
 # starting `vllm serve` in the current job container.
 #
+# When NSYS_REPORT is set (see nsys.sh), `vllm serve` is launched through
+# lib/nsys_serve.sh so it runs under Nsight Systems.
+#
 # After start_server, vLLM logs are streamed to stdout (prefixed with `[vllm]`)
 # so build output reflects server startup progress in real time. The streamer's
 # PID is held in $VLLM_LOGS_PID; stop_server kills it.
+
+SERVER_SH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pick_server_port() {
   # Native GPU jobs use host networking and multiple jobs can share a node.
@@ -58,8 +63,10 @@ start_server() {
     done <<< "$env"
     local log_file="/tmp/${container}.log"
     VLLM_LOG_FILE="$log_file"
+    local launcher=(vllm serve)
+    [[ -n "${NSYS_REPORT:-}" ]] && launcher=(bash "$SERVER_SH_DIR/nsys_serve.sh" "$NSYS_REPORT")
     # shellcheck disable=SC2086  # serve_args intentionally word-split
-    vllm serve "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
+    "${launcher[@]}" "$model" --port "$port" $serve_args >"$log_file" 2>&1 &
     VLLM_SERVER_PID=$!
     echo "--- :memo: streaming vllm logs"
     ( tail -f "$log_file" 2>/dev/null | stdbuf -oL -eL sed 's/^/[vllm] /' ) &
@@ -81,7 +88,15 @@ start_server() {
   fi
 
   # shellcheck disable=SC2086  # serve_args intentionally word-split
-  if [[ "$image" == *"/vllm-ci-test-repo:"* ]]; then
+  if [[ -n "${NSYS_REPORT:-}" ]]; then
+    # The wrapper script is passed inline because the checkout may not be
+    # bind-mountable from the Docker host. No --rm and SIGINT as the stop
+    # signal so nsys_finalize can make nsys write its report and copy it out.
+    docker run -d --name "$container" --stop-signal SIGINT "${docker_args[@]}" \
+      --entrypoint bash "$image" \
+      -c "$(cat "$SERVER_SH_DIR/nsys_serve.sh")" nsys_serve.sh "$NSYS_REPORT" \
+      "$model" --port "$port" $serve_args
+  elif [[ "$image" == *"/vllm-ci-test-repo:"* ]]; then
     docker run -d --rm --name "$container" "${docker_args[@]}" \
       --entrypoint vllm "$image" \
       serve "$model" --port "$port" $serve_args

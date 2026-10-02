@@ -17,6 +17,8 @@ source "$DIR/run_lm_eval.sh"
 source "$DIR/run_vllm_bench.sh"
 # shellcheck disable=SC1091
 source "$DIR/run_aiperf.sh"
+# shellcheck disable=SC1091
+source "$DIR/nsys.sh"
 WORKLOAD_EXPORTS="$(python3 "$DIR/parse_workload.py" "$WORKLOAD")"
 eval "$WORKLOAD_EXPORTS"
 export WORKLOAD_IMAGE WORKLOAD_VLLM_COMMIT WORKLOAD_SERVER_RUNTIME
@@ -33,7 +35,15 @@ if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$
 fi
 mkdir -p "$RESULTS_DIR"
 
-trap 'stop_server "$CONTAINER"' EXIT
+# nsys profiling (NVIDIA profiles only, see parse_workload.py) needs a
+# vllm_bench config to drive the profiled run.
+NSYS_BENCH_ROW="$(head -n 1 <<< "$WORKLOAD_VLLM_BENCH_TSV")"
+if [[ "$WORKLOAD_NSYS" == "true" && -n "$NSYS_BENCH_ROW" ]]; then
+  nsys_configure "$WORKLOAD_SERVER_RUNTIME" "$RESULTS_DIR" \
+                 "${WORKLOAD_NAME}-${NSYS_BENCH_ROW%%$'\t'*}"
+fi
+
+trap 'nsys_finalize "$CONTAINER"; stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
              "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
@@ -60,6 +70,12 @@ while IFS=$'\t' read -r bname backend dataset isl osl nprompts conc repetitions 
     --image "$WORKLOAD_IMAGE" \
     --isl "$isl" --osl "$osl" --conc "$conc" || true
 done <<< "$WORKLOAD_VLLM_BENCH_TSV"
+
+# Profiled pass after the measured runs, so they stay untraced.
+if [[ -n "$NSYS_REPORT" ]]; then
+  run_nsys_profile "$CONTAINER" "$PORT" "$WORKLOAD_MODEL" "$NSYS_BENCH_ROW" \
+                   "$BENCH_TRUST_REMOTE_CODE" "$RESULTS_DIR"
+fi
 
 # aiperf profile runs (perf, like vllm_bench). Artifacts are uploaded via the
 # Buildkite artifact_paths glob; there is no dashboard ingest for aiperf yet.

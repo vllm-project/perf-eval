@@ -137,6 +137,20 @@ def pins_only_other_platforms(profile: dict) -> bool:
     )
 
 
+def nsys_enabled(profile: dict) -> bool:
+    """Whether to capture an Nsight Systems trace of the server.
+
+    On by default for profiles that set `nsys: true`; NSYS_PROFILE overrides
+    that either way for the whole build. nsys is NVIDIA-only, so ROCm
+    profiles never enable it.
+    """
+    if platform_of(profile) != "CUDA":
+        return False
+    if (os.environ.get("NSYS_PROFILE") or "").strip():
+        return env_truthy("NSYS_PROFILE")
+    return profile.get("nsys") is True
+
+
 def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
     """Pick the image and commit using VLLM_IMAGE / VLLM_COMMIT / workload.
 
@@ -553,6 +567,7 @@ def main(path: str) -> None:
     emit("SERVE_ARGS", serve_args)
     emit("SERVER_STARTUP_TIMEOUT", startup_timeout_s)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
+    emit("NSYS", "true" if nsys_enabled(profile) else "false")
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
