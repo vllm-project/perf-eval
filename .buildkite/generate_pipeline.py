@@ -61,13 +61,25 @@ DEFAULT_TIMEOUT = 120
 PROFILES_PATH = os.path.join(os.path.dirname(__file__), "..", "lib", "gpu_profiles.yaml")
 DEFAULT_IMAGE_REPO = "vllm/vllm-openai"
 
-GPU_EMOJI = {
-    "H200": ":h200:",
-    "B200": ":b200:",
-    "A100": ":a100:",
-    "MI355X": ":amd:",
-    "MI300X": ":amd:",
+GPU_VENDOR = {
+    "H200": "Nvidia",
+    "B200": "Nvidia",
+    "A100": "Nvidia",
+    "MI355X": "AMD",
+    "MI300X": "AMD",
 }
+
+GPU_VENDOR_EMOJI = {
+    "Nvidia": ":nvidia:",
+    "AMD": ":amd:",
+}
+
+
+def pretty_model_name(model_id):
+    """Human-readable model name from a HF repo id: last path component with
+    dashes and underscores turned into spaces, token casing kept as-is."""
+    return model_id.rsplit("/", 1)[-1].replace("-", " ").replace("_", " ")
+
 
 ECR_PUBLIC_PREFIX = "public.ecr.aws/"
 ECR_PULL_THROUGH_CACHE = (
@@ -306,7 +318,8 @@ def queue_for_gpu(gpu, profile):
 
 
 def make_step(path, data, profiles):
-    name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
+    stem = os.path.basename(path).removesuffix(".yaml")
+    name = data.get("name", stem)
     gpu = data.get("gpu")
     if not gpu:
         sys.exit(f"{path}: missing required 'gpu' field")
@@ -315,7 +328,13 @@ def make_step(path, data, profiles):
         sys.exit(f"{path}: unknown gpu {gpu!r} (expected one of {', '.join(profiles)})")
     queue = queue_for_gpu(gpu, profile)
     timeout = data.get("timeout_in_minutes", DEFAULT_TIMEOUT)
-    emoji = GPU_EMOJI.get(gpu, ":buildkite:")
+    vendor = GPU_VENDOR.get(gpu)
+    emoji = GPU_VENDOR_EMOJI.get(vendor, ":buildkite:")
+    model = (data.get("vllm") or {}).get("model")
+    if model:
+        label = f"{emoji} {gpu} · {pretty_model_name(model)}"
+    else:
+        label = f"{emoji} {name}"
     bench_only = is_truthy(os.environ.get("BENCH_ONLY")) or is_truthy(
         data.get("bench_only")
     )
@@ -327,7 +346,8 @@ def make_step(path, data, profiles):
     else:
         setup_commands = FULL_SETUP_COMMANDS
     step = {
-        "label": f"{emoji} {name}",
+        "label": label,
+        "key": stem,
         "agents": {"queue": queue},
         "timeout_in_minutes": timeout,
         "commands": setup_commands + [RUN_TEMPLATE.format(path=path)],
