@@ -322,6 +322,46 @@ def test_step_retry_can_be_disabled():
     assert step["retry"] is None
 
 
+def test_label_is_vendor_chip_model_for_nvidia():
+    """Labels come from structured fields: vendor emoji + chip + prettified model id."""
+    step = g.make_step(
+        "workloads/deepseek_v4_pro_h200.yaml",
+        {"name": "deepseek_v4_pro-h200", "gpu": "H200",
+         "vllm": {"model": "deepseek-ai/DeepSeek-V4-Pro"}},
+        g.load_profiles(),
+    )
+    assert step["label"] == ":nvidia: H200 · DeepSeek V4 Pro", step["label"]
+
+
+def test_label_is_vendor_chip_model_for_amd():
+    step = g.make_step(
+        "workloads/deepseek_v4_pro_mi355x.yaml",
+        {"name": "deepseek_v4_pro-mi355x", "gpu": "MI355X",
+         "vllm": {"model": "deepseek-ai/DeepSeek-V4-Pro"}},
+        g.load_profiles(),
+    )
+    assert step["label"] == ":amd: MI355X · DeepSeek V4 Pro", step["label"]
+
+
+def test_label_falls_back_to_name_without_model():
+    """A workload with no vllm.model keeps the {vendor_emoji} {name} label."""
+    step = g.make_step(
+        "workloads/test.yaml", {"name": "t", "gpu": "H200"}, g.load_profiles()
+    )
+    assert step["label"] == ":nvidia: t", step["label"]
+
+
+def test_step_key_is_the_workload_path_stem():
+    """Keys must not move when labels change: pin them to the file stem."""
+    step = g.make_step(
+        "workloads/deepseek_v4_pro_h200.yaml",
+        {"name": "deepseek_v4_pro-h200", "gpu": "H200",
+         "vllm": {"model": "deepseek-ai/DeepSeek-V4-Pro"}},
+        g.load_profiles(),
+    )
+    assert step["key"] == "deepseek_v4_pro_h200", step["key"]
+
+
 def main():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = 0
