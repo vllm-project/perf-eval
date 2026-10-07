@@ -26,6 +26,9 @@ MI300X:
   ecr_pull_through_cache: false
   server_runtime: native
   k8s_plugin: amd
+  # Added to each workload's serve args unless the workload sets the option.
+  default_serve_args:
+    --load-format: fastsafetensors
   env:
     # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
     OMP_NUM_THREADS: 1
@@ -41,6 +44,9 @@ MI355X:
   ecr_pull_through_cache: false
   server_runtime: native
   k8s_plugin: amd
+  # Added to each workload's serve args unless the workload sets the option.
+  default_serve_args:
+    --load-format: fastsafetensors
   env:
     # OMP_NUM_THREADS=1 workaround after weight loading regression from https://github.com/vllm-project/vllm/pull/49919
     OMP_NUM_THREADS: 1

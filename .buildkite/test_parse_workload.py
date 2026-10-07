@@ -98,3 +98,23 @@ def test_nsys_follows_profile_with_build_override(monkeypatch, profile, env, exp
         monkeypatch.setenv("NSYS_PROFILE", env)
 
     assert parse_workload.nsys_enabled(profile) is expected
+
+
+FASTSAFETENSORS = {"--load-format": "fastsafetensors"}
+
+
+@pytest.mark.parametrize(
+    ("serve_args", "defaults", "expected"),
+    [
+        ("--tensor-parallel-size 8", FASTSAFETENSORS,
+         "--tensor-parallel-size 8 --load-format fastsafetensors"),
+        ("--load-format auto", FASTSAFETENSORS, "--load-format auto"),
+        ("--load-format=dummy", FASTSAFETENSORS, "--load-format=dummy"),
+        ("", {"--enforce-eager": True}, "--enforce-eager"),
+        ("--max-num-seqs 8", None, "--max-num-seqs 8"),
+    ],
+)
+def test_default_serve_args_apply_unless_the_workload_sets_them(
+    serve_args, defaults, expected
+):
+    assert parse_workload.apply_default_serve_args(serve_args, defaults) == expected
