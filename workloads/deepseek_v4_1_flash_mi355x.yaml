@@ -23,6 +23,8 @@ vllm:
     --enable-auto-tool-choice
     --reasoning-parser deepseek_v41
     --mm-encoder-tp-mode data
+    --load-format safetensors
+    --safetensors-load-strategy prefetch
     --kv-transfer-config {"kv_connector":"OffloadingConnector","kv_role":"kv_both","kv_connector_extra_config":{"cpu_bytes_to_use":549755813888,"blocks_per_chunk":4}}
 
 lm_eval:
