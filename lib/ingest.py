@@ -46,6 +46,15 @@ VLLM_ENV_VARS = (
 # Set NIGHTLY=1 in the build env to mark rows as part of the nightly schedule.
 # The dashboard's /nightly view filters on this to pair adjacent nightlies.
 NIGHTLY_ENV = "NIGHTLY"
+PROVENANCE_ENV = "WORKLOAD_PROVENANCE_FILE"
+
+
+def load_provenance() -> dict | None:
+    path = (os.environ.get(PROVENANCE_ENV) or "").strip()
+    if not path:
+        return None
+    with open(path) as file:
+        return json.load(file)
 
 
 def post(endpoint: str, payload: dict) -> None:
@@ -79,6 +88,9 @@ def metadata(workload: str, task: str) -> dict:
             md[field] = v
     if os.environ.get(NIGHTLY_ENV) == "1":
         md["nightly"] = True
+    provenance = load_provenance()
+    if provenance:
+        md["provenance"] = provenance
     return md
 
 
