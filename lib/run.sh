@@ -118,13 +118,13 @@ while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_
         --results-dir "${RESULTS_DIR}/bfcl-${ingest_category}" \
         --workload "$WORKLOAD_NAME" \
         --task "bfcl_${ingest_category}" \
-        --no-samples || true
+        ${INGEST_NO_SAMPLES:+--no-samples} || true
     done < "$manifest"
   else
     python3 "$DIR/ingest.py" \
       --results-dir "${RESULTS_DIR}/bfcl-${category}" \
       --workload "$WORKLOAD_NAME" \
       --task "bfcl_${category}" \
-      --no-samples || true
+      ${INGEST_NO_SAMPLES:+--no-samples} || true
   fi
 done <<< "$WORKLOAD_BFCL_TSV"

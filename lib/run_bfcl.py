@@ -13,8 +13,9 @@ BFCL_MAX_TEST_CASES env (env wins).
 Uses BFCL's test_case_ids_to_generate.json + --partial-eval.
 
 Registers the model in BFCL's config, runs generate + evaluate, then
-writes an lm_eval-compatible results JSON so the existing ingest.py
-and dashboard auto-discover the scores without any adapter.
+writes an lm_eval-compatible results JSON plus samples JSONL (per-case
+prompt, tools, model output, ground truth) for ingest.py / dashboard
+drill-down.
 
 BFCL test groups (e.g. multi_turn, live, agentic) expand to multiple
 sub-categories at runtime. For those groups we write the overall score
@@ -28,6 +29,7 @@ import json
 import os
 import sys
 import time
+import zlib
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -444,6 +446,284 @@ def to_lm_eval_format(
     }
 
 
+def _find_category_artifact(work_dir: Path, category: str, kind: str) -> Path | None:
+    """Locate an exact BFCL_v4_{category}_{kind}.json under work_dir/result or score."""
+    root = work_dir / ("result" if kind == "result" else "score")
+    if not root.is_dir():
+        return None
+    name = f"BFCL_v4_{category}_{kind}.json"
+    matches = sorted(p for p in root.rglob(name) if p.name == name)
+    return matches[0] if matches else None
+
+
+def _read_jsonl_by_id(path: Path) -> dict[str, dict]:
+    by_id: dict[str, dict] = {}
+    with path.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            case_id = row.get("id")
+            if case_id:
+                by_id[case_id] = row
+    return by_id
+
+
+def _parse_score_jsonl(path: Path) -> tuple[dict | None, dict[str, dict]]:
+    aggregate: dict | None = None
+    failures: dict[str, dict] = {}
+    with path.open() as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            if row.get("id"):
+                failures[row["id"]] = row
+            elif aggregate is None and "accuracy" in row:
+                aggregate = row
+    return aggregate, failures
+
+
+def _user_question_text(question: object) -> str:
+    if isinstance(question, str):
+        return question
+    if isinstance(question, list):
+        for turn in question:
+            if isinstance(turn, list):
+                for msg in turn:
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        content = msg.get("content", "")
+                        if content:
+                            return str(content)
+            elif isinstance(turn, dict) and turn.get("role") == "user":
+                return str(turn.get("content", ""))
+    return json.dumps(question, ensure_ascii=False)
+
+
+def _function_names(entry: dict) -> list[str]:
+    names: list[str] = []
+    for func in entry.get("function") or []:
+        if isinstance(func, dict) and (name := func.get("name")):
+            names.append(str(name))
+    return names
+
+
+def _sort_case_id(case_id: str) -> tuple[str, int]:
+    if "_" in case_id:
+        prefix, suffix = case_id.rsplit("_", 1)
+        try:
+            return prefix, int(suffix)
+        except ValueError:
+            pass
+    return case_id, 0
+
+
+def _numeric_doc_id(case_id: str) -> int:
+    """Stable positive int for eval dashboard ingest (expects bigint doc_id)."""
+    return zlib.crc32(case_id.encode("utf-8")) & 0x7FFFFFFF
+
+
+def _sample_doc(question: str, functions: list[str], case_id: str) -> dict:
+    """doc payload; answer holds BFCL case id for traceability in warehouse JSON."""
+    return {
+        "question": question,
+        "answer": case_id,
+        "functions": functions,
+    }
+
+
+def _model_response_text(model_output: object) -> str:
+    if model_output is None:
+        return ""
+    return json.dumps(model_output, ensure_ascii=False)
+
+
+def _model_output_from_record(record: dict) -> object:
+    for key in (
+        "model_result_raw",
+        "model_result_decoded",
+        "model_result",
+        "result",
+    ):
+        if key in record and record[key] is not None:
+            return record[key]
+    return None
+
+
+def _normalize_prompt(record: dict) -> dict:
+    """BFCL failure rows use a dict prompt; some agentic rows use a list."""
+    prompt = record.get("prompt")
+    if isinstance(prompt, dict):
+        return prompt
+    if isinstance(prompt, list):
+        return {"question": prompt, "function": record.get("function") or []}
+    return {}
+
+
+def _failure_filtered_text(record: dict) -> str:
+    if error_type := record.get("error_type"):
+        return str(error_type)
+    error = record.get("error")
+    if isinstance(error, dict):
+        parts: list[str] = []
+        if et := error.get("error_type"):
+            parts.append(str(et))
+        if em := error.get("error_message"):
+            parts.append(str(em))
+        if parts:
+            return ": ".join(parts)
+        return json.dumps(error, ensure_ascii=False)
+    if isinstance(error, list) and error:
+        return str(error[0])
+    if isinstance(error, str):
+        return error
+    return ""
+
+
+def _ground_truth_text(entry: dict) -> str:
+    gt = entry.get("ground_truth")
+    if gt is None:
+        gt = entry.get("possible_answer")
+    if gt is None:
+        return ""
+    return json.dumps(gt, ensure_ascii=False)
+
+
+def bfcl_failure_to_sample(record: dict) -> dict:
+    """Map a BFCL evaluate failure row to an lm_eval-style sample line."""
+    prompt = _normalize_prompt(record)
+    question = _user_question_text(prompt.get("question", ""))
+    functions = _function_names(prompt)
+    target = json.dumps(record.get("possible_answer"), ensure_ascii=False)
+    model_out = _model_output_from_record(record)
+    filtered = _failure_filtered_text(record)
+    case_id = record["id"]
+    return {
+        "doc_id": _numeric_doc_id(case_id),
+        "doc": _sample_doc(question, functions, case_id),
+        "target": target,
+        "resps": [[_model_response_text(model_out)]],
+        "filtered_resps": [filtered] if filtered else [],
+        "exact_match": 0.0,
+        "filter": "bfcl-valid",
+        "metrics": ["exact_match"],
+    }
+
+
+def bfcl_success_to_sample(entry: dict, result_row: dict) -> dict:
+    """Map a dataset entry + generate result row to an lm_eval-style sample line."""
+    case_id = entry["id"]
+    question = _user_question_text(entry.get("question", ""))
+    functions = _function_names(entry)
+    return {
+        "doc_id": _numeric_doc_id(case_id),
+        "doc": _sample_doc(question, functions, case_id),
+        "target": _ground_truth_text(entry),
+        "resps": [[_model_response_text(result_row.get("result"))]],
+        "filtered_resps": ["1"],
+        "exact_match": 1.0,
+        "filter": "bfcl-valid",
+        "metrics": ["exact_match"],
+    }
+
+
+def _load_dataset_index(category: str) -> dict[str, dict]:
+    """Merge question prompts with ground truth from BFCL possible_answer files."""
+    from bfcl_eval.utils import load_dataset_entry, load_ground_truth_entry, sort_key
+
+    answers: dict[str, dict] = {}
+    try:
+        answers = {entry["id"]: entry for entry in load_ground_truth_entry(category)}
+    except FileNotFoundError:
+        print(
+            f"[bfcl] warning: no possible_answer file for {category}; "
+            "success rows will have empty target",
+            flush=True,
+        )
+
+    merged: dict[str, dict] = {}
+    for entry in sorted(load_dataset_entry(category), key=sort_key):
+        case_id = entry["id"]
+        gt_row = answers.get(case_id, {})
+        merged[case_id] = {
+            **entry,
+            "ground_truth": gt_row.get("ground_truth"),
+        }
+    return merged
+
+
+def _write_samples_for_category(
+    work_dir: Path,
+    results_dir: Path,
+    cat: str,
+    ts: str,
+) -> None:
+    result_path = _find_category_artifact(work_dir, cat, "result")
+    if not result_path:
+        print(
+            f"[bfcl] no result artifact for {cat}; skipping samples",
+            flush=True,
+        )
+        return
+
+    score_path = _find_category_artifact(work_dir, cat, "score")
+    if not score_path:
+        print(
+            f"[bfcl] no score artifact for {cat}; skipping samples "
+            "(will not infer pass/fail without score file)",
+            flush=True,
+        )
+        return
+
+    _, failures = _parse_score_jsonl(score_path)
+    results_by_id = _read_jsonl_by_id(result_path)
+    dataset_by_id = _load_dataset_index(cat)
+
+    samples: list[dict] = []
+    for case_id in sorted(results_by_id, key=_sort_case_id):
+        if case_id in failures:
+            samples.append(bfcl_failure_to_sample(failures[case_id]))
+            continue
+        entry = dataset_by_id.get(case_id)
+        if not entry:
+            print(
+                f"[bfcl] warning: no dataset entry for {case_id}; skipping",
+                flush=True,
+            )
+            continue
+        samples.append(bfcl_success_to_sample(entry, results_by_id[case_id]))
+
+    out_dir = results_dir / f"bfcl-{cat}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"samples_bfcl_{cat}_{ts}.jsonl"
+    with out_path.open("w") as f:
+        for sample in samples:
+            f.write(json.dumps(sample, ensure_ascii=False) + "\n")
+    print(
+        f"[bfcl] samples written to {out_path} ({len(samples)} cases)",
+        flush=True,
+    )
+
+
+def write_samples_jsonl(
+    work_dir: Path,
+    results_dir: Path,
+    categories: list[str],
+    ts: str,
+) -> None:
+    """Write per-case samples JSONL next to BFCL aggregate results (best-effort)."""
+    for cat in categories:
+        try:
+            _write_samples_for_category(work_dir, results_dir, cat, ts)
+        except Exception as exc:
+            print(
+                f"[bfcl] warning: sample export failed for {cat}: {exc}",
+                flush=True,
+            )
+
+
 def write_results(
     results_dir: Path,
     model: str,
@@ -549,6 +829,7 @@ def main():
     written = write_results(results_dir, model, scores, ts, category)
     manifest = write_ingest_manifest(results_dir, category, written)
     print(f"[bfcl] ingest manifest written to {manifest}", flush=True)
+    write_samples_jsonl(work_dir, results_dir, written, ts)
 
 
 if __name__ == "__main__":
