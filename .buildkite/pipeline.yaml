@@ -1,4 +1,12 @@
 steps:
+  - label: ":lock: lint workloads"
+    agents:
+      queue: small_cpu_queue_premerge
+    commands:
+      - python3 -m ensurepip --upgrade --default-pip 2>/dev/null || true
+      - python3 -m pip install --user pyyaml
+      - export PATH="$HOME/.local/bin:$PATH" && python3 scripts/lint_workload.py --all
+
   - label: ":pipeline: generate steps"
     agents:
       queue: small_cpu_queue_premerge

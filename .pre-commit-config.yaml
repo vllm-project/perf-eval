@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: lint-workload
+        name: lint workload recipes
+        entry: python3 scripts/lint_workload.py
+        language: system
+        files: ^workloads/.*\.yaml$
+        pass_filenames: true
