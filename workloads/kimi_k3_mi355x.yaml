@@ -19,9 +19,12 @@ vllm:
     VLLM_ROCM_USE_AITER: 1
     VLLM_USE_BREAKABLE_CUDAGRAPH: 0
     VLLM_ROCM_USE_AITER_MOE_SITUV2: 1
+  # Opt out of the MI355X fastsafetensors default: with it, the GPUs run
+  # out of memory (HSA_STATUS_ERROR_OUT_OF_RESOURCES) at concurrency 128.
   serve_args: >-
     --tensor-parallel-size 8
     --trust-remote-code
+    --load-format safetensors
 
 lm_eval:
   model_args:
