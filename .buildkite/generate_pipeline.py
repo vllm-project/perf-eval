@@ -326,7 +326,9 @@ def make_step(path, data, profiles):
     if bench_only:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
     elif has_bfcl:
-        setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile")]
+        # bfcl-eval pins numpy==1.26.4, and pyarrow 26 needs numpy>=2, so
+        # lm_eval cannot be imported. datasets needs pyarrow>=24.
+        setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile 'pyarrow>=24,<26'")]
     else:
         setup_commands = FULL_SETUP_COMMANDS
     step = {
