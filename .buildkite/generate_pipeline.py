@@ -54,8 +54,8 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
 RUN_TEMPLATE = (
-    # bisect branch: no dashboard ingest, so test runs never overwrite RC data.
-    'export INGEST_BEARER_TOKEN=""'
+    'INGEST_BEARER_TOKEN="$(buildkite-agent secret get INGEST_BEARER_TOKEN)"'
+    " && export INGEST_BEARER_TOKEN"
     ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )

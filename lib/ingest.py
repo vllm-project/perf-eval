@@ -128,9 +128,9 @@ def ingest_samples(path: Path, md: dict, endpoint: str) -> int:
 
 
 def main() -> int:
-    if not (os.environ.get(AUTH_TOKEN_ENV) or "").strip():
-        print("bisect branch: ingest skipped (no token)")
-        return 0
+    # bisect branch: never ingest, so test runs cannot overwrite RC data.
+    print("bisect branch: ingest skipped")
+    return 0
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--results-dir", required=True, help="Per-task results dir from lm_eval")
     p.add_argument("--workload", required=True, help="Workload (recipe) name")
