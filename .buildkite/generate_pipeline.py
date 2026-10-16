@@ -54,8 +54,8 @@ FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 
 RUN_TEMPLATE = (
-    'INGEST_BEARER_TOKEN="$(buildkite-agent secret get INGEST_BEARER_TOKEN)"'
-    " && export INGEST_BEARER_TOKEN"
+    # bisect branch: no dashboard ingest, so test runs never overwrite RC data.
+    'export INGEST_BEARER_TOKEN=""'
     ' && export HF_HOME="$(pwd)/.hf-cache" PATH="$(pwd)/.venv/bin:$HOME/.local/bin:$PATH"'
     " && ./lib/run.sh {path}"
 )
@@ -308,6 +308,35 @@ def queue_for_gpu(gpu, profile):
     return override or profile["queue"]
 
 
+# Exit status a pinned step uses to hand itself back to the queue.
+PIN_BOUNCE_EXIT = 97
+PIN_BOUNCE_RETRIES = 10
+
+
+def pin_step_to_agent(step, gpu):
+    """Run this GPU's steps only on the agent named by ``{GPU}_PIN_AGENT``."""
+    pin = (os.environ.get(f"{gpu.upper()}_PIN_AGENT") or "").strip()
+    if not pin or step.get("skip"):
+        return
+    step["commands"] = [
+        f'if [ "$$BUILDKITE_AGENT_NAME" != "{pin}" ]; then'
+        f' echo "pinned to {pin}, landed on $$BUILDKITE_AGENT_NAME; requeueing";'
+        f" exit {PIN_BOUNCE_EXIT}; fi"
+    ] + step["commands"]
+    step["concurrency"] = 1
+    step["concurrency_group"] = f"perf-eval/pin/{pin}"
+    automatic = (step.get("retry") or {}).get("automatic") or []
+    if isinstance(automatic, dict):
+        automatic = [automatic]
+    elif automatic is True:
+        automatic = [{"limit": 2}]
+    step["retry"] = {
+        **(step.get("retry") or {}),
+        "automatic": [{"exit_status": PIN_BOUNCE_EXIT, "limit": PIN_BOUNCE_RETRIES}]
+        + list(automatic),
+    }
+
+
 def make_step(path, data, profiles):
     name = data.get("name", os.path.basename(path).removesuffix(".yaml"))
     gpu = data.get("gpu")
@@ -371,6 +400,7 @@ def make_step(path, data, profiles):
         step_env["BENCH_ONLY"] = "1"
     if step_env:
         step["env"] = step_env
+    pin_step_to_agent(step, gpu)
     return step
 
 

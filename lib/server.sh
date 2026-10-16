@@ -96,7 +96,7 @@ start_server() {
       --entrypoint bash "$image" \
       -c "$(cat "$SERVER_SH_DIR/nsys_serve.sh")" nsys_serve.sh "$NSYS_REPORT" \
       "$model" --port "$port" $serve_args
-  elif [[ "$image" == *"/vllm-ci-test-repo:"* ]]; then
+  elif [[ "$image" == *"/vllm-ci-test-repo:"* || "$image" == *"/vllm-ci-postmerge-repo:"* ]]; then
     docker run -d --rm --name "$container" "${docker_args[@]}" \
       --entrypoint vllm "$image" \
       serve "$model" --port "$port" $serve_args

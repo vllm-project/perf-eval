@@ -98,6 +98,9 @@ def transform(raw: dict, args: argparse.Namespace) -> dict:
 
 
 def main() -> int:
+    if not (os.environ.get(AUTH_TOKEN_ENV) or "").strip():
+        print("bisect branch: ingest skipped (no token)")
+        return 0
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--raw-result", required=True, help="Raw JSON from `vllm bench serve --save-result`")
     p.add_argument("--device", required=True, help="Device tag (e.g. h200)")

@@ -4,7 +4,7 @@
 H200:
   queue: H200
   hf_home: /mnt/shared/hf-models
-  nsys: true
+  nsys: false
   env:
     # Skip the multi-minute DeepGEMM warmup; kernels are still available
     # if vLLM decides to use them, we just don't precompile every shape.
@@ -15,7 +15,7 @@ B200:
   hf_home: /mnt/shared/hf_cache
   server_runtime: native
   k8s_plugin: nvidia
-  nsys: true
+  nsys: false
   env:
     VLLM_DEEP_GEMM_WARMUP: skip
     NCCL_CUMEM_HOST_ENABLE: 0
