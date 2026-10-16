@@ -401,7 +401,30 @@ def make_step(path, data, profiles):
     if step_env:
         step["env"] = step_env
     pin_step_to_agent(step, gpu)
+    bisect_images_in_one_step(step, path, name)
     return step
+
+
+def bisect_images_in_one_step(step, path, name):
+    """BISECT_IMAGES=img1,img2,...: run this workload once per image, back to
+    back in one job, so every bisect point shares a host. Results for each
+    image move to results/bisect-<tag>/."""
+    images = [i.strip() for i in (os.environ.get("BISECT_IMAGES") or "").split(",") if i.strip()]
+    if not images or step.get("skip"):
+        return
+    prefix = RUN_TEMPLATE.split("./lib/run.sh")[0]
+    loop = [prefix + "true"]
+    for img in images:
+        tag = img.rsplit(":", 1)[-1][:12]
+        loop.append(
+            f'echo "--- :mag: bisect point {tag}"'
+            f' && export VLLM_IMAGE_CUDA="{img}"'
+            f" && (./lib/run.sh {path} || echo \"bisect point {tag} failed\")"
+            f' && rm -rf "results/bisect-{tag}" && mv "results/{name}" "results/bisect-{tag}" || true'
+        )
+    step["commands"] = step["commands"][:-1] + [" && ".join([loop[0]]) + " && " + " ; ".join(loop[1:])]
+    step["timeout_in_minutes"] = 60 * len(images) + 60
+    step["retry"] = {"automatic": False}
 
 
 def select_workloads(workloads):

@@ -28,7 +28,7 @@ IMAGE_VARS = ("VLLM_IMAGE", "VLLM_IMAGE_CUDA", "VLLM_IMAGE_ROCM", "VLLM_COMMIT")
 
 # A build that pins its GPU steps to one agent (e.g. H200_PIN_AGENT) runs these
 # tests with that env set; it must not change the steps they inspect.
-for _k in [k for k in os.environ if k.endswith("_PIN_AGENT")]:
+for _k in [k for k in os.environ if k.endswith("_PIN_AGENT") or k == "BISECT_IMAGES"]:
     os.environ.pop(_k)
 
 CUDA = {"queue": "H200"}
