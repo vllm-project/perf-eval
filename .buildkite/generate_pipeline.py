@@ -419,6 +419,7 @@ def bisect_images_in_one_step(step, path, name):
         loop.append(
             f'echo "--- :mag: bisect point {tag}"'
             f' && export VLLM_IMAGE_CUDA="{img}"'
+            f' && mkdir -p results/freeze && (docker run --rm --entrypoint python3 "{img}" -m pip freeze > "results/freeze/{tag}.txt" 2>&1 || true)'
             f" && (./lib/run.sh {path} || echo \"bisect point {tag} failed\")"
             f' && rm -rf "results/bisect-{tag}" && mv "results/{name}" "results/bisect-{tag}" || true'
         )
