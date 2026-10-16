@@ -414,8 +414,8 @@ def bisect_images_in_one_step(step, path, name):
         return
     prefix = RUN_TEMPLATE.split("./lib/run.sh")[0]
     loop = [prefix + "true"]
-    for img in images:
-        tag = ("ci-" if "-ci-" in img else "rel-") + img.rsplit(":", 1)[-1][:10]
+    for i, img in enumerate(images):
+        tag = f"{i}-" + ("ci-" if "-ci-" in img else "rel-") + img.rsplit(":", 1)[-1][:10]
         loop.append(
             f'echo "--- :mag: bisect point {tag}"'
             f' && export VLLM_IMAGE_CUDA="{img}"'
