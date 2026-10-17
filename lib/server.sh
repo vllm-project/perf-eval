@@ -74,7 +74,7 @@ start_server() {
     return
   fi
 
-  local docker_args=(--gpus all --ipc=host --ulimit nofile=65536:65536
+  local docker_args=(--gpus all --ipc=host --cap-add SYS_NICE --ulimit nofile=65536:65536
                      -e VLLM_ENGINE_READY_TIMEOUT_S=3600
                      -p "${port}:${port}")
   local hf_home=""

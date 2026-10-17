@@ -567,6 +567,10 @@ def main(path: str) -> None:
         validate_bfcl(bfcl, serve_args, path)
 
     serve_args = apply_default_serve_args(serve_args, profile.get("default_serve_args"))
+    # bisect branch: EXTRA_SERVE_ARGS lets one job A/B a serve flag on one host.
+    extra = (os.environ.get("EXTRA_SERVE_ARGS") or "").strip()
+    if extra:
+        serve_args = f"{serve_args} {extra}".strip()
     image, vllm_commit = resolve_image(vllm, profile)
     env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
     if "HF_HOME" not in env and profile.get("hf_home"):
