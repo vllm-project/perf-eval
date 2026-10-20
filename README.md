@@ -8,7 +8,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 
 ```
 workloads/        one YAML per (model, hardware) recipe
-lib/              orchestrator (run.sh), helpers, GPU profiles
+lib/              orchestrator, provenance/replay tools, helpers, GPU profiles
 .buildkite/       pipeline bootstrap, step generator, and its tests
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
@@ -46,7 +46,9 @@ timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 
 vllm:                    # how the server is brought up
   model: Qwen/Qwen3.5-397B-A17B-FP8
-  image: vllm/vllm-openai:nightly      # optional; falls back to VLLM_IMAGE / VLLM_COMMIT / latest
+  image: vllm/vllm-openai:nightly      # optional unless build is set; falls back to overrides/latest
+  build:                                # optional; build a local image before the run
+    dockerfile: docker/Dockerfile
   startup_timeout_s: 3600               # optional; /health wait (default: 3600)
   pin_image: true                       # optional; keep `image` even when VLLM_IMAGE / VLLM_COMMIT are set
   env:                                  # optional; merged over the GPU profile's env
@@ -109,6 +111,7 @@ aiperf:                 # perf runs via the aiperf CLI (optional)
 A few things worth knowing:
 
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
+- **`vllm.build` builds a local Docker image before the workload runs.** It requires an explicit `vllm.image` tag and Docker runtime, accepts only a `dockerfile`, and cannot be combined with `VLLM_IMAGE`, `VLLM_COMMIT`, platform image overrides, or `pin_image`. The Dockerfile is resolved from the command's working directory and built with an empty context, so `COPY` and `ADD` cannot read local files. It must fetch source and patches from public, commit-pinned locations. Build arguments and credentials in workload YAML are unsupported.
 - **`vllm.image` is normally just a fallback.** The `VLLM_IMAGE` / `VLLM_COMMIT` build-time env vars override it, which is what you want for nightly perf tracking across a specific vLLM commit. Set **`pin_image: true`** only as a rare escape hatch for a model that genuinely cannot be served by the nightly under test (e.g. support landed in a dedicated image but not yet in nightly) — it makes the workload keep its own `image` regardless of the override. Do not pin models that current nightlies already serve.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
 - **`timeout_in_minutes`** overrides the Buildkite step timeout (default: `120`). This is separate from `lm_eval.model_args.timeout`, which controls individual API requests.
@@ -223,6 +226,33 @@ A real run needs a GPU host with Docker, vLLM, and lm-eval available:
 ```
 
 Locally, you can smoke-test recipe changes without a GPU — see `CLAUDE.md` for the parser stub and shell-syntax checks.
+
+### Experiment provenance and replay
+
+Every run writes a self-contained provenance bundle beside its results:
+
+```text
+results/<workload>/
+├── provenance/
+│   ├── manifest.json
+│   ├── workload.yaml
+│   └── docker/Dockerfile       # present when vllm.build was used
+├── bench-*.json
+├── <lm-eval-task>/
+└── bfcl-<category>/
+```
+
+The manifest records the exact workload and its checksum, runtime, sanitized workload environment, and the captured Dockerfile for locally built images. Docker runs start through the existing `docker run` path before provenance inspects the running container's image ID and available repository digests; native Kubernetes runs continue to record the configured image reference only. Local builds use an empty context: the Dockerfile is the only local input, and any source or patches must come from public, commit-pinned locations. `INGEST_BEARER_TOKEN` and the Kubernetes-provided `HF_TOKEN` remain outside workload provenance; other credentials must not be added to workload YAML.
+
+Buildkite already uploads `results/**/*`, so the bundle is retained with raw results. Both accuracy and performance ingestion payloads also include the same provenance object, allowing a database row to retain the experiment definition with its result.
+
+Replay a locally built experiment with:
+
+```bash
+./lib/replay.sh results/<workload>/provenance/manifest.json
+```
+
+Replay first validates the manifest schema and the recorded workload and Dockerfile checksums. It then rebuilds the captured Dockerfile with the same empty-context restriction, verifies that its image ID matches the recorded build, and runs the captured workload with the rebuilt image. Because no local source context or build arguments are accepted, the Dockerfile must contain every public, commit-pinned input needed to recreate the image.
 
 ## Agents
 

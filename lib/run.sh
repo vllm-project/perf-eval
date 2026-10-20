@@ -35,6 +35,27 @@ if [[ "$WORKLOAD_SERVE_ARGS" =~ (^|[[:space:]])--trust-remote-code([[:space:]]|$
 fi
 mkdir -p "$RESULTS_DIR"
 
+BUILD_IMAGE_ID=""
+PROVENANCE_ARGS=(
+  capture
+  --workload "$WORKLOAD"
+  --results-dir "$RESULTS_DIR"
+  --image "$WORKLOAD_IMAGE"
+  --runtime "$WORKLOAD_SERVER_RUNTIME"
+  --environment "$WORKLOAD_ENV"
+)
+if [[ -n "$WORKLOAD_BUILD_DOCKERFILE" ]]; then
+  BUILD_DOCKERFILE="$(realpath "$WORKLOAD_BUILD_DOCKERFILE")"
+  [[ -f "$BUILD_DOCKERFILE" ]] || { echo "Dockerfile not found: $BUILD_DOCKERFILE" >&2; exit 2; }
+  BUILD_IMAGE_ID="$(python3 "$DIR/provenance.py" build \
+    --image "$WORKLOAD_IMAGE" \
+    --dockerfile "$BUILD_DOCKERFILE")"
+  PROVENANCE_ARGS+=(
+    --image-id "$BUILD_IMAGE_ID"
+    --dockerfile "$BUILD_DOCKERFILE"
+  )
+fi
+
 # nsys profiling (NVIDIA profiles only, see parse_workload.py) needs a
 # vllm_bench config to drive the profiled run.
 NSYS_BENCH_ROW="$(head -n 1 <<< "$WORKLOAD_VLLM_BENCH_TSV")"
@@ -47,6 +68,12 @@ trap 'nsys_finalize "$CONTAINER"; stop_server "$CONTAINER"' EXIT
 
 start_server "$CONTAINER" "$PORT" "$WORKLOAD_IMAGE" "$WORKLOAD_MODEL" \
              "$WORKLOAD_SERVE_ARGS" "$WORKLOAD_ENV" "$WORKLOAD_SERVER_RUNTIME"
+if [[ "$WORKLOAD_SERVER_RUNTIME" == "docker" ]]; then
+  PROVENANCE_ARGS+=(--container "$CONTAINER")
+fi
+python3 "$DIR/provenance.py" "${PROVENANCE_ARGS[@]}"
+WORKLOAD_PROVENANCE_FILE="${RESULTS_DIR}/provenance/manifest.json"
+export WORKLOAD_PROVENANCE_FILE
 wait_healthy "$PORT" "$WORKLOAD_SERVER_STARTUP_TIMEOUT" "$WORKLOAD_MODEL"
 
 # vllm bench serve runs first so we can validate perf flow without waiting

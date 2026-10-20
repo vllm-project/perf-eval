@@ -2,7 +2,9 @@
 """Authentication regression tests for both ingestion clients."""
 
 import importlib.util
+import json
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -47,6 +49,16 @@ class IngestAuthTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, module.AUTH_TOKEN_ENV):
                     module.post("https://ingest.example/", {"ok": True})
                 urlopen.assert_not_called()
+
+    def test_provenance_is_loaded_from_run_manifest(self):
+        expected = {"schema_version": 1, "source": {"dirty": True}}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "manifest.json"
+            path.write_text(json.dumps(expected))
+            with mock.patch.dict(os.environ, {"WORKLOAD_PROVENANCE_FILE": str(path)}):
+                for module in self.modules:
+                    with self.subTest(module=module.__name__):
+                        self.assertEqual(module.load_provenance(), expected)
 
 
 if __name__ == "__main__":

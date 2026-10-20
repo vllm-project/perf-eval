@@ -51,6 +51,10 @@ BFCL_FIELDS = {
     "maximum_step_limit", "max_test_cases",
 }
 BFCL_DEFAULT_MAXIMUM_STEP_LIMIT = 10
+BUILD_FIELDS = {"dockerfile"}
+SENSITIVE_NAME = re.compile(
+    r"(?:token|secret|password|passwd|api[_-]?key|credential)", re.IGNORECASE
+)
 BFCL_KNOWN_CATEGORIES = {
     "simple_python", "simple_java", "simple_javascript",
     "multiple", "parallel", "parallel_multiple", "irrelevance",
@@ -103,8 +107,12 @@ def known_task_names() -> set:
 
 
 def load_profile(gpu: str, workload_path: str) -> dict:
-    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
-    profiles_path = os.path.join(repo_root, "lib", "gpu_profiles.yaml")
+    configured_path = (os.environ.get("PERF_EVAL_PROFILES_FILE") or "").strip()
+    if configured_path:
+        profiles_path = configured_path
+    else:
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
+        profiles_path = os.path.join(repo_root, "lib", "gpu_profiles.yaml")
     with open(profiles_path) as f:
         profiles = yaml.safe_load(f)
     if gpu not in profiles:
@@ -194,6 +202,32 @@ def resolve_image(vllm: dict, profile: dict) -> tuple[str, str]:
 
     image = vllm.get("image", f"{repo}:nightly")
     return image, commit_from_image(str(image))
+
+
+def validate_build(vllm: dict, profile: dict, path: str) -> dict:
+    build = vllm.get("build") or {}
+    if not build:
+        return {}
+    if not isinstance(build, dict):
+        sys.exit(f"{path}: vllm.build must be a map")
+    extra = set(build) - BUILD_FIELDS
+    if extra:
+        sys.exit(f"{path}: vllm.build has unsupported fields {sorted(extra)}")
+    if not vllm.get("image"):
+        sys.exit(f"{path}: vllm.build requires an explicit vllm.image tag")
+    image_overrides = (
+        "VLLM_IMAGE", "VLLM_IMAGE_CUDA", "VLLM_IMAGE_ROCM", "VLLM_COMMIT"
+    )
+    if any((os.environ.get(name) or "").strip() for name in image_overrides):
+        sys.exit(f"{path}: vllm.build cannot be combined with image overrides")
+    if vllm.get("pin_image"):
+        sys.exit(f"{path}: vllm.build cannot be combined with vllm.pin_image")
+    if profile.get("server_runtime", "docker") != "docker":
+        sys.exit(f"{path}: vllm.build requires a docker server runtime")
+    dockerfile = build.get("dockerfile")
+    if not isinstance(dockerfile, str) or not dockerfile.strip():
+        sys.exit(f"{path}: vllm.build.dockerfile must be a non-empty path")
+    return {"dockerfile": dockerfile}
 
 
 def apply_default_serve_args(serve_args: str, defaults: dict | None) -> str:
@@ -565,10 +599,18 @@ def main(path: str) -> None:
         sys.exit(f"{path}: vllm.startup_timeout_s must be a positive integer")
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
+    build = validate_build(vllm, profile, path)
 
     serve_args = apply_default_serve_args(serve_args, profile.get("default_serve_args"))
     image, vllm_commit = resolve_image(vllm, profile)
-    env = {**(profile.get("env") or {}), **(vllm.get("env") or {})}
+    workload_env = vllm.get("env") or {}
+    sensitive_env = sorted(str(name) for name in workload_env if SENSITIVE_NAME.search(str(name)))
+    if sensitive_env:
+        sys.exit(
+            f"{path}: credentials must not be stored in vllm.env: {sensitive_env}; "
+            "use the existing external secret injection paths"
+        )
+    env = {**(profile.get("env") or {}), **workload_env}
     if "HF_HOME" not in env and profile.get("hf_home"):
         env["HF_HOME"] = profile["hf_home"]
 
@@ -584,6 +626,7 @@ def main(path: str) -> None:
     emit("SERVE_ARGS", serve_args)
     emit("SERVER_STARTUP_TIMEOUT", startup_timeout_s)
     emit("SERVER_RUNTIME", profile.get("server_runtime", "docker"))
+    emit("BUILD_DOCKERFILE", build.get("dockerfile", ""))
     emit("NSYS", "true" if nsys_enabled(profile) else "false")
     emit("ENV", "\n".join(f"{k}={fmt(v)}" for k, v in env.items()))
     emit("LM_EVAL_TASKS_TSV", task_tsv(tasks, lm_eval.get("model_args") or {}))
