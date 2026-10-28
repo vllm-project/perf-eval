@@ -22,7 +22,7 @@ vllm:
   serve_args: >-
     --tensor-parallel-size 8
     --trust-remote-code
-    --additional-config.kda_prefill_checkpoint false
+    --gpu-memory-utilization 0.88
 
 lm_eval:
   model_args:
