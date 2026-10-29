@@ -1,0 +1,53 @@
+# amd/Qwen3.8-Flash-Next-Quark-MXFP4 on AMD MI355X at TP4
+# Quark OCP MXFP4 weights and activations; gfx950 only. No expert parallelism: at
+# EP8 on gfx950, vLLM runs these routed experts in OCP MX emulation.
+name: qwen3_8_flash_next_mxfp4-mi355x
+gpu: MI355X
+num_gpus: 4
+nightly: true
+
+vllm:
+  model: amd/Qwen3.8-Flash-Next-Quark-MXFP4
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_ROCM_USE_AITER_FUSION_SHARED_EXPERTS: 1
+  serve_args: >-
+    --tensor-parallel-size 4
+    --max-num-seqs 256
+    --gpu-memory-utilization 0.90
+    --reasoning-parser qwen3
+    --trust-remote-code
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 65536
+
+vllm_bench:
+  metadata:
+    precision: mxfp4
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: [10, 512]
+      max_concurrency: [1, 128]
+    - name: 1k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: [10, 256, 512]
+      max_concurrency: [1, 64, 128]
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
