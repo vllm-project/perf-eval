@@ -9,7 +9,7 @@ vllm:
   env:
     VLLM_ROCM_USE_AITER: 1
     VLLM_ROCM_USE_AITER_FUSION_SHARED_EXPERTS: 1
-    VLLM_ROCM_USE_AITER_MOE: 1
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 0
   serve_args: >-
     --tensor-parallel-size 4
     --trust-remote-code
@@ -17,10 +17,6 @@ vllm:
     --attention-backend TRITON_ATTN
     --moe-backend aiter
     --kv-cache-dtype fp8
-    --mm-encoder-tp-mode data
-    --mm-encoder-attn-backend ROCM_AITER_FA
-    --tool-call-parser minimax_m3
-    --enable-auto-tool-choice
     --reasoning-parser minimax_m3
 
 lm_eval:
