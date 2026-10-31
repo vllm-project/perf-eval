@@ -1,10 +1,12 @@
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT / "lib"))
 SPEC = importlib.util.spec_from_file_location(
     "parse_workload", ROOT / "lib" / "parse_workload.py"
 )

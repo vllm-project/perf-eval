@@ -126,6 +126,46 @@ A few things worth knowing:
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
+
+### Optional benchmark metric assertions
+
+Add `assertions` to a `vllm_bench.configs[]` entry (example bounds, not recommended targets):
+
+```yaml
+    assertions:
+      mean_tpot_ms:
+        max: 2.5
+      output_throughput:
+        min: 100
+```
+
+Bounds are inclusive finite numeric `min` and/or `max`. Omit `assertions` for
+unchanged behavior. Concurrency sweeps share bounds; use separate configs for
+different bounds.
+
+The existing benchmark helper still validates request completion and produces
+the run-level median. Assertions check that summary against the bounds, also
+checking every raw repetition for missing/non-finite asserted metrics. This is
+not a separate request or metadata audit. Raw results and
+`results/<workload>/assertions-<run>.json` reports are retained. Valid over-threshold
+runs remain eligible for ingestion; invalid metrics or checker exit codes greater
+than 1 skip ingestion.
+
+Assertions return failure **after** later evaluations finish: exit `1` for unmet
+bounds, `2` for invalid inputs; other checker exit codes propagate. An exit `1`
+without a matching, valid bound-failure report is treated as a checker error
+(exit `2`, no benchmark upload).
+`BENCH_ONLY` preserves that status. Existing command failures remain immediately
+fatal. This covers only `vllm_bench`; hardware/software pinning and threshold
+calibration remain external. There is no automatic baseline or watermark A/B test.
+
+CPU tests (pytest and PyYAML required; evaluation and upload processes are mocked):
+```bash
+python3 -m pytest tests .buildkite/test_parse_workload.py \
+  .buildkite/test_benchmark_repetitions.py .buildkite/test_generate_pipeline.py \
+  .buildkite/test_server_lifecycle.py -q
+```
+
 ### HF cache volume (Kubernetes profiles)
 
 For profiles that run in-pod on Kubernetes (`server_runtime: native` with a `k8s_plugin`), the HuggingFace cache is a named `hf-cache` volume mounted at the profile's `hf_home`. **By default it is an `emptyDir`** — scoped to the benchmark pod, so the cache is reclaimed when the pod exits and can never accumulate on the node's disk.
