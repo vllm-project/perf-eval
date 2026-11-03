@@ -12,7 +12,8 @@ H200:
 
 B200:
   queue: b200-k8s
-  hf_home: /mnt/shared/hf_cache
+  # /raid is the B200 nodes' data volume (/mnt/shared there is on the root disk).
+  hf_home: /raid/hf_cache
   server_runtime: native
   k8s_plugin: nvidia
   nsys: true
