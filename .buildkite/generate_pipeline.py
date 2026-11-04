@@ -162,8 +162,7 @@ def resolved_image(data, profile):
 
 
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
-    # /raid is the node's data volume; /raid/hf_cache is also CI's B200 cache.
-    hf_home = (profile or {}).get("hf_home") or "/raid/hf_cache"
+    hf_home = profile["hf_home"]  # set per profile in lib/gpu_profiles.yaml
     return {
         "kubernetes": {
             "podSpec": {
