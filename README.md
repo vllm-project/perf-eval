@@ -140,6 +140,8 @@ A cluster with fast shared storage can keep a warm, cross-run cache by overridin
 
 - **Per-profile:** set `hf_cache_volume:` in the profile in `lib/gpu_profiles.yaml` (env override wins over this).
 
+The B200 profile is the exception: its pods mount the node's `/raid` data volume and keep the cache at `hf_home: /raid/hf_cache`, the same cache vLLM CI's B200 jobs use, so weights stay warm across runs. `/mnt/shared` is not a mount on the B200 nodes and is not mounted into the pod.
+
 Do **not** set an `hf_home` under a node path like `/mnt/shared` unless that path is a real mount on every node in the queue — with the default `emptyDir` that only changes the in-pod path, but if you also point the volume at a `hostPath`, an unmounted path lands the cache on the node root disk with no reclamation.
 
 Run the CPU-only regression tests with:

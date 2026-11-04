@@ -122,6 +122,30 @@ def test_shipped_amd_profiles_have_no_rootdisk_hostpath():
         )
 
 
+def test_b200_cache_is_on_raid_not_root_disk():
+    """The shipped B200 profile keeps the HF cache on /raid and mounts nothing
+    under /mnt/shared, which is a plain directory on the B200 nodes' root disk."""
+    profile = g.load_profiles()["B200"]
+    spec = g.b200_k8s_plugin("img", 8, profile, "B200")["kubernetes"]["podSpec"]
+    c = spec["containers"][0]
+    hf_home = next(e["value"] for e in c["env"] if e["name"] == "HF_HOME")
+    assert hf_home == profile["hf_home"] == "/raid/hf_cache", hf_home
+    paths = [m["mountPath"] for m in c["volumeMounts"]]
+    paths += [v["hostPath"]["path"] for v in spec["volumes"] if "hostPath" in v]
+    assert not any(p.startswith("/mnt/shared") for p in paths), paths
+    moved = g.b200_k8s_plugin("img", 8, {"hf_home": "/raid/other"}, "B200")
+    env = moved["kubernetes"]["podSpec"]["containers"][0]["env"]
+    assert {"name": "HF_HOME", "value": "/raid/other"} in env, env
+
+
+def test_nvidia_plugin_profiles_set_hf_home():
+    """b200_k8s_plugin reads hf_home from the profile with no default, so every
+    shipped profile that uses it must set one."""
+    for gpu, profile in g.load_profiles().items():
+        if profile.get("k8s_plugin") == "nvidia":
+            assert profile.get("hf_home"), f"{gpu} uses k8s_plugin nvidia but sets no hf_home"
+
+
 def test_platform_pins_reach_their_own_platform():
     """The release-candidate case: two images that share nothing in their names,
     each reaching only the workloads of its platform."""

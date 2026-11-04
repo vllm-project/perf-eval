@@ -162,6 +162,7 @@ def resolved_image(data, profile):
 
 
 def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
+    hf_home = profile["hf_home"]  # set per profile in lib/gpu_profiles.yaml
     return {
         "kubernetes": {
             "podSpec": {
@@ -183,12 +184,11 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                         "volumeMounts": [
                             {"name": "devshm", "mountPath": "/dev/shm"},
                             {"name": "raid", "mountPath": "/raid"},
-                            {"name": "shared", "mountPath": "/mnt/shared"},
                         ],
                         "env": [
                             {"name": "VLLM_USAGE_SOURCE", "value": "ci-test"},
                             {"name": "NCCL_CUMEM_HOST_ENABLE", "value": "0"},
-                            {"name": "HF_HOME", "value": "/mnt/shared/hf_cache"},
+                            {"name": "HF_HOME", "value": hf_home},
                             {
                                 "name": "HF_TOKEN",
                                 "valueFrom": {
@@ -206,10 +206,6 @@ def b200_k8s_plugin(image, num_gpus, profile=None, gpu=None):
                     {
                         "name": "raid",
                         "hostPath": {"path": "/raid", "type": "DirectoryOrCreate"},
-                    },
-                    {
-                        "name": "shared",
-                        "hostPath": {"path": "/mnt/shared", "type": "DirectoryOrCreate"},
                     },
                 ],
             },
