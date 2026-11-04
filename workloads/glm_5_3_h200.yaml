@@ -7,6 +7,8 @@ name: glm_5_3-h200
 gpu: H200
 num_gpus: 8
 nightly: true
+# Full run takes ~170-183 min (bench 3x ~60, bfcl multi_turn ~88); the one pass used 179.7 of 180.
+timeout_in_minutes: 240
 
 vllm:
   model: zai-org/GLM-5.3
