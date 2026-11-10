@@ -6,10 +6,13 @@ import copy
 import importlib.util
 import json
 import os
+import subprocess
 import sys
+import tempfile
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RUN_VLLM_BENCH = os.path.join(ROOT, "lib", "run_vllm_bench.sh")
 
 
 def load_module(name, relative_path):
@@ -174,6 +177,49 @@ def test_gpt_oss_b200_fixed_length_benchmark_uses_raw_completions():
     ]
     assert len(fixed_length) == 1, path
     assert fixed_length[0].get("backend") == "openai", path
+
+
+def test_each_run_sends_its_own_cache_salt():
+    """Runs on one server send identical prompts; a shared cache would make
+    every run after the first a prefix cache hit."""
+    with tempfile.TemporaryDirectory() as tmp:
+        log = os.path.join(tmp, "argv.jsonl")
+        fake_vllm = os.path.join(tmp, "vllm")
+        with open(fake_vllm, "w") as f:
+            f.write(
+                "#!/usr/bin/env python3\n"
+                "import json, os, sys\n"
+                "argv = sys.argv[1:]\n"
+                f"open({log!r}, 'a').write(json.dumps(argv) + '\\n')\n"
+                "path = argv[argv.index('--result-filename') + 1]\n"
+                f"json.dump({raw_result(num_prompts=2, completed=2)!r}, open(path, 'w'))\n"
+            )
+        os.chmod(fake_vllm, 0o755)
+        extra_args = base64.b64encode(
+            json.dumps({"extra-body": {"temperature": 0}}).encode()
+        ).decode()
+        result = subprocess.run(
+            [
+                "bash",
+                "-c",
+                f"source {RUN_VLLM_BENCH!r}; run_vllm_bench container 8000 model "
+                f"cfg openai random 8 4 2 1 - - 3 {extra_args} false {tmp}/out",
+            ],
+            env={
+                **os.environ,
+                "PATH": f"{tmp}{os.pathsep}{os.environ['PATH']}",
+                "WORKLOAD_SERVER_RUNTIME": "native",
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        with open(log) as f:
+            runs = [json.loads(line) for line in f]
+    bodies = [json.loads(argv[argv.index("--extra-body") + 1]) for argv in runs]
+    assert bodies == [
+        {"cache_salt": f"perf-eval-cfg-run-{n}", "temperature": 0} for n in (1, 2, 3)
+    ], bodies
 
 
 def main():
