@@ -179,9 +179,15 @@ def test_gpt_oss_b200_fixed_length_benchmark_uses_raw_completions():
     assert fixed_length[0].get("backend") == "openai", path
 
 
-def test_each_run_sends_its_own_cache_salt():
-    """Runs on one server send identical prompts; a shared cache would make
-    every run after the first a prefix cache hit."""
+def bash_supports_run_vllm_bench():
+    """run_vllm_bench needs bash 4.4+ (`mapfile -d`, `wait $!`); macOS ships 3.2."""
+    check = "(( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4) ))"
+    return subprocess.run(["bash", "-c", check]).returncode == 0
+
+
+def run_bench_with_stub(extra_body):
+    """Run run_vllm_bench natively, 3 repetitions, against a stub `vllm`; return
+    the --extra-body each run sent."""
     with tempfile.TemporaryDirectory() as tmp:
         log = os.path.join(tmp, "argv.jsonl")
         fake_vllm = os.path.join(tmp, "vllm")
@@ -196,13 +202,14 @@ def test_each_run_sends_its_own_cache_salt():
             )
         os.chmod(fake_vllm, 0o755)
         extra_args = base64.b64encode(
-            json.dumps({"extra-body": {"temperature": 0}}).encode()
+            json.dumps({"extra-body": extra_body}).encode()
         ).decode()
         result = subprocess.run(
             [
                 "bash",
                 "-c",
-                f"source {RUN_VLLM_BENCH!r}; run_vllm_bench container 8000 model "
+                f"set -euo pipefail; source {RUN_VLLM_BENCH!r}; "
+                "run_vllm_bench container 8000 model "
                 f"cfg openai random 8 4 2 1 - - 3 {extra_args} false {tmp}/out",
             ],
             env={
@@ -216,10 +223,27 @@ def test_each_run_sends_its_own_cache_salt():
         assert result.returncode == 0, result.stderr
         with open(log) as f:
             runs = [json.loads(line) for line in f]
-    bodies = [json.loads(argv[argv.index("--extra-body") + 1]) for argv in runs]
+    return [json.loads(argv[argv.index("--extra-body") + 1]) for argv in runs]
+
+
+def test_each_run_sends_its_own_cache_salt():
+    """Runs on one server send identical prompts; a shared cache would make
+    every run after the first a prefix cache hit."""
+    if not bash_supports_run_vllm_bench():
+        print("skip: needs bash >= 4.4")
+        return
+    bodies = run_bench_with_stub({"temperature": 0})
     assert bodies == [
         {"cache_salt": f"perf-eval-cfg-run-{n}", "temperature": 0} for n in (1, 2, 3)
     ], bodies
+
+
+def test_workload_cache_salt_takes_precedence():
+    if not bash_supports_run_vllm_bench():
+        print("skip: needs bash >= 4.4")
+        return
+    bodies = run_bench_with_stub({"cache_salt": "mine"})
+    assert bodies == [{"cache_salt": "mine"}] * 3, bodies
 
 
 def main():
