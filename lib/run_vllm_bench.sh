@@ -29,14 +29,22 @@ pip_install_quiet() {
 append_bench_args() {
   local encoded=$1
   local -n command_ref=$2
+  local cache_salt=${3:-}
   local extra_args=()
   mapfile -d '' -t extra_args < <(
-    python3 - "$encoded" <<'PY'
+    python3 - "$encoded" ${cache_salt:+"$cache_salt"} <<'PY'
 import base64
 import json
 import sys
 
 args = json.loads(base64.b64decode(sys.argv[1]))
+if len(sys.argv) > 2:
+    # Runs against one server send the same prompts; a per-run salt keeps each
+    # run out of the others' prefix cache. A workload's own cache_salt wins.
+    extra_body = args.get("extra-body") or {}
+    if isinstance(extra_body, str):
+        extra_body = json.loads(extra_body)
+    args["extra-body"] = {"cache_salt": sys.argv[2], **extra_body}
 output = sys.stdout.buffer
 
 
@@ -195,8 +203,6 @@ run_vllm_bench() {
       ;;
   esac
 
-  append_bench_args "$extra_args_base64" cmd
-
   local result_files=()
   local repetition run_host_json run_container_json
   for ((repetition = 1; repetition <= repetitions; repetition++)); do
@@ -210,6 +216,7 @@ run_vllm_bench() {
     fi
 
     local run_cmd=("${cmd[@]}")
+    append_bench_args "$extra_args_base64" run_cmd "perf-eval-${name}-run-${repetition}"
     if [[ "$runtime" == "native" ]]; then
       run_cmd+=(--save-result --result-filename "$run_host_json")
     else
