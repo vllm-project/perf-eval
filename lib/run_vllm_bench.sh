@@ -67,6 +67,7 @@ for name, value in args.items():
         emit(json.dumps(value, separators=(",", ":")) if isinstance(value, dict) else value)
 PY
   )
+  wait "$!" || return
   command_ref+=("${extra_args[@]}")
 }
 
