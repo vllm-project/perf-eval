@@ -3,6 +3,7 @@ name: deepseek_v4_1_flash_mi355x
 gpu: MI355X
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 300
 
 vllm:
   model: deepseek-ai/DeepSeek-V4.1-Flash
@@ -39,6 +40,20 @@ lm_eval:
         num_concurrent: 64
         max_length: 32768
         max_gen_toks: 8192
+    # Model card eval settings: temperature 1.0 (task default), top_p 0.95, effort 100 (vLLM maps max to 100), max_tokens >= 256K.
+    - name: gpqa_diamond
+      chat: true
+      model_args:
+        num_concurrent: 64
+      gen_kwargs: &card {top_p: 0.95, reasoning_effort: max, max_gen_toks: 262144}
+    - name: aime26
+      chat: true
+      model_args:
+        num_concurrent: 64
+      gen_kwargs: *card
+    - name: ruler_full
+      model_args:
+        num_concurrent: 64
 
 vllm_bench:
   configs:

@@ -20,13 +20,15 @@ This applies to non-trivial changes (new code, refactors, design decisions). Pur
 
 You cannot run a real eval locally — it needs a GPU host with Docker, vLLM, and lm-eval installed. What you *can* run locally:
 
-**Parser smoke test** — exec the parser with a stubbed `lm_eval` registry to verify TSV output and validation behavior. The stub avoids needing `lm-eval` installed; populate `all_tasks` with the names referenced by the YAML under test:
+**Parser smoke test** — exec the parser with a stubbed `lm_eval` registry to verify TSV output and validation behavior. The stub avoids needing `lm-eval` installed; populate `all_tasks` with the names referenced by the YAML under test (the parser constructs it with `include_path=<repo>/lm_eval_tasks`, so local tasks like `aime26` go in the list too):
 
 ```bash
 python3 -c "
 import sys, types
 m = types.ModuleType('lm_eval'); t = types.ModuleType('lm_eval.tasks')
-class TM: all_tasks = ['gsm8k', 'aime25']
+class TM:
+    all_tasks = ['gsm8k', 'aime25']
+    def __init__(self, **kw): pass
 t.TaskManager = TM
 sys.modules['lm_eval'] = m; sys.modules['lm_eval.tasks'] = t
 sys.argv = ['parse_workload.py', 'workloads/qwen3_5_h200.yaml']

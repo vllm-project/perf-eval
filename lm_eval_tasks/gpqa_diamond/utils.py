@@ -1,0 +1,40 @@
+# Verbatim from InferenceX (Apache-2.0, https://github.com/SemiAnalysisAI/InferenceX/blob/99d0296a292dabacb817b8e73f74a730f13642ad/LICENSE):
+# https://github.com/SemiAnalysisAI/InferenceX/blob/99d0296a292dabacb817b8e73f74a730f13642ad/inferencex-e2e/infx/evals/utils.py
+import random
+
+import datasets
+
+LETTERS = "ABCD"
+
+
+def process_docs(
+    dataset: datasets.Dataset, n_repeats: int = 2, seed: int = 3407
+) -> datasets.Dataset:
+    """Return dataset repeated n_repeats times with answers shuffled into A to D by seed.
+
+    Each row gets its correct letter in answer and its repeat index in repeat_id.
+    """
+    rng = random.Random(seed)  # noqa: S311
+    docs = list(dataset)
+
+    rows = []
+    for r in range(n_repeats):
+        for doc in docs:
+            base_choices = [
+                doc["Correct Answer"],
+                doc["Incorrect Answer 1"],
+                doc["Incorrect Answer 2"],
+                doc["Incorrect Answer 3"],
+            ]
+            perm = rng.sample(range(4), 4)
+
+            new_choices = [base_choices[j] for j in perm]
+            correct_letter = LETTERS[perm.index(0)]
+
+            new_doc = dict(doc)
+            new_doc["A"], new_doc["B"], new_doc["C"], new_doc["D"] = new_choices
+            new_doc["answer"] = correct_letter
+            new_doc["repeat_id"] = r
+            rows.append(new_doc)
+
+    return datasets.Dataset.from_list(rows)

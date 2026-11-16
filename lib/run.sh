@@ -90,10 +90,12 @@ if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
   exit 0
 fi
 
-while IFS=$'\t' read -r task fewshot model_args; do
+while IFS=$'\t' read -r task fewshot api model_args gen_kwargs; do
   [[ -z "$task" ]] && continue
-  run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" \
-              "$model_args" "$RESULTS_DIR"
+  [[ "$model_args" == - ]] && model_args=
+  [[ "$gen_kwargs" == - ]] && gen_kwargs=
+  run_lm_eval "$WORKLOAD_MODEL" "$BASE_URL" "$task" "$fewshot" "$api" \
+              "$model_args" "$RESULTS_DIR" "$gen_kwargs"
 
   python3 "$DIR/ingest.py" \
     --results-dir "${RESULTS_DIR}/${task}" \

@@ -1,0 +1,46 @@
+# InferenceX's GPQA-Diamond task (prompt, shuffle, scoring) as-is (Apache-2.0, see utils.py), from
+# https://github.com/SemiAnalysisAI/InferenceX/blob/99d0296a292dabacb817b8e73f74a730f13642ad/inferencex-e2e/infx/evals/gpqa_diamond.yaml
+# Changed: task name (theirs clashes with lm-eval's) and generation_kwargs.
+task: gpqa_diamond
+dataset_path: Idavidrein/gpqa
+dataset_name: gpqa_diamond
+output_type: generate_until
+training_split: train
+validation_split: train
+test_split: null
+
+process_docs: !function utils.process_docs
+
+doc_to_text: |
+  {{Question}}
+
+  (A) {{A}}
+  (B) {{B}}
+  (C) {{C}}
+  (D) {{D}}
+
+  Express your final answer as the corresponding option 'A', 'B', 'C', or 'D'.
+doc_to_target: answer
+
+filter_list:
+  - name: extract_abcd
+    filter:
+      - function: regex
+        regex_pattern: "(?i)\\b\\(?([A-D])\\)?\\b"
+        group_select: -1
+      - function: take_first
+
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+    ignore_case: true
+
+generation_kwargs:
+  until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
+  do_sample: true
+  temperature: 1.0
+  seed: null                          # drop lm-eval's fixed request seed so repeats sample independently
+  max_gen_toks: 65536
+metadata:
+  version: 1.0
