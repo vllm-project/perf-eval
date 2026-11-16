@@ -54,9 +54,12 @@ lm_eval:
       model_args:
         num_concurrent: 64
       gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 98304}
-    - name: ruler_full
+    # ruler_chat without 256K: 256K plus 32K output doesn't fit --max-model-len.
+    - name: ruler_chat_128k
+      chat: true
       model_args:
         num_concurrent: 64
+      gen_kwargs: {reasoning_effort: high}
 
 vllm_bench:
   configs:

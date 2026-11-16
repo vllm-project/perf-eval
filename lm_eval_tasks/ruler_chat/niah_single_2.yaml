@@ -1,0 +1,3 @@
+task: ruler_chat_niah_single_2
+include: _template_yaml
+custom_dataset: !function utils.niah_single_2

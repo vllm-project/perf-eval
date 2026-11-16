@@ -1,0 +1,29 @@
+# lm-eval's RULER task config (niah_single_1.yaml) at 40 samples a length, run as a thinking chat model.
+# Changed: no gen_prefix (lm-eval sends it as a finished assistant turn, ahead of the model's thinking),
+# 32K output tokens for the thinking, and scores for any length in max_seq_lengths.
+dataset_path: ""
+dataset_name: ""
+output_type: generate_until
+test_split: test
+doc_to_text: "{{input}}"
+doc_to_target: "{{outputs}}"
+target_delimiter: " "
+process_results: !function utils.process_results
+metric_list:
+  - metric: "32768"
+    aggregation: mean
+    higher_is_better: true
+  - metric: "131072"
+    aggregation: mean
+    higher_is_better: true
+  - metric: "262144"
+    aggregation: mean
+    higher_is_better: true
+generation_kwargs:
+  do_sample: false
+  temperature: 0.0
+  max_gen_toks: 32768
+  until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
+metadata:
+  version: 1.0
+  max_seq_lengths: [32768, 131072, 262144]

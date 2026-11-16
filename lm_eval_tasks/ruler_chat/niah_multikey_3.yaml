@@ -1,0 +1,3 @@
+task: ruler_chat_niah_multikey_3
+include: _template_yaml
+custom_dataset: !function utils.niah_multikey_3
