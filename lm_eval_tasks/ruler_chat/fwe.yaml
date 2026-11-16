@@ -1,3 +1,0 @@
-task: ruler_chat_fwe
-include: _template_yaml
-custom_dataset: !function utils.fwe

@@ -1,19 +1,9 @@
-# lm-eval's 13 RULER tasks at 32K, 128K and 256K, 40 samples each; scores are per-length means over tasks.
+# vllm#60397's three RULER NIAH tasks at 32K, 128K and 256K, 40 samples each; scores are per-length means over tasks.
 group: ruler_chat
 task:
   - ruler_chat_niah_single_1
-  - ruler_chat_niah_single_2
-  - ruler_chat_niah_single_3
-  - ruler_chat_niah_multikey_1
   - ruler_chat_niah_multikey_2
   - ruler_chat_niah_multikey_3
-  - ruler_chat_niah_multivalue
-  - ruler_chat_niah_multiquery
-  - ruler_chat_vt
-  - ruler_chat_cwe
-  - ruler_chat_fwe
-  - ruler_chat_qa_squad
-  - ruler_chat_qa_hotpot
 aggregate_metric_list:
   - metric: "32768"
     weight_by_size: False
