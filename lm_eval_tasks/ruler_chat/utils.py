@@ -1,7 +1,8 @@
 """lm-eval's 8 RULER NIAH tasks, rebuilt with lm-eval's own generator at NUM_SAMPLES a length.
 
 WORKAROUND: lm-eval's NIAH generator hard-codes num_samples=500, and --limit only trims after
-all 500 are built. Remove the dataset wrappers once lm-eval reads num_samples from metadata.
+all 500 are built. Remove the dataset wrappers once lm-eval reads num_samples from metadata:
+https://github.com/EleutherAI/lm-evaluation-harness/pull/4640
 """
 
 import random
