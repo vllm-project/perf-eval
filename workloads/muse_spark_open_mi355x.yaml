@@ -47,7 +47,6 @@ lm_eval:
     - name: gpqa_diamond
       chat: true
       gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 131072}
-    # Greedy like lm-eval's aime25 (card sampling doesn't apply); card's effort and max tokens.
     - name: aime26
       chat: true
       gen_kwargs: {reasoning_effort: xhigh, max_gen_toks: 98304}
