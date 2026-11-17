@@ -1,6 +1,9 @@
 # lm-eval's aime25 task on the 2026 problems (AIME I + II), each sampled 8 times:
-# the score is mean@8, as model cards report. No `tag:`: lm-eval replaces (not merges) a tag
-# re-declared via --include_path, which would empty upstream's math_word_problems.
+# the score is mean@8, as model cards report. Local because lm-eval has no aime26 yet
+# (lm-eval#3603, open), and that one is greedy, single-sample and stops on "Question:".
+# Repeats are duplicated docs: lm-eval's `repeats` scores only the first sample.
+# No `tag:`: lm-eval replaces (not merges) a tag re-declared via --include_path,
+# which would empty upstream's math_word_problems.
 task: aime26
 dataset_path: math-ai/aime26
 # dataset_name: null
