@@ -1,0 +1,3 @@
+task: ruler_chat_vt
+include: _template_yaml
+custom_dataset: !function utils.vt

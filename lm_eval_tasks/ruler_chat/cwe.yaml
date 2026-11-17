@@ -1,0 +1,4 @@
+task: ruler_chat_cwe
+include: _template_yaml
+custom_dataset: !function utils.cwe
+doc_to_text: "{{input_example}}\n{{input}}"   # WORKAROUND: lm-eval builds the few-shot example but never sends it (NVIDIA RULER does)

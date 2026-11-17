@@ -5,9 +5,29 @@ task:
     metadata: &lengths
       version: 1.0                  # replaces the task's metadata, so restate its version
       max_seq_lengths: [32768, 131072]
+  - task: ruler_chat_niah_single_2
+    metadata: *lengths
+  - task: ruler_chat_niah_single_3
+    metadata: *lengths
+  - task: ruler_chat_niah_multikey_1
+    metadata: *lengths
   - task: ruler_chat_niah_multikey_2
     metadata: *lengths
   - task: ruler_chat_niah_multikey_3
+    metadata: *lengths
+  - task: ruler_chat_niah_multivalue
+    metadata: *lengths
+  - task: ruler_chat_niah_multiquery
+    metadata: *lengths
+  - task: ruler_chat_vt
+    metadata: *lengths
+  - task: ruler_chat_cwe
+    metadata: *lengths
+  - task: ruler_chat_fwe
+    metadata: *lengths
+  - task: ruler_chat_qa_squad
+    metadata: *lengths
+  - task: ruler_chat_qa_hotpot
     metadata: *lengths
 aggregate_metric_list:
   - metric: "32768"
