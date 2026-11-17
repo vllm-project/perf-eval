@@ -18,10 +18,11 @@ from lm_eval.tasks.ruler.common_utils import (
 )
 from lm_eval.tasks.ruler.prepare_niah import generate_samples, get_haystack
 
-NUM_SAMPLES = 40
+NUM_SAMPLES = 40  # moves to task metadata as num_samples once https://github.com/EleutherAI/lm-evaluation-harness/pull/4640 lands
 SEED = 42  # RULER's default random_seed
 
 
+# Workaround: remove once https://github.com/EleutherAI/lm-evaluation-harness/pull/4640 lands.
 def _niah(type_haystack, type_needle_k, type_needle_v, **num_needles):
     """custom_dataset that builds NUM_SAMPLES docs for each length in metadata."""
 
