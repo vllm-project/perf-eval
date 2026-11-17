@@ -41,10 +41,11 @@ lm_eval:
     # Card's recommended sampling (temperature 1.0 is the task default, top_p 0.95) at max effort; card reports no GPQA/AIME and no max_tokens.
     - name: gpqa_diamond
       chat: true
-      gen_kwargs: &card {top_p: 0.95, reasoning_effort: max, max_gen_toks: 262144}
+      gen_kwargs: {top_p: 0.95, reasoning_effort: max, max_gen_toks: 262144}
+    # Greedy like lm-eval's aime25 (card sampling doesn't apply); card's effort and max tokens.
     - name: aime26
       chat: true
-      gen_kwargs: *card
+      gen_kwargs: {reasoning_effort: max, max_gen_toks: 262144}
     - name: ruler_chat
       chat: true
       gen_kwargs: {reasoning_effort: high}

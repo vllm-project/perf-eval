@@ -1,9 +1,6 @@
-# lm-eval's aime25 task on the 2026 problems (AIME I + II), each sampled 8 times:
-# the score is mean@8, as model cards report. Local because lm-eval has no aime26 yet
-# (lm-eval#3603, open), and that one is greedy, single-sample and stops on "Question:".
-# Repeats are duplicated docs: lm-eval's `repeats` scores only the first sample.
-# No `tag:`: lm-eval replaces (not merges) a tag re-declared via --include_path,
-# which would empty upstream's math_word_problems.
+# lm-eval's aime25.yaml on the 2026 problems, until lm-eval ships aime26 (lm-eval#3603, open).
+# Changed: task name, dataset, and no `tag:` (lm-eval replaces, not merges, a tag re-declared
+# via --include_path, which would empty upstream's math_word_problems).
 task: aime26
 dataset_path: math-ai/aime26
 # dataset_name: null
@@ -11,7 +8,6 @@ output_type: generate_until
 training_split: test
 fewshot_split: test
 test_split: test
-process_docs: !function utils.process_docs
 doc_to_text: "Question: {{problem}}\nAnswer:"
 doc_to_target: "{{answer}}"
 process_results: !function utils.process_results
@@ -20,11 +16,14 @@ metric_list:
     aggregation: mean
     higher_is_better: true
 generation_kwargs:
-  until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
-  do_sample: true
-  temperature: 1.0
-  seed: null                          # drop lm-eval's fixed request seed so repeats sample independently
-  max_gen_toks: 65536
+  until:
+    - "Question:"
+    - "</s>"
+    - "<|im_end|>"
+    - "<|eot_id|>"
+  do_sample: false
+  temperature: 0.0
+  max_gen_toks: 32768
 repeats: 1
 num_fewshot: 0
 metadata:
