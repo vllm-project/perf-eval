@@ -36,28 +36,22 @@ lm_eval:
     tokenized_requests: false
     tokenizer_backend: null
     timeout: 6000
+    num_concurrent: 64
   tasks:
     - name: gsm8k
       num_fewshot: 5
       model_args:
-        num_concurrent: 64
         max_length: 32768
         max_gen_toks: 8192
     # Model card eval settings: temperature 1.0 (task default), top_p 1.0, top_k -1, effort xhigh, per-task max_tokens.
     - name: gpqa_diamond
       chat: true
-      model_args:
-        num_concurrent: 64
       gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 131072}
     - name: aime26
       chat: true
-      model_args:
-        num_concurrent: 64
       gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 98304}
     - name: ruler_chat
       chat: true
-      model_args:
-        num_concurrent: 64
       gen_kwargs: {reasoning_effort: high}
 
 vllm_bench:
