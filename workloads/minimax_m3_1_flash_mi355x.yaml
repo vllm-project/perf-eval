@@ -29,8 +29,11 @@ lm_eval:
     tokenizer_backend: null
     timeout: 6000
   tasks:
+    # Chat: raw few-shot completions scores 12% (chat 97%, same server). Stop at EOS, not "Question:", which vLLM matches inside reasoning.
     - name: gsm8k
       num_fewshot: 5
+      chat: true
+      gen_kwargs: {until: ["[e~["]}
       model_args:
         num_concurrent: 64
         max_length: 32768
