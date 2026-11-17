@@ -19,16 +19,6 @@ task:
     metadata: *lengths
   - task: ruler_chat_niah_multiquery
     metadata: *lengths
-  - task: ruler_chat_vt
-    metadata: *lengths
-  - task: ruler_chat_cwe
-    metadata: *lengths
-  - task: ruler_chat_fwe
-    metadata: *lengths
-  - task: ruler_chat_qa_squad
-    metadata: *lengths
-  - task: ruler_chat_qa_hotpot
-    metadata: *lengths
 aggregate_metric_list:
   - metric: "32768"
     weight_by_size: False

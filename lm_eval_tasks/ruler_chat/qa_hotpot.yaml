@@ -1,4 +1,0 @@
-task: ruler_chat_qa_hotpot
-include: _template_yaml
-custom_dataset: !function utils.qa_hotpot
-process_results: !function utils.process_results_qa

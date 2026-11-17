@@ -43,7 +43,7 @@ lm_eval:
       model_args:
         num_concurrent: 64
       gen_kwargs: *card
-    # lm-eval's 13 RULER tasks, run the way vllm#60397 ran NIAH: greedy, thinking on at high effort, 32K output tokens.
+    # lm-eval's 8 RULER NIAH tasks, run the way vllm#60397 ran NIAH: greedy, thinking on at high effort, 32K output tokens.
     - name: ruler_chat
       chat: true
       model_args:
