@@ -1,6 +1,6 @@
 # Muse-Spark-Open-816B-A42B MXFP4 (AMD Quark) on MI355X
 # Recipe default (pulled 2026-11-13): https://recipes.vllm.ai/meta-models/Muse-Spark-Open-816B-A42B?hardware=mi355x&variant=mxfp4
-# --max-model-len raised from the recipe's 32768 to the model card's 163840, which its GPQA/AIME settings need.
+# --max-model-len raised from the recipe's 32768 to fit ruler_chat's 256K prompts plus 32K output (config allows 1M positions).
 name: muse_spark_open_mi355x
 gpu: MI355X
 num_gpus: 8
@@ -24,7 +24,7 @@ vllm:
     --no-enable-prefix-caching
     --enable-chunked-prefill
     --attention-backend ROCM_AITER_FA
-    --max-model-len 163840
+    --max-model-len 327680
     --max-num-seqs 128
     --max-num-batched-tokens 8192
     --reasoning-parser muse
@@ -54,8 +54,7 @@ lm_eval:
       model_args:
         num_concurrent: 64
       gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 98304}
-    # ruler_chat without 256K: 256K plus 32K output doesn't fit --max-model-len.
-    - name: ruler_chat_128k
+    - name: ruler_chat
       chat: true
       model_args:
         num_concurrent: 64
