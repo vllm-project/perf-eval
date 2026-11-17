@@ -1,6 +1,8 @@
-# InferenceX's GPQA-Diamond task (prompt, shuffle, scoring) as-is (Apache-2.0, see utils.py), from
+# GPQA-Diamond with InferenceX's 2 choice shuffles per question (Apache-2.0, see utils.py), from
 # https://github.com/SemiAnalysisAI/InferenceX/blob/99d0296a292dabacb817b8e73f74a730f13642ad/inferencex-e2e/infx/evals/gpqa_diamond.yaml
-# Changed: task name (theirs clashes with lm-eval's) and generation_kwargs.
+# Prompt and answer parser are the GPQA authors' zero-shot baseline (MIT, see utils.py), not InferenceX's
+# last-letter regex, which scores stray letters and the word "a" after the stated answer.
+# Changed from InferenceX: task name (theirs clashes with lm-eval's), prompt, scoring and generation_kwargs.
 task: gpqa_diamond
 dataset_path: Idavidrein/gpqa
 dataset_name: gpqa_diamond
@@ -11,30 +13,23 @@ test_split: null
 
 process_docs: !function utils.process_docs
 
-doc_to_text: |
-  {{Question}}
+doc_to_text: |-
+  What is the correct answer to this question: {{Question}}
 
+  Choices:
   (A) {{A}}
   (B) {{B}}
   (C) {{C}}
   (D) {{D}}
 
-  Express your final answer as the corresponding option 'A', 'B', 'C', or 'D'.
+  Format your response as follows: "The correct answer is (insert answer here)"
 doc_to_target: answer
-
-filter_list:
-  - name: extract_abcd
-    filter:
-      - function: regex
-        regex_pattern: "(?i)\\b\\(?([A-D])\\)?\\b"
-        group_select: -1
-      - function: take_first
+process_results: !function utils.process_results
 
 metric_list:
   - metric: exact_match
     aggregation: mean
     higher_is_better: true
-    ignore_case: true
 
 generation_kwargs:
   until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
@@ -43,4 +38,4 @@ generation_kwargs:
   seed: null                          # drop lm-eval's fixed request seed so repeats sample independently
   max_gen_toks: 65536
 metadata:
-  version: 1.0
+  version: 2.0
