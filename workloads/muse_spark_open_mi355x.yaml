@@ -1,0 +1,64 @@
+# Muse-Spark-Open-816B-A42B MXFP4 (AMD Quark) on MI355X
+# Recipe default (pulled 2026-11-13): https://recipes.vllm.ai/meta-models/Muse-Spark-Open-816B-A42B?hardware=mi355x&variant=mxfp4
+name: muse_spark_open_mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: amd/Muse-Spark-Open-816B-A42B-Quark-MXFP4
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_ROCM_MUSE_MOE_REDUCE_DTYPE: bf16
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 1
+    VLLM_USE_RUST_FRONTEND: 1
+  serve_args: >-
+    --enable-expert-parallel
+    --tensor-parallel-size 8
+    --dtype bfloat16
+    --distributed-executor-backend mp
+    --language-model-only
+    --compilation-config {"cudagraph_mode":"FULL_AND_PIECEWISE"}
+    --no-enable-prefix-caching
+    --enable-chunked-prefill
+    --attention-backend ROCM_AITER_FA
+    --max-model-len 32768
+    --max-num-seqs 128
+    --max-num-batched-tokens 8192
+    --reasoning-parser muse
+    --enable-auto-tool-choice
+    --tool-call-parser muse
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
+    - name: 1k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: [10, 256, 512]
+      max_concurrency: [1, 64, 128]
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

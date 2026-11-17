@@ -1,0 +1,63 @@
+# MiniMax-M3.1-Flash on MI355X
+# Recipe default (pulled 2026-11-13): https://recipes.vllm.ai/MiniMaxAI/MiniMax-M3.1-Flash?hardware=mi355x
+name: minimax_m3_1_flash_mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: MiniMaxAI/MiniMax-M3.1-Flash
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_ROCM_USE_AITER_FUSION_SHARED_EXPERTS: 1
+  serve_args: >-
+    --block-size 128
+    --disable-hybrid-kv-cache-manager
+    --tensor-parallel-size 4
+    --kv-cache-dtype nvfp4
+    --attention-config {"indexer_kv_dtype":"nvfp4","indexer_decode_cp":true}
+    --quantization-config.moe mxfp8
+    --tool-call-parser minimax_m3
+    --enable-auto-tool-choice
+    --reasoning-parser minimax_m3
+    --speculative-config {"method":"dspark","num_speculative_tokens":3,"attention_backend":"TRITON_ATTN","kv_cache_dtype":"fp8","draft_sample_method":"probabilistic"}
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    # Chat: raw few-shot completions scores 12% (chat 97%, same server). Stop at EOS, not "Question:", which vLLM matches inside reasoning.
+    - name: gsm8k
+      num_fewshot: 5
+      chat: true
+      gen_kwargs: {until: ["[e~["]}
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+vllm_bench:
+  metadata:
+    # MXFP8 checkpoint; the repo name has no precision marker.
+    precision: mxfp8
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
+    - name: 1k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: [10, 256, 512]
+      max_concurrency: [1, 64, 128]
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy

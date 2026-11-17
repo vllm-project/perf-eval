@@ -26,7 +26,7 @@ import sys
 
 import yaml
 
-TASK_FIELDS = {"name", "num_fewshot", "model_args"}
+TASK_FIELDS = {"name", "num_fewshot", "model_args", "chat", "gen_kwargs"}
 BENCH_FIELDS = {
     "name", "backend", "dataset", "input_len", "output_len",
     "num_prompts", "max_concurrency", "repetitions", "args",
@@ -261,16 +261,24 @@ def validate_tasks(tasks: list, path: str) -> None:
                 f"{path}: task {t['name']!r} has unsupported top-level fields "
                 f"{sorted(extra)}; move them under `model_args:`"
             )
+        if not isinstance(t.get("chat", False), bool):
+            sys.exit(f"{path}: task {t['name']!r} chat must be true or false")
+        if not isinstance(t.get("gen_kwargs", {}), dict):
+            sys.exit(f"{path}: task {t['name']!r} gen_kwargs must be a map")
         if not skip_registry and t["name"] not in known:
             sys.exit(f"{path}: unknown lm_eval task {t['name']!r}")
 
 
 def task_tsv(tasks: list, base_args: dict) -> str:
+    """One row per task; '-' marks an empty column (bash read collapses empty tab fields)."""
     lines = []
     for t in tasks:
         merged = {**base_args, **(t.get("model_args") or {})}
-        args = ",".join(f"{k}={fmt(v)}" for k, v in merged.items())
-        lines.append(f"{t['name']}\t{t.get('num_fewshot', 0)}\t{args}")
+        args = ",".join(f"{k}={fmt(v)}" for k, v in merged.items()) or "-"
+        api = "chat" if t.get("chat") else "completions"
+        # lm-eval parses JSON --gen_kwargs, so values keep their YAML types.
+        gen_kwargs = json.dumps(t["gen_kwargs"]) if t.get("gen_kwargs") else "-"
+        lines.append(f"{t['name']}\t{t.get('num_fewshot', 0)}\t{api}\t{args}\t{gen_kwargs}")
     return "\n".join(lines)
 
 
