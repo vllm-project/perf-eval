@@ -1,7 +1,10 @@
-# lm-eval's aime25.yaml on the 2026 problems, until lm-eval ships aime26 (lm-eval#3603, open).
-# Changed: task name, dataset, no `tag:` (lm-eval replaces, not merges, a tag re-declared
-# via --include_path, which would empty upstream's math_word_problems), a \boxed{} instruction
-# (aime25's grader reads \boxed{}, else the text between the first and last `$`), and no stop strings.
+# lm-eval's aime25 task and grader (utils.py) on the 2026 problems, until lm-eval ships aime26 (lm-eval#3603).
+# Differs from aime25.yaml in:
+# - name and dataset
+# - no `tag:`: re-declaring it via --include_path would replace upstream's math_word_problems members
+# - prompt asks for \boxed{}, which aime25's grader needs; wording is DeepSeek-R1's recommended math directive:
+#   https://github.com/deepseek-ai/DeepSeek-R1/blob/0cf78561f1d51c84a21b2190626b21116d5c68bb/README.md#usage-recommendations
+# - no stop strings: vLLM matches them inside reasoning (vllm#53066)
 task: aime26
 dataset_path: math-ai/aime26
 # dataset_name: null

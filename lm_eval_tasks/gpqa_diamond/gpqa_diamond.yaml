@@ -1,8 +1,6 @@
-# GPQA-Diamond with InferenceX's 2 choice shuffles per question (Apache-2.0, see utils.py), from
-# https://github.com/SemiAnalysisAI/InferenceX/blob/99d0296a292dabacb817b8e73f74a730f13642ad/inferencex-e2e/infx/evals/gpqa_diamond.yaml
-# Prompt and answer parser are the GPQA authors' zero-shot baseline (MIT, see utils.py), not InferenceX's
-# last-letter regex, which scores stray letters and the word "a" after the stated answer.
-# Changed from InferenceX: task name (theirs clashes with lm-eval's), prompt, scoring and generation_kwargs.
+# GPQA-Diamond as the GPQA authors' zero-shot baseline runs it (MIT, see utils.py): one seed-0 choice shuffle
+# per question, their zero_shot_prompt and their answer parser, one sample per question.
+# https://github.com/idavidrein/gpqa/blob/56686c06f5e19865c153de0fdb11be3890014df7/baselines/utils.py
 task: gpqa_diamond
 dataset_path: Idavidrein/gpqa
 dataset_name: gpqa_diamond
@@ -35,7 +33,7 @@ generation_kwargs:
   until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
   do_sample: true
   temperature: 1.0
-  seed: null                          # drop lm-eval's fixed request seed so repeats sample independently
+  seed: null                          # drop lm-eval's fixed request seed so runs sample independently
   max_gen_toks: 65536
 metadata:
-  version: 2.0
+  version: 3.0
