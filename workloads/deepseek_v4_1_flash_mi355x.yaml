@@ -13,6 +13,10 @@ vllm:
     VLLM_ROCM_USE_AITER_MOE: 1
     AITER_TRITON_LOG_LEVEL: ERROR
     VLLM_USE_BREAKABLE_CUDAGRAPH: 1
+    # Workaround: GTT-backed pinned host memory, so page migration can't stall
+    # all GPU queues for seconds. Remove once ROCm fixes migratable pinned memory.
+    HSA_USERPTR_FOR_PAGED_MEM: 0
+    HSA_SVM_FOR_PAGED_MEM: 0
   serve_args: >-
     --tokenizer-mode deepseek_v41
     --tensor-parallel-size 4
