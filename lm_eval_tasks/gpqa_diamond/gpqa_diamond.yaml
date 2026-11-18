@@ -1,5 +1,5 @@
-# GPQA-Diamond as the GPQA authors' zero-shot baseline runs it (MIT, see utils.py): one seed-0 choice shuffle
-# per question, their zero_shot_prompt and their answer parser, one sample per question.
+# GPQA-Diamond with the GPQA authors' zero-shot baseline (MIT, see utils.py): their seed-0 choice shuffle,
+# zero_shot_prompt and answer parser, sampled once per question at the model's recommended temperature 1.0.
 # https://github.com/idavidrein/gpqa/blob/56686c06f5e19865c153de0fdb11be3890014df7/baselines/utils.py
 task: gpqa_diamond
 dataset_path: Idavidrein/gpqa
@@ -33,7 +33,6 @@ generation_kwargs:
   until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
   do_sample: true
   temperature: 1.0
-  seed: null                          # drop lm-eval's fixed request seed so runs sample independently
   max_gen_toks: 65536
 metadata:
   version: 3.0
