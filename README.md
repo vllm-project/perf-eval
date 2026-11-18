@@ -67,6 +67,10 @@ lm_eval:                 # accuracy tasks (optional)
         max_length: 40960
     - name: aime25
       num_fewshot: 0
+      chat: true                      # /v1/chat/completions + chat template (default: /v1/completions)
+      gen_kwargs:                     # optional; merged over the task's generation_kwargs (lm_eval --gen_kwargs)
+        top_p: 0.95
+        reasoning_effort: high        # unknown keys go straight into the request body
 
 bfcl:                    # function-calling eval (optional)
   test_categories:       # BFCL test categories to run
