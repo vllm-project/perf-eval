@@ -4,6 +4,7 @@ name: kimi_k3_1_pro_mi355x
 gpu: MI355X
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 300
 
 vllm:
   model: moonshotai/Kimi-K3.1-Pro
@@ -24,13 +25,23 @@ lm_eval:
     tokenized_requests: false
     tokenizer_backend: null
     timeout: 6000
+    num_concurrent: 64
   tasks:
     - name: gsm8k
       num_fewshot: 5
       model_args:
-        num_concurrent: 64
         max_length: 32768
         max_gen_toks: 8192
+    # Model card eval settings: temperature 1.0 (task default), top_p 0.95, effort max.
+    - name: gpqa_diamond
+      chat: true
+      gen_kwargs: {top_p: 0.95, reasoning_effort: max, max_gen_toks: 262144}
+    - name: aime26
+      chat: true
+      gen_kwargs: {reasoning_effort: max, max_gen_toks: 262144}
+    - name: ruler_chat
+      chat: true
+      gen_kwargs: {reasoning_effort: high}
 
 vllm_bench:
   metadata:
