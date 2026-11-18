@@ -2,8 +2,7 @@
 # Differs from aime25.yaml in:
 # - name and dataset
 # - no `tag:`: re-declaring it via --include_path would replace upstream's math_word_problems members
-# - prompt asks for \boxed{}, which aime25's grader needs; wording is DeepSeek-R1's recommended math directive:
-#   https://github.com/deepseek-ai/DeepSeek-R1/blob/0cf78561f1d51c84a21b2190626b21116d5c68bb/README.md#usage-recommendations
+# - prompt asks for \boxed{}: aime25's prompt gives no answer format, but its grader needs \boxed{}
 # - no stop strings: vLLM matches them inside reasoning (vllm#53066)
 task: aime26
 dataset_path: math-ai/aime26
