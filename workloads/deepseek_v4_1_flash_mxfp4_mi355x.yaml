@@ -1,0 +1,59 @@
+# amd/DeepSeek-V4.1-Flash-Quark-MXFP4 on MI355X (text-only Quark export; ~510 GB, TP4).
+name: deepseek_v4_1_flash_mxfp4-mi355x
+gpu: MI355X
+num_gpus: 8
+nightly: true
+
+vllm:
+  model: amd/DeepSeek-V4.1-Flash-Quark-MXFP4
+  env:
+    VLLM_ENGINE_READY_TIMEOUT_S: 3600
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_ROCM_USE_AITER_MOE: 1
+    AITER_TRITON_LOG_LEVEL: ERROR
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 1
+  serve_args: >-
+    --tokenizer-mode deepseek_v41
+    --tensor-parallel-size 4
+    --gpu-memory-utilization 0.9
+    --moe-backend aiter
+    --no-swa-bounded-replay
+    --tool-call-parser deepseek_v41
+    --enable-auto-tool-choice
+    --reasoning-parser deepseek_v41
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 32768
+        max_gen_toks: 8192
+
+vllm_bench:
+  metadata:
+    precision: mxfp4
+  configs:
+    - name: 8k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
+    - name: 1k-in-1k-out
+      backend: openai
+      dataset: random
+      input_len: 1024
+      output_len: 1024
+      num_prompts: [10, 256, 512]
+      max_concurrency: [1, 64, 128]
+      speed_bench_dataset_subset: throughput_8k
+      speed_bench_category: low_entropy
