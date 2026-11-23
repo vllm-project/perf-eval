@@ -59,11 +59,7 @@ vllm_bench:
       speed_bench_dataset_subset: throughput_8k
       speed_bench_category: low_entropy
 
-# aiperf disabled until it supports Python 3.14. vLLM nightly images now ship
-# 3.14, and every aiperf release since 0.8.0 caps requires-python <3.14
-# (ai-dynamo/aiperf#879), so `pip install aiperf` falls back to 0.7.0, which
-# has no --sweep-type and fails with "Unknown option: --sweep-type".
-# Re-enable once aiperf supports 3.14 or is installed into a separate <=3.13 env.
+# aiperf disabled until it supports Python 3.14
 # aiperf:
 #   configs:
 #     - name: prefix63k-in4760-out350-conc16-24
