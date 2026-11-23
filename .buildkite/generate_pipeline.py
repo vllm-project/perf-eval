@@ -3,8 +3,9 @@
 
 Always emits one GPU-profiled step per selected workload. Selection rules:
 
-  WORKLOADS env var set?  → run exactly those paths (comma- or newline-
-                             separated; resolved against workloads/*.yaml)
+  WORKLOADS env var set?  → run exactly those workloads (comma- or newline-
+                             separated paths, file stems, or group names
+                             from a workload's ``groups`` list)
   Otherwise               → run every workload with ``nightly: true``
 
 Override env vars are propagated to each step:
@@ -22,6 +23,10 @@ Override env vars are propagated to each step:
 
 Workloads can also set ``bench_only: true`` to apply BENCH_ONLY to that step
 without forcing the whole build to skip lm_eval.
+
+A workload whose ``kvv`` block judges another workload's BEAM answers
+(``answers_from``) runs after that workload's step. Selecting either one of
+the pair selects both.
 
 Writes pipeline YAML to stdout for ``buildkite-agent pipeline upload``.
 """
@@ -319,12 +324,22 @@ def make_step(path, data, profiles):
         data.get("bench_only")
     )
     has_bfcl = bool(data.get("bfcl"))
+    has_kvv = bool(data.get("kvv"))
+    has_lm_eval = bool((data.get("lm_eval") or {}).get("tasks"))
     if bench_only:
         setup_commands = BENCH_ONLY_SETUP_COMMANDS
     elif has_bfcl:
         # bfcl-eval pins numpy==1.26.4, and pyarrow 26 needs numpy>=2, so
         # lm_eval cannot be imported. datasets needs pyarrow>=24.
-        setup_commands = [setup_command("'lm-eval[api]' pyyaml bfcl-eval soundfile 'pyarrow>=24,<26'")]
+        setup_commands = [setup_command(
+            "'lm-eval[api]' pyyaml bfcl-eval soundfile 'pyarrow>=24,<26'"
+            + (" uv" if has_kvv else "")
+        )]
+    elif has_kvv:
+        # KVV builds its own uv environment, so it only needs uv here.
+        setup_commands = [setup_command(
+            "'lm-eval[api]' pyyaml uv" if has_lm_eval else "pyyaml uv"
+        )]
     else:
         setup_commands = FULL_SETUP_COMMANDS
     step = {
@@ -370,26 +385,115 @@ def make_step(path, data, profiles):
     return step
 
 
+def workload_stem(path):
+    return os.path.basename(path).removesuffix(".yaml")
+
+
+def workload_groups(w):
+    groups = w["data"].get("groups") or []
+    if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+        sys.exit(f"{w['path']}: groups must be a list of group names")
+    return groups
+
+
+def workloads_by_name(workloads):
+    """Every name a WORKLOADS entry can use, mapped to the workloads it selects:
+    a workload's path or file stem selects it; a group selects its members."""
+    names = {}
+    for w in workloads:
+        names[w["path"]] = [w]
+        names[workload_stem(w["path"])] = [w]
+    files = set(names)
+    for w in workloads:
+        for group in workload_groups(w):
+            if group in files:
+                sys.exit(f"{w['path']}: group {group!r} is also a workload name")
+            names.setdefault(group, []).append(w)
+    return names
+
+
 def select_workloads(workloads):
     raw = (os.environ.get("WORKLOADS") or "").strip()
-    if raw:
-        # Accept comma- or newline-separated. Each entry is a workload path
-        # (e.g. workloads/qwen3_5_h200.yaml) or a bare name (qwen3_5_h200).
-        entries = [e.strip() for e in raw.replace(",", "\n").split("\n") if e.strip()]
-        by_path = {w["path"]: w for w in workloads}
-        by_stem = {os.path.basename(w["path"]).removesuffix(".yaml"): w for w in workloads}
-        selected = []
-        for e in entries:
-            if e in by_path:
-                selected.append(by_path[e])
-            elif e in by_stem:
-                selected.append(by_stem[e])
-            elif (f"workloads/{e}.yaml") in by_path:
-                selected.append(by_path[f"workloads/{e}.yaml"])
-            else:
-                sys.exit(f"WORKLOADS entry {e!r} did not match any file in workloads/")
-        return selected
-    return [w for w in workloads if w["data"].get("nightly") is True]
+    if not raw:
+        return [w for w in workloads if w["data"].get("nightly") is True]
+    # Comma- or newline-separated workload paths (workloads/qwen3_5_h200.yaml),
+    # stems (qwen3_5_h200), or group names.
+    names = workloads_by_name(workloads)
+    selected = {}
+    for entry in filter(None, map(str.strip, raw.replace(",", "\n").split("\n"))):
+        if entry not in names:
+            sys.exit(
+                f"WORKLOADS entry {entry!r} did not match any file in workloads/"
+                " or any workload's groups"
+            )
+        for w in names[entry]:
+            # Keyed by path: overlapping groups still run a workload once.
+            selected.setdefault(w["path"], w)
+    return list(selected.values())
+
+
+def kvv_answers_from(w):
+    return ((w["data"].get("kvv") or {}).get("answers_from") or "").strip()
+
+
+def kvv_beam_partners(w, by_stem):
+    """The workloads w's KVV BEAM job can't run without: for a judge
+    (``kvv.answers_from: <workload>``), the workload generating its answers;
+    for a generator, the judges reading them. [] for any other workload."""
+    source = kvv_answers_from(w)
+    if not source:
+        stem = workload_stem(w["path"])
+        return [j for j in by_stem.values() if kvv_answers_from(j) == stem]
+    gen = by_stem.get(source)
+    if gen is None:
+        sys.exit(f"{w['path']}: kvv.answers_from {source!r} is not a workload in workloads/")
+    if "beam_generate" not in ((gen["data"].get("kvv") or {}).get("jobs") or []):
+        sys.exit(f"{w['path']}: kvv.answers_from {source!r} has no beam_generate job")
+    return [gen]
+
+
+def with_kvv_beam_partners(selected, workloads):
+    """``selected`` plus the other half of every KVV BEAM pair in it, so a
+    build never generates answers it doesn't judge, or judges answers it
+    didn't generate. Builds without BEAM workloads come back unchanged."""
+    by_stem = {workload_stem(w["path"]): w for w in workloads}
+    result = {w["path"]: w for w in selected}
+    for w in selected:
+        for partner in kvv_beam_partners(w, by_stem):
+            result.setdefault(partner["path"], partner)
+    return list(result.values())
+
+
+def kvv_step_key(path):
+    """Key for the step that runs a workload's beam_generate job. Workload file
+    names only use characters Buildkite allows in a key."""
+    return f"kvv-{workload_stem(path)}"
+
+
+def link_kvv_answers(selected, steps):
+    """Make each kvv beam_judge step wait for, and read, its answers.
+
+    The judge step depends on the step that generates the answers (even if
+    it failed: partial answers are still worth a score, and the generate
+    step's own failure stays visible) and is told which artifact to
+    download. with_kvv_beam_partners has put both steps in the build.
+    """
+    by_stem = {workload_stem(w["path"]): (w, s) for w, s in zip(selected, steps)}
+    for w, step in zip(selected, steps):
+        source = kvv_answers_from(w)
+        if not source:
+            continue
+        gen, gen_step = by_stem[source]
+        key = kvv_step_key(gen["path"])
+        gen_step["key"] = key
+        step["depends_on"] = [{"step": key, "allow_failure": True}]
+        gen_name = gen["data"].get("name", source)
+        # run_kvv.py copies beam_generate's answers to this path (see
+        # kvv_result_names in lib/parse_workload.py).
+        step.setdefault("env", {}).update({
+            "KVV_ANSWERS_STEP": key,
+            "KVV_ANSWERS_ARTIFACT": f"results/{gen_name}/kvv-beam_generate/answers.jsonl",
+        })
 
 
 def images_by_platform(selected, profiles):
@@ -421,7 +525,9 @@ def main():
             "no workloads to run: WORKLOADS env var not set and no workload"
             " has `nightly: true`"
         )
+    selected = with_kvv_beam_partners(selected, workloads)
     steps = [make_step(w["path"], w["data"], profiles) for w in selected]
+    link_kvv_answers(selected, steps)
     report_images(selected, profiles)
     print(yaml.dump({"steps": steps}, default_flow_style=False, sort_keys=False))
 

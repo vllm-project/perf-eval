@@ -1,4 +1,5 @@
 import importlib.util
+import shlex
 from pathlib import Path
 
 import pytest
@@ -118,3 +119,118 @@ def test_default_serve_args_apply_unless_the_workload_sets_them(
     serve_args, defaults, expected
 ):
     assert parse_workload.apply_default_serve_args(serve_args, defaults) == expected
+
+
+KVV_REF = "7b938c38bbd89c2404a9ed5e7cb40da8079206b4"
+
+
+def write_kvv_workload(tmp_path: Path, kvv: dict, serve_args: str = "") -> Path:
+    (tmp_path / "lib").mkdir(exist_ok=True)
+    (tmp_path / "workloads").mkdir(exist_ok=True)
+    (tmp_path / "lib" / "gpu_profiles.yaml").write_text(yaml.safe_dump({"H200": {}}))
+    workload = tmp_path / "workloads" / "kvv.yaml"
+    workload.write_text(
+        yaml.safe_dump(
+            {
+                "name": "kvv",
+                "gpu": "H200",
+                "vllm": {"model": "test/model", "serve_args": serve_args},
+                "kvv": kvv,
+            }
+        )
+    )
+    return workload
+
+
+def parse_exports(out: str) -> dict:
+    return dict(tok.partition("=")[::2] for tok in shlex.split(out))
+
+
+def test_kvv_only_workload_emits_job_rows(tmp_path, capsys):
+    kvv = {"ref": KVV_REF, "jobs": ["verify_parameters", "ocrbench_thinking_effort:max"]}
+    parse_workload.main(str(write_kvv_workload(tmp_path, kvv)))
+
+    exports = parse_exports(capsys.readouterr().out)
+    assert exports["WORKLOAD_KVV_REF"] == KVV_REF
+    assert exports["WORKLOAD_KVV_THINKING_EFFORT"] == "true"
+    assert exports["WORKLOAD_KVV_TSV"].splitlines() == [
+        "verify_parameters\tkvv-verify_parameters\tkvv_verify_parameters",
+        "ocrbench_thinking_effort:max\tkvv-ocrbench_thinking_effort-max"
+        "\tkvv_ocrbench_thinking_effort_max",
+    ]
+
+
+def test_kvv_thinking_effort_can_be_disabled(tmp_path, capsys):
+    kvv = {"ref": KVV_REF, "jobs": ["AIME_thinking"], "thinking_effort": False}
+    parse_workload.main(str(write_kvv_workload(tmp_path, kvv)))
+
+    assert "WORKLOAD_KVV_THINKING_EFFORT=false" in capsys.readouterr().out
+
+
+def test_workload_without_kvv_emits_empty_kvv_rows(tmp_path, capsys):
+    parse_workload.main(str(write_workload(tmp_path, 3600)))
+
+    assert "WORKLOAD_KVV_TSV=''" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("kvv", "message"),
+    [
+        ({"ref": "main", "jobs": ["verify_parameters"]}, "40-character"),
+        ({"ref": KVV_REF[:12], "jobs": ["verify_parameters"]}, "40-character"),
+        ({"ref": KVV_REF, "jobs": []}, "non-empty jobs"),
+        ({"ref": KVV_REF, "jobs": ["all"]}, "'all' is not supported"),
+        ({"ref": KVV_REF, "jobs": ["nope"]}, "unknown kvv job"),
+        ({"ref": KVV_REF, "jobs": ["ocrbench_thinking_effort"]}, "needs an effort"),
+        ({"ref": KVV_REF, "jobs": ["ocrbench_thinking_effort:huge"]}, "effort must be"),
+        ({"ref": KVV_REF, "jobs": ["verify_parameters:max"]}, "does not take an effort"),
+        ({"ref": KVV_REF, "jobs": ["AIME_thinking", "AIME_thinking"]}, "duplicate"),
+        ({"ref": KVV_REF, "jobs": [{"AIME_thinking": 1}]}, "must be a string"),
+        ({"ref": KVV_REF, "jobs": ["ocrbench_thinking_effort:"]}, "effort must be"),
+        ({"ref": KVV_REF, "jobs": ["AIME_thinking"], "thinking_effort": "yes"},
+         "true or false"),
+        ({"ref": KVV_REF, "jobs": ["AIME_thinking"], "extra": 1}, "unsupported fields"),
+        ({"ref": KVV_REF, "jobs": ["AIME_thinking"], "answers_from": "x"},
+         "only valid with the beam_judge"),
+        ({"ref": KVV_REF, "jobs": ["beam_judge"]}, "requires answers_from"),
+        ({"ref": KVV_REF, "jobs": ["beam_generate", "beam_judge"], "answers_from": "x"},
+         "separate workloads"),
+    ],
+)
+def test_rejects_invalid_kvv_block(tmp_path, kvv, message):
+    serve_args = "--served-model-name test/model kimi-k2.6"
+    with pytest.raises(SystemExit, match=message):
+        parse_workload.main(str(write_kvv_workload(tmp_path, kvv, serve_args)))
+
+
+@pytest.mark.parametrize(
+    "serve_args",
+    ["", "--served-model-name kimi-k2.6", "--served-model-name=kimi-k2.6"],
+)
+def test_kvv_judge_must_serve_both_names(tmp_path, serve_args):
+    kvv = {"ref": KVV_REF, "jobs": ["beam_judge"], "answers_from": "gen"}
+    with pytest.raises(SystemExit, match="--served-model-name test/model kimi-k2.6"):
+        parse_workload.main(str(write_kvv_workload(tmp_path, kvv, serve_args)))
+
+
+def test_kvv_judge_accepts_both_served_names(tmp_path, capsys):
+    kvv = {"ref": KVV_REF, "jobs": ["beam_judge"], "answers_from": "gen"}
+    serve_args = "--served-model-name test/model kimi-k2.6 --reasoning-parser kimi_k2"
+    parse_workload.main(str(write_kvv_workload(tmp_path, kvv, serve_args)))
+
+    assert "kvv-beam_judge" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("serve_args", "expected"),
+    [
+        ("--served-model-name a b --tp 8", ["a", "b"]),
+        ("--served-model-name=a", ["a"]),
+        ("--tp 8", []),
+        # vLLM's argparse keeps the last occurrence and expands no abbreviations.
+        ("--served-model-name a --served-model-name b c", ["b", "c"]),
+        ("--served a", []),
+    ],
+)
+def test_served_model_names(serve_args, expected):
+    assert parse_workload.served_model_names(serve_args) == expected

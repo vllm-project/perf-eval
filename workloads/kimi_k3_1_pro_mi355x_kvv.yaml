@@ -1,0 +1,55 @@
+# Kimi-K3.1-Pro on AMD MI355X: Kimi Vendor Verifier (KVV), everything but BEAM.
+# https://github.com/MoonshotAI/Kimi-Vendor-Verifier
+# These are the jobs run_eval.sh `all` runs with ENABLE_THINKING_EFFORT=true.
+# Weekly, not nightly: they take many hours. BEAM needs a 1M-token context and
+# a separate judge, so it runs in kimi_k3_1_pro_mi355x_kvv_beam and
+# kimi_k2_6_mi355x_kvv_beam_judge. KVV's DeepSWE benchmark runs on the Pier
+# platform, not run_eval.sh, and is not covered.
+#
+# TODO(spike): the model id, parser names, and timeout below are unverified
+# until K3.1 Pro has been served from the ROCm nightly on one MI355X node.
+# Server env matches kimi_k3_mi355x.
+name: kimi_k3_1_pro-mi355x-kvv
+gpu: MI355X
+num_gpus: 8
+nightly: false
+groups: [kvv, kvv-main]
+timeout_in_minutes: 1440
+# Rerun only when the agent is lost: a failed KVV job is a result, and a rerun
+# costs the whole suite again.
+retry:
+  automatic:
+    - exit_status: -1
+      limit: 2
+
+vllm:
+  model: moonshotai/Kimi-K3.1-Pro
+  env:
+    VLLM_ROCM_USE_AITER: 1
+    VLLM_USE_BREAKABLE_CUDAGRAPH: 0
+    VLLM_ROCM_USE_AITER_MOE_SITUV2: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+    --gpu-memory-utilization 0.88
+    --tool-call-parser kimi_k3
+    --reasoning-parser kimi_k3
+    --enable-auto-tool-choice
+
+kvv:
+  ref: 7b938c38bbd89c2404a9ed5e7cb40da8079206b4
+  jobs:
+    - verify_parameters
+    - verify_tool_call_json_schema
+    - verify_toolcall_result_reject
+    - verify_prompt_tokens
+    - verify_k3_features
+    - ocrbench_thinking_effort:low
+    - ocrbench_thinking_effort:high
+    - ocrbench_thinking_effort:max
+    - MMMU_pro_thinking_effort:low
+    - MMMU_pro_thinking_effort:high
+    - MMMU_pro_thinking_effort:max
+    - toolcall_thinking_effort:low
+    - toolcall_thinking_effort:high
+    - toolcall_thinking_effort:max

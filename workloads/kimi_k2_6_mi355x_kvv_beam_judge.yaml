@@ -1,0 +1,39 @@
+# Kimi-K2.6 on AMD MI355X as the KVV BEAM judge.
+# KVV's beam_judge asks for model "kimi-k2.6", Moonshot's reference judge; this
+# serves the open K2.6 weights under that name (and the HF id, which the health
+# check waits for). It judges the answers kimi_k3_1_pro_mi355x_kvv_beam
+# uploads, so it runs after that step in the same build.
+#
+# TODO(spike): check that judging with self-hosted K2.6 reproduces the
+# reference BEAM scores before treating them as comparable, and size the
+# timeout. KVV doesn't say how its judge was served: run_eval.sh sends
+# kimi-k2.6 requests with temperature 1.0 and no reasoning_effort/thinking
+# setting, so the judge runs in the endpoint's default thinking mode. Check
+# that our server's default (K2.6 chat template) matches Moonshot's API
+# default; a mismatch is the likeliest cause of a BEAM gap.
+name: kimi_k2_6-mi355x-kvv-beam-judge
+gpu: MI355X
+num_gpus: 8
+nightly: false
+groups: [kvv, kvv-beam]
+timeout_in_minutes: 720
+retry:
+  automatic:
+    - exit_status: -1
+      limit: 2
+
+vllm:
+  model: moonshotai/Kimi-K2.6
+  env:
+    VLLM_ROCM_USE_AITER: 1
+  serve_args: >-
+    --tensor-parallel-size 8
+    --trust-remote-code
+    --served-model-name moonshotai/Kimi-K2.6 kimi-k2.6
+    --reasoning-parser kimi_k2
+
+kvv:
+  ref: 7b938c38bbd89c2404a9ed5e7cb40da8079206b4
+  jobs:
+    - beam_judge
+  answers_from: kimi_k3_1_pro_mi355x_kvv_beam
