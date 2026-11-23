@@ -8,7 +8,7 @@ Each recipe is one `(model, hardware, set of tasks)` combination. The Buildkite 
 
 ```
 workloads/        one YAML per (model, hardware) recipe
-lib/              orchestrator (run.sh), helpers (e.g. run_bfcl.py, run_kvv.py), GPU profiles
+lib/              orchestrator (run.sh), helpers, GPU profiles
 .buildkite/       pipeline bootstrap, step generator, and its tests
 CLAUDE.md         agent conventions and detailed Buildkite workflow
 ```
@@ -27,14 +27,14 @@ GPU allocation; use at most 8 GPUs to keep the workload on one B200 node.
 
 ### Recipe schema
 
-A recipe has top-level metadata plus up to six eval blocks:
+A recipe has top-level metadata plus up to four eval blocks:
 
 - **`vllm:`** — *how the server runs.* Defines what model to serve and how (`model`, `serve_args`, optional image/env overrides). Required.
 - **`lm_eval:`** — *what accuracy to measure.* Lists lm-evaluation-harness tasks to run against the live server (e.g. `gsm8k`, `aime25`). Each task's score is saved under `results/<name>/<task-name>/`. Optional.
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
 - **`aiperf:`** — *what perf to measure with [aiperf](https://pypi.org/project/aiperf/).* Lists `aiperf profile` configs for scenarios `vllm bench serve` doesn't cover (e.g. prefix-cache sweeps, server-side token counting). aiperf is pip-installed at run time because the vLLM images don't ship it. Artifacts are saved under `results/<name>/aiperf-<config>/` and uploaded as Buildkite artifacts; there is no dashboard ingest yet. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
-- **`kvv:`** — *Kimi vendor verification.* Runs [Kimi Vendor Verifier](https://github.com/MoonshotAI/Kimi-Vendor-Verifier) jobs (`run_eval.sh <job>`) against the live server: API conformance checks, scored benchmarks, and BEAM. Each job's score is ingested as a `kvv_<job>` task. Optional.
+- **`kvv:`** — *Kimi vendor verification.* Runs [Kimi Vendor Verifier](https://github.com/MoonshotAI/Kimi-Vendor-Verifier) jobs (`run_eval.sh <job>`) against the live server. Each job's score is ingested as a `kvv_<job>` task. Optional.
 
 Include one or more of `lm_eval:` / `vllm_bench:` / `aiperf:` / `bfcl:` / `kvv:` depending on what you want out of this recipe.
 
@@ -43,7 +43,6 @@ name: qwen3_5-h200       # used in container name and results/<name>/
 gpu: H200                # picks queue/image/HF cache from lib/gpu_profiles.yaml
 num_gpus: 8
 nightly: true            # include in the nightly schedule (default: false)
-groups: [qwen3_5]        # optional; WORKLOADS=qwen3_5 runs every workload in the group
 timeout_in_minutes: 180  # Buildkite step timeout (default: 120)
 
 vllm:                    # how the server is brought up
@@ -85,12 +84,9 @@ bfcl:                    # function-calling eval (optional)
   max_test_cases:        # optional; subsample categories (full suite if omitted)
     multi_turn: 100      # or set a single int to cap every category
 
-kvv:                     # Kimi Vendor Verifier jobs (optional)
+kvv:                     # Kimi Vendor Verifier (optional)
   ref: 7b938c38bbd89c2404a9ed5e7cb40da8079206b4  # KVV commit (full SHA)
-  jobs:                  # run_eval.sh job names; `<job>:<effort>` for *_thinking_effort jobs
-    - verify_parameters
-    - ocrbench_thinking_effort:max
-  thinking_effort: true  # optional; ENABLE_THINKING_EFFORT (default true, for K3-series models)
+  jobs: [verify_parameters, ocrbench_thinking_effort:max]  # run_eval.sh jobs
 
 vllm_bench:              # perf runs (optional) — fed to the perf dashboard
   configs:
@@ -124,7 +120,6 @@ A few things worth knowing:
 - **`gpu`** must match a key in `lib/gpu_profiles.yaml`. The profile sets the Buildkite queue, default image, HF cache path, and baseline env vars.
 - **`vllm.image` is normally just a fallback.** The `VLLM_IMAGE` / `VLLM_COMMIT` build-time env vars override it, which is what you want for nightly perf tracking across a specific vLLM commit. Set **`pin_image: true`** only as a rare escape hatch for a model that genuinely cannot be served by the nightly under test (e.g. support landed in a dedicated image but not yet in nightly) — it makes the workload keep its own `image` regardless of the override. Do not pin models that current nightlies already serve.
 - **`nightly`** controls only the nightly schedule. Recipes with `nightly: false` (or omitted) are still triggerable explicitly via the `WORKLOADS` env var.
-- **`groups`** names sets of workloads to trigger together: `WORKLOADS=<group>` runs every workload that lists the group. A group can't share a name with a workload file.
 - **`timeout_in_minutes`** overrides the Buildkite step timeout (default: `120`). This is separate from `lm_eval.model_args.timeout`, which controls individual API requests.
 - **`vllm.startup_timeout_s`** limits the readiness wait (default: `3600`). The wait ends early if the native server process exits or the Docker container stops or disappears. Server lifecycle regression tests run in the CPU pipeline-generation step.
 - **`lm_eval.tasks` is a list** because each entry runs as a separate `lm_eval` invocation — `--num_fewshot` is a single global flag, so different shot counts need separate runs. Each task's results land in `results/<name>/<task-name>/`.
@@ -137,8 +132,7 @@ A few things worth knowing:
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
-- **`kvv` runs KVV's own job scripts.** `lib/run_kvv.py` fetches KVV at `kvv.ref` (a tarball plus its git-lfs files, cached in `.kvv/`), points `run_eval.sh <job>` at the local server, and collects the result into `results/<name>/kvv-<job>/`: a `summary.json`, the JUnit / inspect-ai / BEAM outputs, and an lm_eval-format score for ingest. KVV builds its own `uv` environment, so the image needs Python >= 3.12. Every listed job runs even if an earlier one fails; the step fails if any job failed or came back incomplete (failed tests, inspect samples that errored, BEAM questions with no answer, judge calls that gave up), and a build annotation tabulates the jobs. `all` is not accepted: list the jobs. The pytest checks (`verify_*`) score as the fraction of tests passed.
-- **`kvv` BEAM runs as two workloads.** `beam_generate` needs the model served at its full context; `beam_judge` scores those answers with the judge model KVV hard-codes, `kimi-k2.6`. The judge workload sets `kvv.answers_from: <generate workload file stem>`, serves `--served-model-name <model> kimi-k2.6`, and runs in the same build as the generate workload (selecting either selects both): its step waits for the generate step (even a failed one) and downloads its `answers.jsonl` artifact.
+- **`kvv` runs KVV's own `run_eval.sh <job>`** from a checkout at `kvv.ref` (cached in `.kvv/`) and saves each job under `results/<name>/kvv-<job>/`. Every job runs; the step fails if any job failed or came back incomplete, and a build annotation tabulates them. `verify_*` jobs score as the fraction of tests passed. BEAM's judge is the served model under the alias `kimi-k2.6` (see `workloads/kimi_k3_1_pro_mi355x_kvv_beam.yaml`).
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
@@ -193,7 +187,7 @@ The pipeline is [**`vllm/perf-eval`**](https://buildkite.com/vllm/perf-eval). Wi
   CUDA: myrepo/vllm:v0.12.0rc2 (12 workloads)
   ROCM: skipped, set VLLM_IMAGE_ROCM (8 workloads)
   ```
-- `WORKLOADS` — comma- or newline-separated list of workload paths, stems, or group names (a workload's `groups`). Runs exactly those instead of the default `nightly: true` set.
+- `WORKLOADS` — comma- or newline-separated list of workload paths or stems. Runs exactly those instead of the default `nightly: true` set.
 - `NSYS_PROFILE` — `0` to skip Nsight Systems tracing for this build, `1` to force it on for every NVIDIA workload. Unset follows the GPU profile's `nsys:` (see [Nsight Systems traces](#nsight-systems-traces)). `NSYS_MAX_ITERATIONS` (default `100`, `0` = until the run ends) and `NSYS_DELAY_ITERATIONS` (default `0`) set which engine iterations get recorded.
 - `NIGHTLY` — set to `1` to tag every ingested row with `nightly: true`. The dashboard's `/nightly` view filters on this to pair adjacent nightly builds; only the scheduled nightly cron should set it.
 
@@ -219,16 +213,6 @@ or workload YAML. Local runs that upload results must export the same variable.
 4. Click **Create Build**.
 
 This runs the `qwen3_5_h200` workload against the specified vLLM nightly image. Omit `WORKLOADS` to run all `nightly: true` workloads.
-
-**Kimi Vendor Verifier (KVV) builds** run the K3.1 Pro KVV jobs on MI355X: every `run_eval.sh` job, which covers KVV's published OCRBench, MMMU Pro Vision, BEAM, and ToolCall scores. KVV's DeepSWE agent benchmark is not a `run_eval.sh` job (it runs on the Pier platform) and is not run here. KVV builds are not nightly (they take most of a day); trigger them, or schedule them weekly, with one of:
-
-| `WORKLOADS` | Runs |
-| --- | --- |
-| `kvv` | all of the KVV jobs: `kvv-main` and `kvv-beam` |
-| `kvv-main` | everything but BEAM (`kimi_k3_1_pro_mi355x_kvv`) |
-| `kvv-beam` | BEAM: answer generation (`kimi_k3_1_pro_mi355x_kvv_beam`) and its judge (`kimi_k2_6_mi355x_kvv_beam_judge`) |
-
-Selecting either BEAM workload by name selects the other too, so a build can't generate answers without judging them.
 
 **From an agent:** see `CLAUDE.md` for the Buildkite MCP and authenticated
 `bk` workflows. Don't make raw Buildkite API calls with `curl`.

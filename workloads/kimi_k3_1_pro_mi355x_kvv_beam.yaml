@@ -1,15 +1,13 @@
-# Kimi-K3.1-Pro on AMD MI355X: KVV BEAM answer generation (1M-token context).
-# kimi_k2_6_mi355x_kvv_beam_judge scores the answers this step uploads;
-# selecting either workload runs both.
+# Kimi-K3.1-Pro on AMD MI355X: KVV BEAM at 1M-token context.
+# KVV judges BEAM with `kimi-k2.6`; here K3.1 Pro judges its own answers,
+# served under that name too, so the score is not directly comparable to
+# KVV's table.
 #
-# TODO(spike): the model id, parser names, max-model-len, and timeout below
-# are unverified until K3.1 Pro has been served at 1M context from the ROCm
-# nightly on one MI355X node.
+# TODO(spike): not yet run; 1M context and the timeout are unverified.
 name: kimi_k3_1_pro-mi355x-kvv-beam
 gpu: MI355X
 num_gpus: 8
 nightly: false
-groups: [kvv, kvv-beam]
 timeout_in_minutes: 1440
 retry:
   automatic:
@@ -23,6 +21,7 @@ vllm:
     VLLM_USE_BREAKABLE_CUDAGRAPH: 0
     VLLM_ROCM_USE_AITER_MOE_SITUV2: 1
   serve_args: >-
+    --served-model-name moonshotai/Kimi-K3.1-Pro kimi-k2.6
     --tensor-parallel-size 8
     --trust-remote-code
     --gpu-memory-utilization 0.88
@@ -35,3 +34,4 @@ kvv:
   ref: 7b938c38bbd89c2404a9ed5e7cb40da8079206b4
   jobs:
     - beam_generate
+    - beam_judge

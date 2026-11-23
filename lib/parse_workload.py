@@ -5,7 +5,7 @@ Usage: eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 The README documents the recipe schema. This script validates it and
 projects it into shell variables: top-level metadata, server config
 (image, model, serve_args, env, runtime), the lm_eval task list, the
-vllm_bench config list, the kvv job list, and bench ingest metadata
+vllm_bench config list, the kvv jobs, and bench ingest metadata
 (device/tp/precision).
 
 Image precedence: VLLM_IMAGE_CUDA / VLLM_IMAGE_ROCM (whichever matches the
@@ -18,7 +18,6 @@ registry (because they will not run).
 
 from __future__ import annotations
 
-import argparse
 import base64
 import json
 import os
@@ -64,30 +63,6 @@ BFCL_KNOWN_CATEGORIES = {
     "all", "all_scoring", "single_turn", "multi_turn",
     "live", "non_live", "non_python", "python", "memory", "agentic",
 }
-KVV_FIELDS = {"ref", "jobs", "thinking_effort", "answers_from"}
-# Every job Kimi Vendor Verifier's run_eval.sh runs (at kvv.ref), split into
-# plain jobs and jobs that take a thinking effort (`<job>:<effort>`). `all` is
-# not accepted: it stops at the first failing job and runs beam_judge against
-# the model under test. KVV's DeepSWE agent benchmark is not a run_eval.sh job
-# (it runs on the Pier platform), so a kvv block can't run it.
-KVV_JOBS = {
-    "cache-warmup",
-    "verify_parameters", "verify_tool_call_json_schema",
-    "verify_toolcall_result_reject", "verify_prompt_tokens",
-    "verify_k3_features",
-    "beam_generate", "beam_judge",
-    "ocrbench_non_thinking", "ocrbench_thinking",
-    "MMMU_pro_non_thinking", "MMMU_pro_thinking",
-    "AIME_non_thinking", "AIME_thinking",
-    "toolcall_thinking",
-}
-KVV_EFFORT_JOBS = {
-    "ocrbench_thinking_effort", "MMMU_pro_thinking_effort",
-    "toolcall_thinking_effort",
-}
-KVV_EFFORTS = {"none", "low", "high", "max"}
-# beam_judge always asks for this model name (hard-coded in run_eval.sh).
-KVV_JUDGE_MODEL = "kimi-k2.6"
 
 
 def emit(name: str, value: object) -> None:
@@ -561,110 +536,26 @@ def bfcl_tsv(bfcl: dict) -> str:
     )
 
 
-def served_model_names(serve_args: str) -> list:
-    """The names vLLM will serve the model under, or [] if serve_args doesn't
-    set --served-model-name. vLLM parses the flag with argparse (nargs="+"),
-    so parsing it the same way gives exactly the names it will serve."""
-    parser = argparse.ArgumentParser(prog="serve_args", add_help=False, allow_abbrev=False)
-    parser.add_argument("--served-model-name", nargs="+", default=[])
-    known, _ = parser.parse_known_args(serve_args.split())
-    return known.served_model_name
+# run_eval.sh jobs (Kimi-Vendor-Verifier); `<job>:<effort>` for the effort jobs.
+# `all` is excluded: it stops at the first failing job.
+KVV_JOB = re.compile(
+    r"verify_(parameters|tool_call_json_schema|toolcall_result_reject|prompt_tokens|k3_features)"
+    r"|beam_(generate|judge)|(ocrbench|MMMU_pro|AIME)_(non_)?thinking|toolcall_thinking"
+    r"|(ocrbench|MMMU_pro|toolcall)_thinking_effort:(none|low|high|max)"
+)
 
 
-def validate_kvv(kvv: dict, vllm: dict, serve_args: str, path: str) -> None:
-    extra = set(kvv) - KVV_FIELDS
-    if extra:
-        sys.exit(f"{path}: kvv block has unsupported fields {sorted(extra)}")
-    _validate_kvv_ref(kvv.get("ref"), path)
-    _validate_kvv_jobs(kvv.get("jobs"), path)
-    if not isinstance(kvv.get("thinking_effort", True), bool):
-        sys.exit(f"{path}: kvv.thinking_effort must be true or false")
-    _validate_kvv_beam_judge(kvv, vllm, serve_args, path)
-
-
-def _validate_kvv_ref(ref: object, path: str) -> None:
-    if not isinstance(ref, str) or not re.fullmatch(r"[0-9a-f]{40}", ref):
-        sys.exit(f"{path}: kvv.ref must be a full 40-character Kimi-Vendor-Verifier commit SHA")
-
-
-def _validate_kvv_jobs(jobs: object, path: str) -> None:
+def validate_kvv(kvv: dict, path: str) -> None:
+    if set(kvv) - {"ref", "jobs"}:
+        sys.exit(f"{path}: kvv block has unsupported fields {sorted(set(kvv) - {'ref', 'jobs'})}")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(kvv.get("ref"))):
+        sys.exit(f"{path}: kvv.ref must be a full Kimi-Vendor-Verifier commit SHA")
+    jobs = kvv.get("jobs")
     if not isinstance(jobs, list) or not jobs:
         sys.exit(f"{path}: kvv block requires a non-empty jobs list")
     for job in jobs:
-        _validate_kvv_job(job, path)
-    if len(set(jobs)) != len(jobs):
-        sys.exit(f"{path}: kvv.jobs has duplicate entries")
-
-
-def _validate_kvv_job(job: object, path: str) -> None:
-    """A job is a run_eval.sh job name; the *_thinking_effort jobs also take
-    an effort, as `<job>:<effort>`."""
-    if not isinstance(job, str):
-        sys.exit(f"{path}: kvv job {job!r} must be a string")
-    if job == "all":
-        sys.exit(
-            f"{path}: kvv job 'all' is not supported; list the jobs (run_eval.sh "
-            "all stops at the first failure and judges BEAM with the model under test)"
-        )
-    name, has_effort, effort = job.partition(":")
-    if name in KVV_EFFORT_JOBS:
-        if not has_effort:
-            sys.exit(f"{path}: kvv job {job!r} needs an effort, e.g. {job}:max")
-        if effort not in KVV_EFFORTS:
-            sys.exit(f"{path}: kvv job {job!r} effort must be one of {sorted(KVV_EFFORTS)}")
-    elif has_effort:
-        sys.exit(f"{path}: kvv job {job!r} does not take an effort")
-    elif name not in KVV_JOBS:
-        sys.exit(f"{path}: unknown kvv job {job!r}")
-
-
-def _validate_kvv_beam_judge(kvv: dict, vllm: dict, serve_args: str, path: str) -> None:
-    """BEAM takes two models: the model under test answers the questions
-    (beam_generate), then KVV_JUDGE_MODEL grades the answers (beam_judge).
-    A workload serves one model, so the two jobs go in two workloads, and
-    the judge workload names (answers_from) the workload whose answers it grades."""
-    jobs = kvv["jobs"]
-    answers_from = kvv.get("answers_from")
-    if "beam_judge" not in jobs:
-        if answers_from is not None:
-            sys.exit(f"{path}: kvv.answers_from is only valid with the beam_judge job")
-        return
-    # Both jobs in one workload would send the judge's requests to this
-    # workload's server: the model under test would grade its own answers.
-    if "beam_generate" in jobs:
-        sys.exit(
-            f"{path}: kvv beam_generate and beam_judge need separate workloads: "
-            f"beam_generate needs the model under test and beam_judge needs "
-            f"{KVV_JUDGE_MODEL}, but a workload serves one model. Move beam_judge "
-            "to a workload serving the judge, with answers_from: <this workload>"
-        )
-    if not isinstance(answers_from, str) or not answers_from:
-        sys.exit(
-            f"{path}: kvv beam_judge requires answers_from: the workload "
-            "whose beam_generate answers it judges"
-        )
-    # The judge server has to answer to two names: run.sh's health check
-    # waits for vllm.model in /v1/models, and KVV's run_eval.sh sends judge
-    # requests to KVV_JUDGE_MODEL. vLLM serves the model under every name
-    # given to --served-model-name.
-    model = vllm.get("model") or ""
-    if not {model, KVV_JUDGE_MODEL} <= set(served_model_names(serve_args)):
-        sys.exit(
-            f"{path}: kvv beam_judge sends requests to model {KVV_JUDGE_MODEL!r}; "
-            f"serve it with --served-model-name {model} {KVV_JUDGE_MODEL}"
-        )
-
-
-def kvv_result_names(job: str) -> tuple[str, str]:
-    """(results subdir, ingest task name) for a kvv job, e.g. for
-    `ocrbench_thinking_effort:max`: ("kvv-ocrbench_thinking_effort-max",
-    "kvv_ocrbench_thinking_effort_max")."""
-    return f"kvv-{job.replace(':', '-')}", "kvv_" + re.sub(r"[:-]", "_", job)
-
-
-def kvv_tsv(kvv: dict) -> str:
-    """One row per job: job, results subdir, ingest task name."""
-    return "\n".join("\t".join([job, *kvv_result_names(job)]) for job in kvv["jobs"])
+        if not isinstance(job, str) or not KVV_JOB.fullmatch(job):
+            sys.exit(f"{path}: unknown kvv job {job!r}")
 
 
 def main(path: str) -> None:
@@ -707,7 +598,7 @@ def main(path: str) -> None:
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
     if kvv:
-        validate_kvv(kvv, vllm, serve_args, path)
+        validate_kvv(kvv, path)
 
     serve_args = apply_default_serve_args(serve_args, profile.get("default_serve_args"))
     image, vllm_commit = resolve_image(vllm, profile)
@@ -734,8 +625,7 @@ def main(path: str) -> None:
     emit("AIPERF_TSV", aiperf_tsv(aiperf_configs, path))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
     emit("KVV_REF", kvv.get("ref", ""))
-    emit("KVV_THINKING_EFFORT", "true" if kvv.get("thinking_effort", True) else "false")
-    emit("KVV_TSV", kvv_tsv(kvv) if kvv else "")
+    emit("KVV_JOBS", " ".join(kvv.get("jobs") or []))
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
     emit(

@@ -131,31 +131,21 @@ while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_
   fi
 done <<< "$WORKLOAD_BFCL_TSV"
 
-# Kimi Vendor Verifier jobs. Every job runs and is ingested even when an
-# earlier one fails; the step fails at the end if any of them did.
-KVV_FAILED=()
-while IFS=$'\t' read -r kvv_job kvv_dir kvv_task; do
-  [[ -z "$kvv_job" ]] && continue
-  echo "--- :white_check_mark: kvv ${kvv_job}"
-  # stdin from /dev/null so nothing in the job can read the rest of the job list.
-  python3 "$DIR/run_kvv.py" "$WORKLOAD_MODEL" "$BASE_URL" "$kvv_job" \
-    "$WORKLOAD_KVV_REF" "$WORKLOAD_KVV_THINKING_EFFORT" \
-    "${RESULTS_DIR}/${kvv_dir}" "$kvv_task" < /dev/null || KVV_FAILED+=("$kvv_job")
-
-  python3 "$DIR/ingest.py" \
-    --results-dir "${RESULTS_DIR}/${kvv_dir}" \
-    --workload "$WORKLOAD_NAME" \
-    --task "$kvv_task" \
-    ${INGEST_NO_SAMPLES:+--no-samples} || true
-done <<< "$WORKLOAD_KVV_TSV"
-
+# Kimi Vendor Verifier: every job runs and is ingested; the step fails at the
+# end if any job did.
+kvv_failed=()
+for job in $WORKLOAD_KVV_JOBS; do
+  echo "--- :white_check_mark: kvv ${job}"
+  dir="${RESULTS_DIR}/kvv-${job//:/-}" task="kvv_${job//[-:]/_}"
+  python3 "$DIR/run_kvv.py" "$WORKLOAD_MODEL" "$BASE_URL" "$job" \
+    "$WORKLOAD_KVV_REF" "$dir" "$task" </dev/null || kvv_failed+=("$job")
+  python3 "$DIR/ingest.py" --results-dir "$dir" --workload "$WORKLOAD_NAME" \
+    --task "$task" ${INGEST_NO_SAMPLES:+--no-samples} || true
+done
 if [[ -f "${RESULTS_DIR}/kvv-summary.md" ]] && command -v buildkite-agent >/dev/null; then
-  { echo "**${WORKLOAD_NAME}** — Kimi Vendor Verifier @ ${WORKLOAD_KVV_REF:0:12}"; echo
+  { echo "**${WORKLOAD_NAME}**: Kimi Vendor Verifier @ ${WORKLOAD_KVV_REF:0:12}"; echo
     cat "${RESULTS_DIR}/kvv-summary.md"; } |
-    buildkite-agent annotate --style "$([[ ${#KVV_FAILED[@]} -eq 0 ]] && echo success || echo error)" \
+    buildkite-agent annotate --style "$([[ ${#kvv_failed[@]} -eq 0 ]] && echo success || echo error)" \
       --context "kvv-${WORKLOAD_NAME}" || true
 fi
-if [[ ${#KVV_FAILED[@]} -gt 0 ]]; then
-  echo "kvv jobs failed: ${KVV_FAILED[*]}" >&2
-  exit 1
-fi
+[[ ${#kvv_failed[@]} -eq 0 ]] || { echo "kvv jobs failed: ${kvv_failed[*]}" >&2; exit 1; }

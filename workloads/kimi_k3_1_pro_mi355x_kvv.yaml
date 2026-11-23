@@ -1,19 +1,13 @@
-# Kimi-K3.1-Pro on AMD MI355X: Kimi Vendor Verifier (KVV), everything but BEAM.
-# https://github.com/MoonshotAI/Kimi-Vendor-Verifier
-# These are the jobs run_eval.sh `all` runs with ENABLE_THINKING_EFFORT=true.
-# Weekly, not nightly: they take many hours. BEAM needs a 1M-token context and
-# a separate judge, so it runs in kimi_k3_1_pro_mi355x_kvv_beam and
-# kimi_k2_6_mi355x_kvv_beam_judge. KVV's DeepSWE benchmark runs on the Pier
-# platform, not run_eval.sh, and is not covered.
-#
-# TODO(spike): the model id, parser names, and timeout below are unverified
-# until K3.1 Pro has been served from the ROCm nightly on one MI355X node.
-# Server env matches kimi_k3_mi355x.
+# Kimi-K3.1-Pro on AMD MI355X: Kimi Vendor Verifier (KVV), all run_eval.sh
+# jobs for a K3 model except BEAM (kimi_k3_1_pro_mi355x_kvv_beam, which needs
+# a 1M context). https://github.com/MoonshotAI/Kimi-Vendor-Verifier
+# Weekly, not nightly: about 4.5 hours on one node (ROCm nightly dev897,
+# 2026-11-20). KVV's DeepSWE benchmark runs on the Pier platform, not
+# run_eval.sh, and is not covered. Server env matches kimi_k3_mi355x.
 name: kimi_k3_1_pro-mi355x-kvv
 gpu: MI355X
 num_gpus: 8
 nightly: false
-groups: [kvv, kvv-main]
 timeout_in_minutes: 1440
 # Rerun only when the agent is lost: a failed KVV job is a result, and a rerun
 # costs the whole suite again.
