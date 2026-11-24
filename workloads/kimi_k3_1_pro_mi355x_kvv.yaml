@@ -1,9 +1,10 @@
-# Kimi-K3.1-Pro on AMD MI355X: Kimi Vendor Verifier (KVV), all run_eval.sh
-# jobs for a K3 model except BEAM (kimi_k3_1_pro_mi355x_kvv_beam, which needs
-# a 1M context). https://github.com/MoonshotAI/Kimi-Vendor-Verifier
-# Weekly, not nightly: about 4.5 hours on one node (ROCm nightly dev897,
-# 2026-11-20). KVV's DeepSWE benchmark runs on the Pier platform, not
-# run_eval.sh, and is not covered. Server env matches kimi_k3_mi355x.
+# Kimi-K3.1-Pro on AMD MI355X: Kimi Vendor Verifier (KVV), its verify suites
+# and the benchmarks in its K3.1 Pro table, at effort max, except BEAM
+# (kimi_k3_1_pro_mi355x_kvv_beam, which needs a 1M context).
+# https://github.com/MoonshotAI/Kimi-Vendor-Verifier
+# Weekly, not nightly: these jobs took about 2.3 hours on one node (ROCm
+# nightly dev897, 2026-11-20). KVV's DeepSWE benchmark runs on the Pier
+# platform, not run_eval.sh, and is not covered. Server env matches kimi_k3_mi355x.
 name: kimi_k3_1_pro-mi355x-kvv
 gpu: MI355X
 num_gpus: 8
@@ -38,12 +39,7 @@ kvv:
     - verify_toolcall_result_reject
     - verify_prompt_tokens
     - verify_k3_features
-    - ocrbench_thinking_effort:low
-    - ocrbench_thinking_effort:high
+    # KVV's README reports K3.1 Pro at effort max only.
     - ocrbench_thinking_effort:max
-    - MMMU_pro_thinking_effort:low
-    - MMMU_pro_thinking_effort:high
     - MMMU_pro_thinking_effort:max
-    - toolcall_thinking_effort:low
-    - toolcall_thinking_effort:high
     - toolcall_thinking_effort:max
