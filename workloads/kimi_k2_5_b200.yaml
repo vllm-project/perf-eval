@@ -1,0 +1,54 @@
+# Kimi-K2.5 NVFP4 on B200
+# Recipe: https://recipes.vllm.ai/moonshotai/Kimi-K2.5
+name: kimi_k2_5-b200
+gpu: B200
+num_gpus: 4
+nightly: true
+
+vllm:
+  model: nvidia/Kimi-K2.5-NVFP4
+  env:
+    VLLM_USE_FLASHINFER_MOE_FP4: 1
+  serve_args: >-
+    --tensor-parallel-size 4
+    --kv-cache-dtype fp8
+    --mm-encoder-tp-mode data
+    --tool-call-parser kimi_k2
+    --reasoning-parser kimi_k2
+    --enable-auto-tool-choice
+    --trust-remote-code
+    --speculative-config {"model":"lightseekorg/kimi-k2.5-eagle3-mla","method":"eagle3","num_speculative_tokens":3}
+
+lm_eval:
+  model_args:
+    tokenized_requests: false
+    tokenizer_backend: null
+    timeout: 6000
+  tasks:
+    - name: gsm8k
+      num_fewshot: 5
+      model_args:
+        num_concurrent: 64
+        max_length: 40960
+        max_gen_toks: 32768
+
+bfcl:
+  test_categories:
+    - simple_python
+    - multiple
+    - parallel
+    - parallel_multiple
+    - multi_turn
+  num_threads: 16
+  max_test_cases:
+    multi_turn: 240
+
+vllm_bench:
+  configs:
+    - name: 8k-in-1k-out-conc-128
+      backend: openai
+      dataset: random
+      input_len: 8192
+      output_len: 1024
+      num_prompts: 512
+      max_concurrency: 128
