@@ -82,9 +82,11 @@ class WorkloadTest(unittest.TestCase):
     def test_kvv_jobs(self):
         ref = "7b938c38bbd89c2404a9ed5e7cb40da8079206b4"
         parse_workload.validate_kvv(
-            {"ref": ref, "jobs": ["verify_k3_features", "beam_judge", "MMMU_pro_thinking_effort:max"]}, "w")
+            {"ref": ref, "jobs": ["beam_generate", "verify_k3_features", "beam_judge",
+                                  "MMMU_pro_thinking_effort:max"]}, "w")
         for bad in ({"ref": ref, "jobs": ["all"]}, {"ref": ref, "jobs": ["MMMU_pro_thinking_effort"]},
-                    {"ref": "main", "jobs": ["beam_generate"]}, {"ref": ref, "jobs": []}):
+                    {"ref": "main", "jobs": ["beam_generate"]}, {"ref": ref, "jobs": []},
+                    {"ref": ref, "jobs": ["beam_judge"]}, {"ref": ref, "jobs": ["beam_judge", "beam_generate"]}):
             with self.assertRaises(SystemExit, msg=bad):
                 parse_workload.validate_kvv(bad, "w")
 

@@ -6,7 +6,7 @@ KVV (https://github.com/MoonshotAI/Kimi-Vendor-Verifier) is cloned at <ref>
 into $KVV_CACHE_DIR (default .kvv/), with its git-lfs files fetched over
 HTTPS so the image needs no git-lfs, and the job runs through KVV's own
 `run_eval.sh <job>`. The local server is also the BEAM judge: run_eval.sh
-asks for `kimi-k2.6`, so BEAM workloads serve that name as an alias.
+asks for `kimi-k2.6`, so a workload with BEAM serves that name as an alias.
 
 <out_dir> gets the job's log and reports, a summary.json and, for scored
 jobs, an lm_eval-format results_<ts>.json for ingest.py. A row is appended to
@@ -205,9 +205,10 @@ def main() -> None:
     root = fetch_kvv(ref, Path(os.environ.get("KVV_CACHE_DIR") or ".kvv").resolve())
 
     # Remove what an earlier job left in the checkout. BEAM resumes from its
-    # output files; beam_judge keeps the answers beam_generate just wrote.
+    # output files, so beam_generate starts from no answers; the answers stay
+    # for beam_judge, which parse_workload.py requires after beam_generate.
     stale = [*root.glob("*-report.*"), root / "logs" / "kimi_retry.log", root / "beam" / "scores.jsonl"]
-    if job != "beam_judge":
+    if job == "beam_generate":
         stale.append(root / "beam" / "answers.jsonl")
     for p in stale:
         p.unlink(missing_ok=True)

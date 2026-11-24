@@ -556,6 +556,9 @@ def validate_kvv(kvv: dict, path: str) -> None:
     for job in jobs:
         if not isinstance(job, str) or not KVV_JOB.fullmatch(job):
             sys.exit(f"{path}: unknown kvv job {job!r}")
+    # beam_judge scores the answers beam_generate writes in the same run.
+    if "beam_judge" in jobs and "beam_generate" not in jobs[:jobs.index("beam_judge")]:
+        sys.exit(f"{path}: kvv job beam_judge must come after beam_generate")
 
 
 def main(path: str) -> None:
