@@ -86,7 +86,7 @@ while IFS=$'\t' read -r aname aargs; do
 done <<< "$WORKLOAD_AIPERF_TSV"
 
 if [[ "${BENCH_ONLY:-}" =~ ^([Tt][Rr][Uu][Ee]|1|[Yy][Ee][Ss])$ ]]; then
-  echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval and bfcl tasks"
+  echo "--- :stopwatch: BENCH_ONLY set; skipping lm_eval, bfcl, and kvv tasks"
   exit 0
 fi
 
@@ -130,3 +130,22 @@ while IFS=$'\t' read -r category num_threads temperature maximum_step_limit max_
       ${INGEST_NO_SAMPLES:+--no-samples} || true
   fi
 done <<< "$WORKLOAD_BFCL_TSV"
+
+# Kimi Vendor Verifier: every job runs and is ingested; the step fails at the
+# end if any job did.
+kvv_failed=()
+for job in $WORKLOAD_KVV_JOBS; do
+  echo "--- :white_check_mark: kvv ${job}"
+  dir="${RESULTS_DIR}/kvv-${job//:/-}" task="kvv_${job//[-:]/_}"
+  python3 "$DIR/run_kvv.py" "$WORKLOAD_MODEL" "$BASE_URL" "$job" \
+    "$WORKLOAD_KVV_REF" "$dir" "$task" </dev/null || kvv_failed+=("$job")
+  python3 "$DIR/ingest.py" --results-dir "$dir" --workload "$WORKLOAD_NAME" \
+    --task "$task" ${INGEST_NO_SAMPLES:+--no-samples} || true
+done
+if [[ -f "${RESULTS_DIR}/kvv-summary.md" ]] && command -v buildkite-agent >/dev/null; then
+  { echo "**${WORKLOAD_NAME}**: Kimi Vendor Verifier @ ${WORKLOAD_KVV_REF:0:12}"; echo
+    cat "${RESULTS_DIR}/kvv-summary.md"; } |
+    buildkite-agent annotate --style "$([[ ${#kvv_failed[@]} -eq 0 ]] && echo success || echo error)" \
+      --context "kvv-${WORKLOAD_NAME}" || true
+fi
+[[ ${#kvv_failed[@]} -eq 0 ]] || { echo "kvv jobs failed: ${kvv_failed[*]}" >&2; exit 1; }

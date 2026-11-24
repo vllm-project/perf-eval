@@ -5,7 +5,8 @@ Usage: eval "$(python3 lib/parse_workload.py workloads/foo.yaml)"
 The README documents the recipe schema. This script validates it and
 projects it into shell variables: top-level metadata, server config
 (image, model, serve_args, env, runtime), the lm_eval task list, the
-vllm_bench config list, and bench ingest metadata (device/tp/precision).
+vllm_bench config list, the kvv jobs, and bench ingest metadata
+(device/tp/precision).
 
 Image precedence: VLLM_IMAGE_CUDA / VLLM_IMAGE_ROCM (whichever matches the
 workload's GPU) > VLLM_IMAGE > VLLM_COMMIT > workload `vllm.image` >
@@ -537,6 +538,31 @@ def bfcl_tsv(bfcl: dict) -> str:
     )
 
 
+# run_eval.sh jobs (Kimi-Vendor-Verifier); `<job>:<effort>` for the effort jobs.
+# `all` is excluded: it stops at the first failing job.
+KVV_JOB = re.compile(
+    r"verify_(parameters|tool_call_json_schema|toolcall_result_reject|prompt_tokens|k3_features)"
+    r"|beam_(generate|judge)|(ocrbench|MMMU_pro|AIME)_(non_)?thinking|toolcall_thinking"
+    r"|(ocrbench|MMMU_pro|toolcall)_thinking_effort:(none|low|high|max)"
+)
+
+
+def validate_kvv(kvv: dict, path: str) -> None:
+    if set(kvv) - {"ref", "jobs"}:
+        sys.exit(f"{path}: kvv block has unsupported fields {sorted(set(kvv) - {'ref', 'jobs'})}")
+    if not re.fullmatch(r"[0-9a-f]{40}", str(kvv.get("ref"))):
+        sys.exit(f"{path}: kvv.ref must be a full Kimi-Vendor-Verifier commit SHA")
+    jobs = kvv.get("jobs")
+    if not isinstance(jobs, list) or not jobs:
+        sys.exit(f"{path}: kvv block requires a non-empty jobs list")
+    for job in jobs:
+        if not isinstance(job, str) or not KVV_JOB.fullmatch(job):
+            sys.exit(f"{path}: unknown kvv job {job!r}")
+    # beam_judge scores the answers beam_generate writes in the same run.
+    if "beam_judge" in jobs and "beam_generate" not in jobs[:jobs.index("beam_judge")]:
+        sys.exit(f"{path}: kvv job beam_judge must come after beam_generate")
+
+
 def main(path: str) -> None:
     with open(path) as f:
         data = yaml.safe_load(f)
@@ -555,11 +581,12 @@ def main(path: str) -> None:
     bfcl = data.get("bfcl") or {}
     bench_configs = bench.get("configs") or []
     aiperf_configs = aiperf.get("configs") or []
+    kvv = data.get("kvv") or {}
 
-    if not tasks and not bench_configs and not bfcl and not aiperf_configs:
+    if not tasks and not bench_configs and not bfcl and not aiperf_configs and not kvv:
         sys.exit(
             f"{path}: workload must define at least one of lm_eval, vllm_bench, "
-            f"aiperf, or bfcl"
+            f"aiperf, bfcl, or kvv"
         )
 
     if tasks:
@@ -575,6 +602,8 @@ def main(path: str) -> None:
         sys.exit(f"{path}: vllm.startup_timeout_s must be a positive integer")
     if bfcl:
         validate_bfcl(bfcl, serve_args, path)
+    if kvv:
+        validate_kvv(kvv, path)
 
     serve_args = apply_default_serve_args(serve_args, profile.get("default_serve_args"))
     image, vllm_commit = resolve_image(vllm, profile)
@@ -600,6 +629,8 @@ def main(path: str) -> None:
     emit("VLLM_BENCH_TSV", bench_tsv(bench_configs, path))
     emit("AIPERF_TSV", aiperf_tsv(aiperf_configs, path))
     emit("BFCL_TSV", bfcl_tsv(bfcl) if bfcl else "")
+    emit("KVV_REF", kvv.get("ref", ""))
+    emit("KVV_JOBS", " ".join(kvv.get("jobs") or []))
     emit("BENCH_DEVICE", metadata.get("device") or gpu.lower())
     emit("BENCH_TP", tp)
     emit(

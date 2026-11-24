@@ -35,8 +35,9 @@ A recipe has top-level metadata plus up to four eval blocks:
 - **`vllm_bench:`** — *what perf to measure.* Lists `vllm bench serve` configs (input/output lengths, concurrency, dataset). Raw JSON is saved and ingested into the perf dashboard. Optional.
 - **`aiperf:`** — *what perf to measure with [aiperf](https://pypi.org/project/aiperf/).* Lists `aiperf profile` configs for scenarios `vllm bench serve` doesn't cover (e.g. prefix-cache sweeps, server-side token counting). aiperf is pip-installed at run time because the vLLM images don't ship it. Artifacts are saved under `results/<name>/aiperf-<config>/` and uploaded as Buildkite artifacts; there is no dashboard ingest yet. Optional.
 - **`bfcl:`** — *function-calling eval.* Runs [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) test categories against the live server. Some models need `--enable-auto-tool-choice` and `--tool-call-parser` in `serve_args`. Results are transformed to lm_eval format and ingested as `bfcl_<category>` tasks. Optional.
+- **`kvv:`** — *Kimi vendor verification.* Runs [Kimi Vendor Verifier](https://github.com/MoonshotAI/Kimi-Vendor-Verifier) jobs (`run_eval.sh <job>`) against the live server. Each job's score is ingested as a `kvv_<job>` task. Optional.
 
-Include one or more of `lm_eval:` / `vllm_bench:` / `aiperf:` / `bfcl:` depending on what you want out of this recipe.
+Include one or more of `lm_eval:` / `vllm_bench:` / `aiperf:` / `bfcl:` / `kvv:` depending on what you want out of this recipe.
 
 ```yaml
 name: qwen3_5-h200       # used in container name and results/<name>/
@@ -84,6 +85,10 @@ bfcl:                    # function-calling eval (optional)
   max_test_cases:        # optional; subsample categories (full suite if omitted)
     multi_turn: 100      # or set a single int to cap every category
 
+kvv:                     # Kimi Vendor Verifier (optional)
+  ref: 7b938c38bbd89c2404a9ed5e7cb40da8079206b4  # KVV commit (full SHA)
+  jobs: [verify_parameters, ocrbench_thinking_effort:max]  # run_eval.sh jobs
+
 vllm_bench:              # perf runs (optional) — fed to the perf dashboard
   configs:
     - name: 1k-in-1k-out
@@ -129,6 +134,7 @@ A few things worth knowing:
 - **`bfcl` may need tool-call serve args.** Some models require `--enable-auto-tool-choice` and `--tool-call-parser` for function-calling; the parser warns if `--tool-call-parser` is absent. Each category runs as a separate generate + evaluate pass; scores appear on the eval dashboard as `bfcl_<category>` tasks.
 - **`bfcl.maximum_step_limit`** caps how many inference steps BFCL allows per multi-turn turn (default 10 in perf-eval; BFCL upstream defaults to 20). Set it in the workload YAML, or override per-run with the `BFCL_MAXIMUM_STEP_LIMIT` env var (env wins over YAML). Useful for agentic / long multi-turn categories.
 - **`bfcl.max_test_cases`** subsamples a category instead of running the full set — e.g. `multi_turn` (~800 cases) down to 300. For aggregate groups with multiple subcategories, the cap is split evenly across subcategories (by BFCL id order within each). Set a single integer to cap every category, or a map per category (`multi_turn: 240`). Override per-run with `BFCL_MAX_TEST_CASES`. Scores are partial-eval only and are not comparable to full BFCL leaderboard numbers.
+- **`kvv` runs KVV's own `run_eval.sh <job>`** from a checkout at `kvv.ref` (cached in `.kvv/`) and saves each job under `results/<name>/kvv-<job>/`. Every job runs; the step fails if any job failed or came back incomplete, and a build annotation tabulates them. `verify_*` jobs score as the fraction of tests passed. BEAM's judge is the served model under the alias `kimi-k2.6`, and `beam_judge` must come after `beam_generate` (see `workloads/kimi_k3_1_pro_mi355x_kvv.yaml`).
 
 For everything else (the full set of supported fields, defaults, validation rules), the existing files in `workloads/` are the working reference and `lib/parse_workload.py` is the source of truth.
 
@@ -155,9 +161,10 @@ Run the CPU-only regression tests with:
 ```bash
 python3 .buildkite/test_generate_pipeline.py
 python3 .buildkite/test_benchmark_repetitions.py
+python3 .buildkite/test_run_kvv.py
 ```
 
-They require only the standard library and PyYAML; the Buildkite bootstrap runs both before uploading GPU steps.
+They require only the standard library and PyYAML; the Buildkite bootstrap runs them before uploading GPU steps.
 
 ### Trigger a Buildkite build
 
