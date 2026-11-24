@@ -49,7 +49,8 @@ def setup_command(packages):
     )
 
 
-FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api]' pyyaml")]
+# [ruler] + transformers: RULER builds its prompts with the model's tokenizer.
+FULL_SETUP_COMMANDS = [setup_command("'lm-eval[api,ruler]' transformers pyyaml")]
 
 BENCH_ONLY_SETUP_COMMANDS = [setup_command("pyyaml")]
 

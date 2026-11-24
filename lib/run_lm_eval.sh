@@ -11,6 +11,7 @@
 # there are no extra args.
 # gen_kwargs is an optional JSON object merged over the task's generation_kwargs.
 
+LM_EVAL_TASKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../lm_eval_tasks" && pwd)"
 
 run_lm_eval() {
   local model=$1 base_url=$2 task=$3 fewshot=$4 api=$5 model_args=$6 outdir=$7 gen_kwargs=${8:-}
@@ -29,6 +30,7 @@ run_lm_eval() {
   lm_eval --model "$lm_model" \
     --model_args "model=${model},base_url=${base_url}${endpoint}${model_args:+,$model_args}" \
     --tasks "$task" \
+    --include_path "$LM_EVAL_TASKS_DIR" \
     --num_fewshot "$fewshot" \
     "${extra[@]}" \
     --log_samples \

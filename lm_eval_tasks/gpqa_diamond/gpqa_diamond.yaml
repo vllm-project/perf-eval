@@ -1,0 +1,38 @@
+# GPQA-Diamond with the GPQA authors' zero-shot baseline (MIT, see utils.py): their seed-0 choice shuffle,
+# zero_shot_prompt and answer parser, sampled once per question at the model's recommended temperature 1.0.
+# https://github.com/idavidrein/gpqa/blob/56686c06f5e19865c153de0fdb11be3890014df7/baselines/utils.py
+task: gpqa_diamond
+dataset_path: Idavidrein/gpqa
+dataset_name: gpqa_diamond
+output_type: generate_until
+training_split: train
+validation_split: train
+test_split: null
+
+process_docs: !function utils.process_docs
+
+doc_to_text: |-
+  What is the correct answer to this question: {{Question}}
+
+  Choices:
+  (A) {{A}}
+  (B) {{B}}
+  (C) {{C}}
+  (D) {{D}}
+
+  Format your response as follows: "The correct answer is (insert answer here)"
+doc_to_target: answer
+process_results: !function utils.process_results
+
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+
+generation_kwargs:
+  until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
+  do_sample: true
+  temperature: 1.0
+  max_gen_toks: 65536
+metadata:
+  version: 3.0

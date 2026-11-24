@@ -1,0 +1,29 @@
+# lm-eval's aime25 task and grader (utils.py) on the 2026 problems, until lm-eval ships aime26 (lm-eval#3603).
+# Differs from aime25.yaml in:
+# - name and dataset
+# - no `tag:`: re-declaring it via --include_path would replace upstream's math_word_problems members
+# - prompt asks for \boxed{}: aime25's prompt gives no answer format, but its grader needs \boxed{}
+# - no stop strings: vLLM matches them inside reasoning (vllm#53066)
+task: aime26
+dataset_path: math-ai/aime26
+# dataset_name: null
+output_type: generate_until
+training_split: test
+fewshot_split: test
+test_split: test
+doc_to_text: "{{problem}}\n\nPlease reason step by step, and put your final answer within \\boxed{}."
+doc_to_target: "{{answer}}"
+process_results: !function utils.process_results
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+generation_kwargs:
+  until: []                           # vLLM matches stop strings inside reasoning (vllm#53066)
+  do_sample: false
+  temperature: 0.0
+  max_gen_toks: 32768
+repeats: 1
+num_fewshot: 0
+metadata:
+  version: 1.0

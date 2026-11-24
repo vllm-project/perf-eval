@@ -1,0 +1,4 @@
+task: ruler_chat_niah_single_2
+include: _template_yaml
+# Workaround for lm-eval's hard-coded 500 samples; drop once https://github.com/EleutherAI/lm-evaluation-harness/pull/4640 lands.
+custom_dataset: !function utils.niah_single_2

@@ -94,12 +94,14 @@ def commit_from_image(image: str) -> str:
     return m.group(1) if m else ""
 
 
-def known_task_names() -> set:
+def known_task_names(workload_path: str) -> set:
     try:
         from lm_eval.tasks import TaskManager
     except ImportError as e:
         sys.exit(f"cannot validate task names: lm_eval not importable ({e})")
-    return set(TaskManager().all_tasks)
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(workload_path)))
+    # Same --include_path run_lm_eval.sh passes.
+    return set(TaskManager(include_path=os.path.join(repo_root, "lm_eval_tasks")).all_tasks)
 
 
 def load_profile(gpu: str, workload_path: str) -> dict:
@@ -253,7 +255,7 @@ def validate_tasks(tasks: list, path: str) -> None:
     if not tasks:
         sys.exit(f"{path}: missing or empty `lm_eval.tasks`")
     skip_registry = env_truthy("BENCH_ONLY")
-    known = set() if skip_registry else known_task_names()
+    known = set() if skip_registry else known_task_names(path)
     for t in tasks:
         extra = set(t) - TASK_FIELDS
         if extra:

@@ -1,9 +1,11 @@
 # Muse-Spark-Open-816B-A42B MXFP4 (AMD Quark) on MI355X
 # Recipe default (pulled 2026-11-13): https://recipes.vllm.ai/meta-models/Muse-Spark-Open-816B-A42B?hardware=mi355x&variant=mxfp4
+# --max-model-len raised from the recipe's 32768 to fit ruler_chat's 256K prompts plus 32K output (config allows 1M positions).
 name: muse_spark_open_mi355x
 gpu: MI355X
 num_gpus: 8
 nightly: true
+timeout_in_minutes: 300
 
 vllm:
   model: amd/Muse-Spark-Open-816B-A42B-Quark-MXFP4
@@ -22,7 +24,7 @@ vllm:
     --no-enable-prefix-caching
     --enable-chunked-prefill
     --attention-backend ROCM_AITER_FA
-    --max-model-len 32768
+    --max-model-len 327680
     --max-num-seqs 128
     --max-num-batched-tokens 8192
     --reasoning-parser muse
@@ -34,13 +36,23 @@ lm_eval:
     tokenized_requests: false
     tokenizer_backend: null
     timeout: 6000
+    num_concurrent: 64
   tasks:
     - name: gsm8k
       num_fewshot: 5
       model_args:
-        num_concurrent: 64
         max_length: 32768
         max_gen_toks: 8192
+    # Model card eval settings: temperature 1.0 (task default), top_p 1.0, top_k -1, effort xhigh, per-task max_tokens.
+    - name: gpqa_diamond
+      chat: true
+      gen_kwargs: {top_p: 1.0, top_k: -1, reasoning_effort: xhigh, max_gen_toks: 131072}
+    - name: aime26
+      chat: true
+      gen_kwargs: {reasoning_effort: xhigh, max_gen_toks: 98304}
+    - name: ruler_chat
+      chat: true
+      gen_kwargs: {reasoning_effort: high}
 
 vllm_bench:
   configs:
